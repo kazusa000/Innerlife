@@ -1,4 +1,4 @@
-import type { ContentBlock, Message, ToolDefinition } from '../types.js'
+import type { ContentBlock, Message, ToolDefinition } from '../types'
 
 export interface LLMRequest {
   model: string

@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { getDb } from '../client.js'
-import { messages, toolExecutions } from '../schema.js'
+import { getDb } from '../client'
+import { messages, toolExecutions } from '../schema'
 import { randomUUID } from 'node:crypto'
 
 export function addMessage(data: {

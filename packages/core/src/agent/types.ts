@@ -1,5 +1,5 @@
-import type { Tool, ToolResult } from '../tools/types.js'
-import type { LLMResponse } from '../provider/types.js'
+import type { Tool, ToolResult } from '../tools/types'
+import type { LLMResponse } from '../provider/types'
 
 export interface AgentConfig {
   id: string

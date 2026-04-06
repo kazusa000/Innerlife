@@ -1,5 +1,5 @@
 import { exec } from 'node:child_process'
-import type { Tool, ToolResult } from './types.js'
+import type { Tool, ToolResult } from './types'
 
 export const BashTool: Tool = {
   name: 'bash',

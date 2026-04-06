@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { getDb } from '../client.js'
-import { agents } from '../schema.js'
+import { getDb } from '../client'
+import { agents } from '../schema'
 import { randomUUID } from 'node:crypto'
 
 export function createAgent(data: {

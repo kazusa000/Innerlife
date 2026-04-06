@@ -1,7 +1,7 @@
-import type { AgentConfig, AgentEvent } from './types.js'
-import type { LLMProvider, LLMResponse } from '../provider/types.js'
-import type { Message, ContentBlock, ToolUseBlock } from '../types.js'
-import { toolsToDefinitions, executeTool } from '../tools/registry.js'
+import type { AgentConfig, AgentEvent } from './types'
+import type { LLMProvider, LLMResponse } from '../provider/types'
+import type { Message, ContentBlock, ToolUseBlock } from '../types'
+import { toolsToDefinitions, executeTool } from '../tools/registry'
 
 export async function* runAgent(
   config: AgentConfig,

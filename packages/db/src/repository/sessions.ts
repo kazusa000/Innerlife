@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { getDb } from '../client.js'
-import { sessions } from '../schema.js'
+import { getDb } from '../client'
+import { sessions } from '../schema'
 import { randomUUID } from 'node:crypto'
 
 export function createSession(agentId: string, title?: string) {

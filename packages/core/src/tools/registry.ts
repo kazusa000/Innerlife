@@ -1,5 +1,5 @@
-import type { Tool, ToolResult } from './types.js'
-import type { ToolDefinition, ToolUseBlock } from '../types.js'
+import type { Tool, ToolResult } from './types'
+import type { ToolDefinition, ToolUseBlock } from '../types'
 
 export function toolsToDefinitions(tools: Tool[]): ToolDefinition[] {
   return tools

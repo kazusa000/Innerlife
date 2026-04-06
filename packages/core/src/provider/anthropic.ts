@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent } from './types.js'
-import type { ContentBlock } from '../types.js'
+import type { LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent } from './types'
+import type { ContentBlock } from '../types'
 
 export class AnthropicProvider implements LLMProvider {
   name = 'anthropic'

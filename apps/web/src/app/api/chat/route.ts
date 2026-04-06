@@ -1,12 +1,17 @@
+import path from 'node:path'
 import { runAgent, AnthropicProvider, BashTool } from '@mas/core'
 import type { AgentConfig, Message } from '@mas/core'
-import { getDb, agentRepo, sessionRepo, messageRepo, schema } from '@mas/db'
+import { getDb, getRawSqlite, agentRepo, sessionRepo, messageRepo, schema } from '@mas/db'
 import { eq } from 'drizzle-orm'
+
+// Resolve project-root data.db regardless of which workspace started Next.
+// process.cwd() inside `next dev` is apps/web, so climb two levels.
+const DB_PATH = path.resolve(process.cwd(), '..', '..', 'data.db')
 
 // Initialize DB tables on first import via raw SQL (simple bootstrap, no migrations needed)
 function initDb() {
-  const db = getDb()
-  const sqlite = (db as any)._.session.client as import('better-sqlite3').Database
+  getDb(DB_PATH)
+  const sqlite = getRawSqlite()
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
@@ -115,7 +120,14 @@ export async function POST(request: Request) {
     async start(controller) {
       try {
         for await (const event of runAgent(config, messages, provider)) {
-          const data = JSON.stringify(event)
+          if (event.type === 'error') {
+            console.error('[agent error]', event.error)
+          }
+          const serializable =
+            event.type === 'error'
+              ? { type: 'error', error: event.error.message || String(event.error) }
+              : event
+          const data = JSON.stringify(serializable)
           controller.enqueue(encoder.encode(`data: ${data}\n\n`))
 
           if (event.type === 'complete') {
