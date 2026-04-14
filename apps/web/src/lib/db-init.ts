@@ -1,0 +1,66 @@
+import path from 'node:path'
+import { getDb, getRawSqlite, agentRepo } from '@mas/db'
+
+const DB_PATH = path.resolve(process.cwd(), '..', '..', 'data.db')
+
+let initialized = false
+
+export function initDb() {
+  if (initialized) return
+  getDb(DB_PATH)
+  const sqlite = getRawSqlite()
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      personality TEXT,
+      skills TEXT,
+      status TEXT NOT NULL DEFAULT 'idle',
+      model TEXT NOT NULL,
+      config TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id),
+      title TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id),
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      token_count INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE TABLE IF NOT EXISTS tool_executions (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id),
+      tool_name TEXT NOT NULL,
+      input TEXT NOT NULL,
+      output TEXT NOT NULL,
+      is_error INTEGER NOT NULL DEFAULT 0,
+      duration_ms INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+  `)
+  initialized = true
+}
+
+export function getDefaultAgent() {
+  initDb()
+  let agent = agentRepo.listAgents()[0]
+  if (!agent) {
+    agent = agentRepo.createAgent({
+      name: 'Default Agent',
+      description: 'A helpful AI assistant that can execute bash commands.',
+      model: 'claude-sonnet-4-6',
+    })!
+  }
+  return agent
+}
