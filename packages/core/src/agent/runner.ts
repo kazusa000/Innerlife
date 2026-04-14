@@ -1,12 +1,29 @@
 import type { AgentConfig, AgentEvent } from './types'
 import type { LLMProvider, LLMResponse } from '../provider/types'
-import type { Message, ContentBlock, ToolUseBlock } from '../types'
+import type { Message, ContentBlock, ToolDefinition, ToolUseBlock } from '../types'
 import { toolsToDefinitions, executeTool } from '../tools/registry'
+
+export interface RunAgentObserver {
+  onLLMCallStart(payload: {
+    model: string
+    systemPrompt: string
+    tools: ToolDefinition[]
+    messages: Message[]
+  }): string
+
+  onLLMCallEnd(callId: string, payload: {
+    response: ContentBlock[]
+    stopReason: LLMResponse['stopReason']
+    usage: { inputTokens: number; outputTokens: number }
+    error?: string
+  }): void
+}
 
 export async function* runAgent(
   config: AgentConfig,
   messages: Message[],
   provider: LLMProvider,
+  observer?: RunAgentObserver,
 ): AsyncGenerator<AgentEvent> {
   const maxTurns = config.maxTurns ?? 20
   let turns = 0
@@ -17,6 +34,15 @@ export async function* runAgent(
       return
     }
 
+    const toolDefs = toolsToDefinitions(config.tools)
+
+    const callId = observer?.onLLMCallStart({
+      model: config.model,
+      systemPrompt: config.systemPrompt,
+      tools: toolDefs,
+      messages: [...messages],
+    })
+
     let response: LLMResponse | undefined
 
     try {
@@ -24,7 +50,7 @@ export async function* runAgent(
         model: config.model,
         systemPrompt: config.systemPrompt,
         messages,
-        tools: toolsToDefinitions(config.tools),
+        tools: toolDefs,
       })) {
         if (event.type === 'text_delta') {
           yield { type: 'text_delta', text: event.text }
@@ -33,13 +59,39 @@ export async function* runAgent(
         }
       }
     } catch (err) {
-      yield { type: 'error', error: err instanceof Error ? err : new Error(String(err)) }
+      const error = err instanceof Error ? err : new Error(String(err))
+      if (callId !== undefined && observer) {
+        observer.onLLMCallEnd(callId, {
+          response: [],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 0, outputTokens: 0 },
+          error: error.message,
+        })
+      }
+      yield { type: 'error', error }
       return
     }
 
     if (!response) {
-      yield { type: 'error', error: new Error('No response from LLM') }
+      const error = new Error('No response from LLM')
+      if (callId !== undefined && observer) {
+        observer.onLLMCallEnd(callId, {
+          response: [],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 0, outputTokens: 0 },
+          error: error.message,
+        })
+      }
+      yield { type: 'error', error }
       return
+    }
+
+    if (callId !== undefined && observer) {
+      observer.onLLMCallEnd(callId, {
+        response: response.content,
+        stopReason: response.stopReason,
+        usage: response.usage,
+      })
     }
 
     messages.push({ role: 'assistant', content: response.content })

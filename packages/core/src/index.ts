@@ -16,6 +16,7 @@ export type {
 } from './provider/types'
 
 export { runAgent } from './agent/runner'
+export type { RunAgentObserver } from './agent/runner'
 export { BashTool } from './tools/bash'
 export { toolsToDefinitions, executeTool } from './tools/registry'
 export { AnthropicProvider } from './provider/anthropic'
