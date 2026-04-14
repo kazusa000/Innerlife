@@ -48,6 +48,25 @@ export function initDb() {
       duration_ms INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
+    CREATE TABLE IF NOT EXISTS llm_calls (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id),
+      user_message_id TEXT NOT NULL REFERENCES messages(id),
+      turn_index INTEGER NOT NULL,
+      model TEXT NOT NULL,
+      system_prompt TEXT NOT NULL,
+      tools_json TEXT NOT NULL,
+      messages_json TEXT NOT NULL,
+      response_json TEXT,
+      stop_reason TEXT,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_llm_calls_user_msg ON llm_calls(user_message_id, turn_index);
   `)
   initialized = true
 }

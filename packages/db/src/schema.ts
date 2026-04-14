@@ -63,3 +63,25 @@ export const toolExecutions = sqliteTable('tool_executions', {
     .notNull()
     .$defaultFn(() => new Date()),
 })
+
+export const llmCalls = sqliteTable('llm_calls', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id')
+    .notNull()
+    .references(() => sessions.id),
+  userMessageId: text('user_message_id')
+    .notNull()
+    .references(() => messages.id),
+  turnIndex: integer('turn_index').notNull(),
+  model: text('model').notNull(),
+  systemPrompt: text('system_prompt').notNull(),
+  toolsJson: text('tools_json').notNull(),
+  messagesJson: text('messages_json').notNull(),
+  responseJson: text('response_json'),
+  stopReason: text('stop_reason'),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  startedAt: integer('started_at').notNull(),
+  finishedAt: integer('finished_at'),
+  error: text('error'),
+})
