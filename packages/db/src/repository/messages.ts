@@ -32,3 +32,12 @@ export function addToolExecution(data: {
   const id = randomUUID()
   db.insert(toolExecutions).values({ id, ...data }).run()
 }
+
+export function deleteSessionMessages(sessionId: string) {
+  const db = getDb()
+  const msgs = db.select({ id: messages.id }).from(messages).where(eq(messages.sessionId, sessionId)).all()
+  for (const msg of msgs) {
+    db.delete(toolExecutions).where(eq(toolExecutions.messageId, msg.id)).run()
+  }
+  db.delete(messages).where(eq(messages.sessionId, sessionId)).run()
+}
