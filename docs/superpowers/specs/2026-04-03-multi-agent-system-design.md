@@ -22,7 +22,10 @@
 | 项目结构 | Monorepo（npm workspaces） | 核心与 UI 解耦，渐进扩展 |
 | Web UI | Next.js（App Router） | 全栈框架，SSR + API Routes，未来可打包桌面应用 |
 | LLM 接入 | Provider 抽象层，Phase 1 实现 Anthropic，Phase 2 加 OpenAI/Ollama | 不过度工程，渐进扩展 |
-| 数据持久化 | SQLite + Drizzle ORM | 轻量嵌入，查询能力强，未来可迁移 PostgreSQL |
+| 数据持久化 | SQLite + Drizzle ORM（业务数据）| 轻量嵌入，查询能力强，未来可迁移 PostgreSQL |
+| 记忆存储 | Python + ChromaDB（独立服务）| 借鉴 MemPalace 思路：向量检索交给专业库，主项目通过 HTTP/MCP 调用 |
+| 记忆组织 | 宫殿隐喻：Wing（人/项目）→ Room（时间/话题）→ Drawer（原文） | 按实体组织比按类型分更实用，参考 MemPalace |
+| 记忆加载 | 4 层渐进（L0 身份 → L1 精华 → L2 按需 → L3 深搜） | 启动只花 ~600 token，不一次全塞 context |
 | Agent 间通信 | 消息总线接口，先内存实现，后升级 SQLite | 渐进式 |
 | Daemon 管理 | Phase 1 不需要（Next.js 即长驻进程），Phase 5 加独立 daemon | 避免过早复杂化 |
 | 进程模型 | 单进程 async 起步，预留 AgentRunner 接口支持 worker 子进程 | 渐进式 |
@@ -55,11 +58,17 @@ multi-agent-system/
 │   ├── persona/                 # 人格系统（Phase 2+ 实现，挂载于 agent）
 │   │   └── src/
 │   │       ├── personality/     # 性格模型、说话风格、价值观
-│   │       ├── memory/          # 长期记忆（对话摘要、语义检索）
 │   │       ├── emotion/         # 情感状态机
 │   │       ├── relationship/    # 关系图谱
 │   │       ├── growth/          # 成长/进化系统
 │   │       └── autonomy/        # 自主行为引擎
+│   │
+│   ├── memory/                  # 记忆服务（Python + ChromaDB，独立进程）
+│   │   ├── server.py            # HTTP/MCP 服务入口
+│   │   ├── palace.py            # 宫殿操作（Wing/Room/Drawer）
+│   │   ├── searcher.py          # 语义搜索（向量 + BM25 混合）
+│   │   ├── layers.py            # 4 层记忆栈（L0-L3）
+│   │   └── requirements.txt     # Python 依赖（chromadb 等）
 │   │
 │   └── db/                      # 数据层
 │       └── src/
@@ -368,19 +377,36 @@ toolExecutions
   createdAt   INTEGER
 ```
 
-### 7.3 Phase 2+ Schema 扩展
+### 7.3 Phase 2+ 记忆存储（ChromaDB，独立于 SQLite）
+
+记忆不再存 SQLite，改用 Python + ChromaDB 独立服务，借鉴 MemPalace 的宫殿隐喻。
 
 ```
-memories                              -- Phase 2: 长期记忆
-  id          TEXT PRIMARY KEY
-  agentId     TEXT FK → agents.id
-  type        TEXT ('fact' | 'episode' | 'preference' | 'summary')
-  content     TEXT
-  embedding   BLOB                    -- 向量，语义检索用
-  importance  REAL                    -- 重要性评分（衰减）
-  sourceSessionId TEXT FK → sessions.id
-  createdAt   INTEGER
-  lastAccessedAt INTEGER
+ChromaDB Collection: palace_drawers
+  id          TEXT                    -- drawer ID
+  document    TEXT                    -- 原文（逐字存储，不摘要）
+  embedding   自动生成                -- ChromaDB 内置向量化
+  metadata:
+    agent_id  TEXT                    -- 所属虚拟人
+    wing      TEXT                    -- 人/项目名（按实体组织）
+    room      TEXT                    -- 时间段/话题
+    summary   TEXT                    -- LLM 生成的摘要（辅助检索，非替代原文）
+    source_session_id TEXT
+    created_at INTEGER
+    last_accessed_at INTEGER
+```
+
+4 层加载策略：
+- **L0 身份**（~100 token）：虚拟人的"我是谁"，永远在 system prompt
+- **L1 精华**（~500-800 token）：最重要的记忆片段，永远在 system prompt
+- **L2 按需**（~200-500/次）：提到某人/某项目时加载对应 Wing
+- **L3 深搜**（无上限）：ChromaDB 全量语义检索
+
+主项目通过 HTTP/MCP 调用记忆服务，不直接操作 ChromaDB。
+
+### 7.4 Phase 2+ Schema 扩展（SQLite，业务数据）
+
+```
 
 emotions                              -- Phase 2: 情感状态
   id          TEXT PRIMARY KEY
@@ -559,19 +585,42 @@ interface Personality {
 
 ### 10.2 记忆系统
 
-参考 openclaw 的 memory-core/memory-lancedb：
+借鉴 MemPalace 的宫殿隐喻 + ChromaDB 向量检索，作为独立 Python 服务运行。
+
+#### 存储结构（宫殿隐喻）
 
 ```
-对话消息 → 摘要提取（LLM）→ 记忆条目 → 向量嵌入 → 存入 memories 表
-                                                          │
-查询时：用户新消息 → 嵌入 → 语义检索 top-k 记忆 → 注入 system prompt
+Palace（宫殿）= 一个虚拟人的全部记忆
+  └── Wing（翼）= 一个人 / 一个项目 / 一个话题领域
+        └── Room（房间）= 某一天 / 某次对话 / 某个子话题
+              └── Drawer（抽屉）= 一段原始对话文本（逐字存储）
 ```
 
-记忆类型：
-- **事实记忆**（fact）：用户偏好、个人信息
-- **情景记忆**（episode）：重要对话片段
-- **偏好记忆**（preference）：用户的喜好和习惯
-- **摘要记忆**（summary）：长对话的浓缩
+#### 写入流程
+
+```
+对话消息 → 原文存入 Drawer（不丢任何内容）
+        → 同时生成摘要（LLM）存入 metadata（辅助检索用）
+        → ChromaDB 自动向量化
+```
+
+#### 读取流程（4 层渐进加载）
+
+```
+L0 身份（~100 token）    ← 永远在 system prompt，"我是谁"
+L1 精华（~500-800 token）← 永远在 system prompt，最重要的记忆
+L2 按需（~200-500/次）   ← 提到某人/项目时，加载对应 Wing 的记忆
+L3 深搜（无上限）         ← 用户问题 → ChromaDB 语义检索 → 返回相关 Drawer
+```
+
+#### 与主项目通信
+
+记忆服务独立运行（Python 进程），主项目（TypeScript）通过 HTTP 或 MCP 协议调用：
+- `search(query, agent_id, wing?, room?)` → 返回相关记忆
+- `add(agent_id, wing, room, content)` → 存入新记忆
+- `get_layers(agent_id, L0|L1|L2)` → 返回分层记忆用于 system prompt 注入
+
+参考项目：MemPalace（`reference-project/mempalace/`）
 
 ### 10.3 情感状态机
 
@@ -663,78 +712,214 @@ system prompt = 基础指令
 
 ## 11. 分阶段路线图
 
-### Phase 1 — 最小可运行
+每个 Phase 内按模块拆分，每个模块下有编号小步骤。每步大约半天到一天工作量，做完即可看到效果。
 
-**目标**：一个能对话、能执行 bash 的 Web agent
+### 依赖关系总览
 
-- [ ] Monorepo 骨架（npm workspaces, tsconfig, eslint）
-- [ ] `packages/core`：agent 循环（async generator）+ BashTool + AnthropicProvider
-- [ ] `packages/db`：SQLite + Drizzle ORM + 基础 schema（agents, sessions, messages, toolExecutions）
-- [ ] `packages/persona`：空包占位，目录结构就位
-- [ ] `apps/web`：Next.js App Router
-  - [ ] 首页：虚拟人列表
-  - [ ] 创建虚拟人页面
-  - [ ] 对话界面（SSE 流式渲染）
-  - [ ] API Routes（agents CRUD, sessions, chat）
+```
+Phase 1（已完成）
+    ↓
+  模块 A（工具扩展）    模块 B（基础设施）  ← 可穿插做，互不依赖
+    ↓                      ↓
+              模块 C（性格系统）← 依赖 B3（虚拟人管理）
+              模块 D（记忆系统）← 独立，建议 C 之后做
+                    ↓
+              模块 E（多 Agent）← 依赖 D
+              模块 F（关系与权限）← 依赖 E
+                    ↓
+              模块 G（自主行为与成长）← 依赖 F
+                    ↓
+              Phase 5（平台化）← 到时再细拆
+```
 
-### Phase 2 — 人格系统 + 多 Provider
+---
 
-**目标**：虚拟人有性格、有记忆、有情感；支持多种 LLM
+### Phase 1 — 最小可运行 ✅ 已完成
 
-- [ ] 性格模型实现（Personality 配置 → system prompt 注入）
-- [ ] 长期记忆系统（对话摘要提取 → 向量嵌入 → 语义检索）
-- [ ] 情感状态机（状态更新 → 时间衰减 → 影响回应）
-- [ ] System prompt 动态组装（性格 + 情感 + 记忆）
-- [ ] OpenAIProvider 实现
-- [ ] OllamaProvider 实现（本地模型）
-- [ ] Model fallback 链（参考 openclaw runWithModelFallback()）
-- [ ] Token 计数与成本追踪
-- [ ] 更多工具：FileReadTool, FileWriteTool, WebFetchTool, MemorySearchTool
-- [ ] 上下文压缩（参考 claude-code 四层 compaction：auto 87%触发 → reactive API错误重试 → snip 截断中间 → micro 清理旧工具输出）
-- [ ] 中断/取消机制（AbortController 贯穿 agent 循环 + 工具执行，用户可随时终止）
-- [ ] 人格编辑器 UI（性格滑块、背景故事编辑）
-- [ ] 记忆管理 UI
-- [ ] memories / emotions schema 迁移
+一个能对话、能执行 bash 的 Web agent。
 
-### Phase 3 — 多 Agent、关系与 Daemon
+- [x] Monorepo 骨架（npm workspaces, tsconfig）
+- [x] `packages/core`：agent 循环（async generator）+ BashTool + AnthropicProvider
+- [x] `packages/db`：SQLite + Drizzle ORM + 基础 schema
+- [x] `apps/web`：Next.js App Router + SSE 流式对话
 
-**目标**：多个虚拟人共存、交互、建立关系；agent 脱离 Web 独立运行
+---
 
-- [ ] Daemon 独立进程（主进程 + worker 子进程架构，脱离 Next.js）
-- [ ] 多 agent 实例管理（AgentRunner 接口实现）
-- [ ] 进程模型升级（单进程 → 可选 worker 子进程隔离）
-- [ ] 消息总线升级（InMemoryMessageBus → SQLiteMessageBus）
-- [ ] Agent 间通信（SendMessageTool, SpawnAgentTool）
-- [ ] 关系图谱（relationships schema + 关系更新机制）
-- [ ] Hooks 系统（PreToolUse/PostToolUse 钩子，可拦截/修改/阻止工具执行，参考 claude-code toolHooks.ts）
-- [ ] 权限系统（Tool.checkPermissions, isReadOnly, isDestructive）
-- [ ] 输入校验（Tool.validateInput）
-- [ ] 关系图谱可视化 UI
-- [ ] Agent 管理 UI（启动/停止/监控）
+### Phase 2 — 工具 + 基础设施 + 性格 + 记忆
+
+#### 模块 A：工具扩展
+
+> 无依赖，立刻可做。每加一个工具，agent 就多一项能力。
+
+- [ ] **A1 FileReadTool** — agent 能读取指定文件内容
+  - 效果：聊天里让 agent 读文件，它会用这个工具而不是 bash cat
+- [ ] **A2 FileWriteTool** — agent 能创建/写入文件
+  - 效果：让 agent 帮你写个文件，它直接写而不是 echo >
+- [ ] **A3 WebFetchTool** — agent 能抓取网页内容
+  - 效果：给 agent 一个 URL，它能读取网页正文
+- [ ] **A4 工具自动发现** — 新工具文件放进 tools/ 即自动注册，不用手动传数组
+  - 参考：hermes-agent `tools/registry.py` 自注册模式
+  - 效果：以后加工具只写一个文件，不改任何其他代码
+
+#### 模块 B：基础设施补全
+
+> 无依赖，和模块 A 可穿插做。补全 Phase 1 缺的基础功能。
+
+- [x] **B1 多会话支持** — 前端侧边栏显示会话列表，可新建/切换/删除会话
+  - 后端：`GET /api/sessions`、`POST /api/sessions`、`DELETE /api/sessions/:id`
+  - 效果：不再只有一个写死的 Default Chat
+- [ ] **B2 Observer 调试面板** — 观测每轮 AI 实际收到的输入、工具循环、token 等
+  - 新表 `llm_calls`：存每次 provider.complete 前后的完整 request/response 快照
+  - runAgent 增加 observer hook，可按开关启用（默认关，`OBSERVER_ENABLED=1` 启用）
+  - 前端：聊天页内联抽屉看当前轮 + 独立 `/observer` 页做历史回放
+  - 两层嵌套：用户消息 → 内部多次 LLM 调用 → 每次调用的 system/tools/messages/response
+  - 效果：能看清 AI 每一步到底收到了什么、循环了几轮
+- [ ] **B3 虚拟人管理** — 创建/编辑/删除虚拟人的界面和 API
+  - 后端：`POST/GET/PATCH/DELETE /api/agents`
+  - 前端：虚拟人列表页 + 创建/编辑表单
+  - 效果：首页能看到所有虚拟人，点进去能聊天
+- [ ] **B4 中断机制** — 用户能取消正在进行的回复
+  - AbortController 贯穿 agent 循环 + 工具执行
+  - 前端加"停止"按钮
+  - 参考：claude-code `src/utils/abortController.ts`
+  - 效果：长回复或卡住时可以随时喊停
+- [ ] **B5 上下文压缩** — 对话太长时自动压缩历史消息，不爆 token
+  - 先实现最简单的一层：消息数超过阈值 → LLM 摘要压缩旧消息
+  - 参考：claude-code 四层 compaction（auto/reactive/snip/micro），先只做 auto
+  - 效果：长对话不再报错
+
+#### 模块 C：性格系统
+
+> 依赖 B3（要先有虚拟人管理界面）。让每个虚拟人有不同的"人格"。
+
+- [ ] **C1 Personality 数据模型** — Big Five 五大特质 + 说话风格 + 背景故事，存入 agents 表的 personality JSON 字段
+  - 定义 Personality TypeScript 接口
+  - 效果：数据库里能存每个虚拟人的性格配置
+- [ ] **C2 System prompt 动态注入** — 根据虚拟人的性格配置，生成个性化的 system prompt
+  - 效果：同样的问题，不同性格的虚拟人回答风格不同
+- [ ] **C3 性格编辑器 UI** — 在虚拟人编辑页加性格滑块
+  - 5 个 Big Five 滑块 + 说话风格调节 + 背景故事文本框
+  - 效果：拖滑块调性格，保存后立刻影响对话风格
+- [ ] **C4 情感状态机** — 虚拟人有"心情"，随对话内容变化
+  - emotions 表（agentId, state JSON, trigger）
+  - 心情维度：mood（开心/难过）、energy（活跃/疲惫）、stress（放松/焦虑）
+  - LLM 判断用户消息情感 → 更新虚拟人心情 → 注入 system prompt
+  - 时间衰减：心情自然回归基线
+  - 效果：骂它会不开心，夸它会开心，过一阵自己恢复
+
+#### 模块 D：记忆系统
+
+> 独立模块，建议在 C 之后做（这样性格+记忆可以同时注入 system prompt）。
+
+- [ ] **D1 记忆服务搭建** — Python + ChromaDB 独立进程，提供 HTTP API
+  - 宫殿结构：Wing（人/项目）→ Room（时间/话题）→ Drawer（原文）
+  - 接口：`POST /memories`（存）、`POST /memories/search`（搜）、`GET /memories/layers`（分层取）
+  - 参考：mempalace `palace.py`、`searcher.py`
+  - 效果：一个能存能搜的记忆服务跑起来
+- [ ] **D2 对话自动存档** — 每轮对话结束后，自动把对话内容存入记忆服务
+  - 原文存入 Drawer，同时 LLM 生成摘要存入 metadata
+  - 效果：聊过的东西不会随会话消失
+- [ ] **D3 MemorySearchTool** — agent 主动搜索自己的记忆
+  - agent 在对话中可以调用这个工具检索过去的对话
+  - 效果：问"我之前跟你说过什么"，agent 能搜到
+- [ ] **D4 System prompt 记忆注入** — 4 层渐进加载
+  - L0：虚拟人身份描述（~100 token），永远在
+  - L1：最重要的记忆片段（~500-800 token），永远在
+  - L2：提到某人/项目时按需加载对应 Wing（~200-500 token）
+  - L3：通过 MemorySearchTool 触发的深度搜索
+  - 参考：mempalace `layers.py`
+  - 效果：虚拟人"记住"你是谁，不用每次重新介绍
+- [ ] **D5 记忆管理 UI** — 网页上查看/搜索/删除虚拟人的记忆
+  - 按 Wing/Room 浏览，支持关键词搜索
+  - 效果：你能看到虚拟人记住了什么，删掉不想要的
+
+---
+
+### Phase 3 — 多 Agent + 关系
+
+#### 模块 E：多 Agent 运行
+
+> 依赖模块 D（记忆系统）。让多个虚拟人共存并支持不同 LLM。
+
+- [ ] **E1 OpenAI Provider** — 支持 GPT-4o 等 OpenAI 模型
+  - 实现 LLMProvider 接口的 OpenAI 版本
+  - 效果：创建虚拟人时可以选 Claude 或 GPT
+- [ ] **E2 Ollama Provider** — 支持本地模型（Llama、Qwen 等）
+  - 效果：不联网也能跑虚拟人
+- [ ] **E3 Model fallback 链** — 主模型失败自动切备用模型
+  - 参考：openclaw `model-fallback.ts`
+  - 效果：API 偶尔出错不会直接挂
+- [ ] **E4 消息总线** — agent 之间能发消息
+  - 先做 InMemoryMessageBus，后面升级 SQLite 持久化
+  - 接口：send(to, message)、subscribe(agentId, handler)
+  - 效果：两个虚拟人能"对话"
+- [ ] **E5 SpawnAgentTool** — 一个 agent 能启动另一个帮忙
+  - 深度限制 2 层，子 agent 工具白名单，只返回结果摘要
+  - 参考：hermes-agent `delegate_tool.py`
+  - 效果：虚拟人A可以叫虚拟人B帮忙查东西
+
+#### 模块 F：关系与权限
+
+> 依赖模块 E（多 Agent 要先跑通）。
+
+- [ ] **F1 关系图谱** — 虚拟人之间的关系追踪
+  - relationships 表（fromId, toId, trust, affinity, familiarity, respect）
+  - 每次交互后根据内容微调关系分数
+  - 效果：两个虚拟人聊得越多越"熟"
+- [ ] **F2 关系注入 system prompt** — 虚拟人知道跟对方的关系
+  - 效果：虚拟人对"老朋友"和"陌生人"说话语气不同
+- [ ] **F3 Hooks 系统** — 工具执行前后可拦截/修改/阻止
+  - PreToolUse / PostToolUse 钩子
+  - 参考：claude-code `toolHooks.ts`
+  - 效果：可以拦截危险命令（比如 rm -rf）
+- [ ] **F4 权限系统** — 工具分级：只读 / 可写 / 破坏性
+  - Tool 接口加 isReadOnly()、isDestructive() 方法
+  - 效果：可以限制某些虚拟人只能用只读工具
+- [ ] **F5 关系图谱 UI** — 可视化虚拟人之间的关系网络
+  - 效果：网页上看到谁和谁关系好/差
+
+---
 
 ### Phase 4 — 自主行为与成长
 
-**目标**：虚拟人能自主行动、随时间进化
+#### 模块 G：自主行为与成长
 
-- [ ] Cron/定时任务系统（参考 openclaw CronService）
-- [ ] Heartbeat 机制（定期唤醒检查任务）
-- [ ] 自主行为引擎（主动问候、自我反思、关系维护）
-- [ ] 成长/进化系统（交互分析 → 性格微调 → growth_logs）
-- [ ] 工具并发执行（isConcurrencySafe 标记 + 并行调度）
-- [ ] ScheduleTaskTool（虚拟人自主安排任务）
-- [ ] scheduled_tasks / growth_logs schema 迁移
+> 依赖模块 F（需要关系系统和权限系统）。
 
-### Phase 5 — 平台化
+- [ ] **G1 Cron 定时任务** — 虚拟人能设定期执行的任务
+  - scheduled_tasks 表 + cron 表达式解析 + 定时触发
+  - 参考：hermes-agent `cron/scheduler.py`、openclaw CronService
+  - 效果：虚拟人每天早上给你发问候
+- [ ] **G2 Daemon 独立进程** — agent 脱离 Next.js 独立运行
+  - 主进程管理多个 agent worker
+  - 效果：关掉网页虚拟人还活着
+- [ ] **G3 自主行为引擎** — 虚拟人能主动做事
+  - 主动问候（检测到用户长时间未互动）
+  - 自我反思（定期回顾记忆，更新自我认知）
+  - 关系维护（主动找其他虚拟人聊天）
+  - 效果：你不说话，虚拟人也会找你聊
+- [ ] **G4 成长系统** — 虚拟人性格随时间缓慢变化
+  - 每 N 次对话触发成长检查 → LLM 分析交互历史 → 微调性格特质
+  - growth_logs 表记录每次变化
+  - 效果：虚拟人说"我觉得我最近变得更耐心了"
+- [ ] **G5 技能自动创建** — 虚拟人从经验中学习技能
+  - 每完成 N 次工具调用 → 提醒虚拟人"要不要存成技能"
+  - 参考：hermes-agent skill nudge 机制
+  - 效果：虚拟人越用越聪明
+
+---
+
+### Phase 5 — 平台化（到时再细拆）
 
 **目标**：完整的虚拟人管理平台
 
 - [ ] 插件/扩展系统（参考 openclaw manifest + loader + SDK 边界）
-- [ ] Feature flag 系统（动态启用/禁用功能）
-- [ ] WebSocket 实时通信（agent 主动推送消息、状态变更）
+- [ ] 多平台网关（Telegram/Discord/Slack 等，参考 hermes-agent gateway adapter 模式）
+- [ ] WebSocket 实时通信（agent 主动推送消息）
 - [ ] Electron/Tauri 桌面应用打包
-- [ ] 仪表盘 UI（运行状态、工具统计、成本追踪、agent 活动日志）
+- [ ] 仪表盘 UI（运行状态、统计、成本追踪）
 - [ ] 数据导入/导出
-- [ ] 可选 PostgreSQL 支持（Drizzle 切换 driver）
+- [ ] 可选 PostgreSQL 支持
 
 ---
 
@@ -744,17 +929,19 @@ system prompt = 基础指令
 |------|---------|---------|
 | Agent 循环（async generator） | claude-code | `src/query.ts` — query() |
 | 工具接口与调度 | claude-code | `src/Tool.ts`, `src/tools/` |
-| 子代理生成 | claude-code | `src/tools/AgentTool/runAgent.ts` |
+| 工具自注册 | hermes-agent | `tools/registry.py`, `model_tools.py` |
+| 子代理生成（深度限制+工具白名单） | hermes-agent | `tools/delegate_tool.py` |
 | Context compaction（四层） | claude-code | `src/services/compact/` (auto/reactive/snip/micro) |
 | 中断/取消（AbortController） | claude-code | `src/utils/abortController.ts`, ToolUseContext |
-| Hooks 系统 | claude-code | `src/services/tools/toolHooks.ts` (650+ 行) |
-| Feature flags | claude-code | `bun:bundle` feature() 系统 |
+| Hooks 系统 | claude-code | `src/services/tools/toolHooks.ts` |
+| 技能自动创建（skill nudge） | hermes-agent | `tools/skill_manager_tool.py`, `run_agent.py` |
+| 记忆异步预取 | hermes-agent | `agent/memory_manager.py` |
+| 记忆系统（宫殿隐喻 + ChromaDB + 4 层加载） | mempalace | `mempalace/palace.py`, `mempalace/layers.py`, `mempalace/searcher.py` |
+| 记忆系统（provider 抽象参考） | openclaw | `extensions/memory-core/`, `extensions/memory-lancedb/` |
 | Gateway 控制面 | openclaw | `src/gateway/server.impl.ts` |
+| 多平台网关（adapter 模式） | hermes-agent | `gateway/platforms/base.py`, 11 个 adapter |
 | 插件系统 | openclaw | `src/plugins/loader.ts`, `src/plugin-sdk/` |
-| Cron/Heartbeat | openclaw | `src/cron/`, `src/infra/heartbeat-runner.ts` |
-| 记忆系统 | openclaw | `extensions/memory-core/`, `extensions/memory-lancedb/` |
-| Session 管理 | openclaw | `src/config/sessions/store.ts` |
-| Agent 路由 | openclaw | `src/routing/resolve-route.ts` |
+| Cron/定时任务 | hermes-agent / openclaw | `cron/scheduler.py` / `src/cron/` |
 | Model fallback | openclaw | `src/agents/model-fallback.ts` |
 | 消息总线模式 | learn-claude-code | s09-s10 JSONL mailbox protocol |
 | 自主行为 | learn-claude-code | s11 autonomous agents (idle cycle + auto-claim) |
