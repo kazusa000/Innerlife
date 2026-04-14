@@ -81,7 +81,7 @@ export const llmCalls = sqliteTable('llm_calls', {
   stopReason: text('stop_reason'),
   inputTokens: integer('input_tokens'),
   outputTokens: integer('output_tokens'),
-  startedAt: integer('started_at').notNull(),
-  finishedAt: integer('finished_at'),
+  startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+  finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
   error: text('error'),
 })

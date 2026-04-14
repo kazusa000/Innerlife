@@ -14,10 +14,10 @@ export interface StartCallInput {
 }
 
 export interface FinishCallInput {
-  responseJson: string
-  stopReason: string
-  inputTokens: number
-  outputTokens: number
+  responseJson?: string
+  stopReason?: string
+  inputTokens?: number
+  outputTokens?: number
   error?: string
 }
 
@@ -25,7 +25,7 @@ export function startCall(input: StartCallInput): string {
   const db = getDb()
   const id = randomUUID()
   db.insert(llmCalls)
-    .values({ id, ...input, startedAt: Date.now() })
+    .values({ id, ...input, startedAt: new Date() })
     .run()
   return id
 }
@@ -33,7 +33,7 @@ export function startCall(input: StartCallInput): string {
 export function finishCall(id: string, input: FinishCallInput): void {
   const db = getDb()
   db.update(llmCalls)
-    .set({ ...input, finishedAt: Date.now() })
+    .set({ ...input, finishedAt: new Date() })
     .where(eq(llmCalls.id, id))
     .run()
 }
@@ -109,13 +109,13 @@ export function getSessionTurnTree(sessionId: string): TurnNode[] {
         id: c.id,
         turnIndex: c.turnIndex,
         stopReason: c.stopReason,
-        startedAt: c.startedAt,
-        finishedAt: c.finishedAt,
+        startedAt: c.startedAt.getTime(),
+        finishedAt: c.finishedAt ? c.finishedAt.getTime() : null,
       }))
     return {
       userMessageId: m.id,
       userText,
-      createdAt: (m.createdAt as unknown as Date).getTime?.() ?? (m.createdAt as unknown as number),
+      createdAt: m.createdAt.getTime(),
       calls,
     }
   })
