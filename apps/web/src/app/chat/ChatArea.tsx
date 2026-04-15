@@ -46,6 +46,7 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
   const [currentTools, setCurrentTools] = useState<ToolExecution[]>([])
   const [observerOpen, setObserverOpen] = useState(false)
   const [liveCalls, setLiveCalls] = useState<LiveCall[]>([])
+  const [activeCallId, setActiveCallId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -82,6 +83,7 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
     setIsStreaming(true)
     setCurrentTools([])
     setLiveCalls([])
+    setActiveCallId(null)
 
     let assistantText = ''
 
@@ -91,6 +93,10 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMessage, sessionId }),
       })
+
+      if (!res.ok) {
+        throw new Error(`API error: ${res.statusText}`)
+      }
 
       const reader = res.body!.getReader()
       const decoder = new TextDecoder()
@@ -332,7 +338,9 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
         </form>
       </div>
 
-      {observerOpen && <ObserverDrawer calls={liveCalls} />}
+      {observerOpen && (
+        <ObserverDrawer calls={liveCalls} activeCallId={activeCallId} setActiveCallId={setActiveCallId} />
+      )}
     </div>
   )
 }

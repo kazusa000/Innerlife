@@ -18,12 +18,13 @@ export interface LiveCall {
 
 interface Props {
   calls: LiveCall[]
+  activeCallId: string | null
+  setActiveCallId: (id: string | null) => void
 }
 
 type Tab = 'system' | 'tools' | 'messages' | 'response'
 
-export function ObserverDrawer({ calls }: Props) {
-  const [activeCallId, setActiveCallId] = useState<string | null>(null)
+export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) {
   const [tab, setTab] = useState<Tab>('messages')
 
   useEffect(() => {
