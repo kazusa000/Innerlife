@@ -1,6 +1,7 @@
 import { runAgent, AnthropicProvider, BashTool } from '@mas/core'
 import type { AgentConfig, Message } from '@mas/core'
 import { messageRepo } from '@mas/db'
+import { createDbObserver, createNoopObserver } from '@mas/observer'
 import { initDb } from '@/lib/db-init'
 
 export async function POST(request: Request) {
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
     })
   }
 
-  messageRepo.addMessage({
+  const userMessageId = messageRepo.addMessage({
     sessionId,
     role: 'user',
     content: JSON.stringify([{ type: 'text', text: userMessage }]),
@@ -41,8 +42,22 @@ export async function POST(request: Request) {
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
+      const push = (payload: unknown) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
+      }
+
+      const observer =
+        process.env.OBSERVER_ENABLED === '1'
+          ? createDbObserver({
+              sessionId,
+              userMessageId,
+              model: config.model,
+              onEvent: (event) => push(event),
+            })
+          : createNoopObserver()
+
       try {
-        for await (const event of runAgent(config, messages, provider)) {
+        for await (const event of runAgent(config, messages, provider, observer)) {
           if (event.type === 'error') {
             console.error('[agent error]', event.error)
           }
@@ -50,8 +65,7 @@ export async function POST(request: Request) {
             event.type === 'error'
               ? { type: 'error', error: event.error.message || String(event.error) }
               : event
-          const data = JSON.stringify(serializable)
-          controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+          push(serializable)
 
           if (event.type === 'complete') {
             messageRepo.addMessage({
@@ -63,11 +77,10 @@ export async function POST(request: Request) {
           }
         }
       } catch (err) {
-        const errorEvent = JSON.stringify({
+        push({
           type: 'error',
           error: err instanceof Error ? err.message : String(err),
         })
-        controller.enqueue(encoder.encode(`data: ${errorEvent}\n\n`))
       } finally {
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()
