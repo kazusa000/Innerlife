@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { ObserverDrawer, LiveCall } from './ObserverDrawer'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -43,6 +44,8 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentTools, setCurrentTools] = useState<ToolExecution[]>([])
+  const [observerOpen, setObserverOpen] = useState(false)
+  const [liveCalls, setLiveCalls] = useState<LiveCall[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -78,6 +81,7 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
     setIsStreaming(true)
     setCurrentTools([])
+    setLiveCalls([])
 
     let assistantText = ''
 
@@ -140,6 +144,38 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
                 )
                 break
 
+              case 'llm_call_start':
+                setLiveCalls((prev) => [
+                  ...prev,
+                  {
+                    callId: event.callId,
+                    turnIndex: event.turnIndex,
+                    model: event.model,
+                    systemPrompt: event.systemPrompt,
+                    tools: event.tools,
+                    messages: event.messages,
+                    finished: false,
+                  },
+                ])
+                break
+
+              case 'llm_call_end':
+                setLiveCalls((prev) =>
+                  prev.map((c) =>
+                    c.callId === event.callId
+                      ? {
+                          ...c,
+                          response: event.response,
+                          stopReason: event.stopReason,
+                          usage: event.usage,
+                          error: event.error,
+                          finished: true,
+                        }
+                      : c,
+                  ),
+                )
+                break
+
               case 'complete':
                 assistantText = ''
                 break
@@ -169,97 +205,134 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-      <header style={{ padding: '16px 20px', borderBottom: '1px solid #222', flexShrink: 0 }}>
-        <h1 style={{ fontSize: 18, fontWeight: 600 }}>Multi-Agent System</h1>
-      </header>
-
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-        {messages.length === 0 && (
-          <p style={{ color: '#666', textAlign: 'center', marginTop: 100 }}>
-            Send a message to start chatting.
-          </p>
-        )}
-
-        {messages.map((msg, i) => (
-          <div
-            key={i}
+    <div style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+        <header
+          style={{
+            padding: '16px 20px',
+            borderBottom: '1px solid #222',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <h1 style={{ fontSize: 18, fontWeight: 600 }}>Multi-Agent System</h1>
+          <button
+            onClick={() => setObserverOpen((o) => !o)}
+            title="Toggle Observer"
             style={{
-              marginBottom: 16,
-              padding: '12px 16px',
-              borderRadius: 8,
-              background: msg.role === 'user' ? '#1a1a2e' : '#111',
-              borderLeft: msg.role === 'assistant' ? '3px solid #4a9eff' : 'none',
-            }}
-          >
-            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-              {msg.role === 'user' ? 'You' : 'Agent'}
-            </div>
-            <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{msg.content}</div>
-          </div>
-        ))}
-
-        {currentTools.map((tool, i) => (
-          <div
-            key={i}
-            style={{
-              marginBottom: 8,
-              padding: '8px 12px',
+              padding: '6px 10px',
               borderRadius: 6,
-              background: '#0d1117',
-              border: '1px solid #30363d',
-              fontSize: 13,
+              border: '1px solid #333',
+              background: observerOpen ? '#1a1a2e' : 'transparent',
+              color: observerOpen ? '#4a9eff' : '#888',
+              fontSize: 16,
+              cursor: 'pointer',
             }}
           >
-            <div style={{ color: '#f0883e' }}>
-              $ {tool.toolName}: {JSON.stringify(tool.input)}
-            </div>
-            {tool.output && (
-              <pre style={{ color: tool.isError ? '#f85149' : '#7ee787', marginTop: 4, whiteSpace: 'pre-wrap' }}>
-                {tool.output}
-              </pre>
-            )}
-          </div>
-        ))}
+            🔍
+          </button>
+        </header>
 
-        <div ref={messagesEndRef} />
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+          {messages.length === 0 && (
+            <p style={{ color: '#666', textAlign: 'center', marginTop: 100 }}>
+              Send a message to start chatting.
+            </p>
+          )}
+
+          {messages.map((msg, i) => (
+            <div
+              key={i}
+              style={{
+                marginBottom: 16,
+                padding: '12px 16px',
+                borderRadius: 8,
+                background: msg.role === 'user' ? '#1a1a2e' : '#111',
+                borderLeft: msg.role === 'assistant' ? '3px solid #4a9eff' : 'none',
+              }}
+            >
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
+                {msg.role === 'user' ? 'You' : 'Agent'}
+              </div>
+              <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{msg.content}</div>
+            </div>
+          ))}
+
+          {currentTools.map((tool, i) => (
+            <div
+              key={i}
+              style={{
+                marginBottom: 8,
+                padding: '8px 12px',
+                borderRadius: 6,
+                background: '#0d1117',
+                border: '1px solid #30363d',
+                fontSize: 13,
+              }}
+            >
+              <div style={{ color: '#f0883e' }}>
+                $ {tool.toolName}: {JSON.stringify(tool.input)}
+              </div>
+              {tool.output && (
+                <pre
+                  style={{
+                    color: tool.isError ? '#f85149' : '#7ee787',
+                    marginTop: 4,
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {tool.output}
+                </pre>
+              )}
+            </div>
+          ))}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        <form
+          onSubmit={handleSubmit}
+          style={{ padding: '16px 20px', borderTop: '1px solid #222', flexShrink: 0 }}
+        >
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Type a message..."
+              disabled={isStreaming}
+              style={{
+                flex: 1,
+                padding: '10px 14px',
+                borderRadius: 8,
+                border: '1px solid #333',
+                background: '#111',
+                color: '#ededed',
+                fontSize: 14,
+                outline: 'none',
+              }}
+            />
+            <button
+              type="submit"
+              disabled={isStreaming || !input.trim()}
+              style={{
+                padding: '10px 20px',
+                borderRadius: 8,
+                border: 'none',
+                background: isStreaming ? '#333' : '#4a9eff',
+                color: '#fff',
+                fontSize: 14,
+                cursor: isStreaming ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {isStreaming ? '...' : 'Send'}
+            </button>
+          </div>
+        </form>
       </div>
 
-      <form onSubmit={handleSubmit} style={{ padding: '16px 20px', borderTop: '1px solid #222', flexShrink: 0 }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type a message..."
-            disabled={isStreaming}
-            style={{
-              flex: 1,
-              padding: '10px 14px',
-              borderRadius: 8,
-              border: '1px solid #333',
-              background: '#111',
-              color: '#ededed',
-              fontSize: 14,
-              outline: 'none',
-            }}
-          />
-          <button
-            type="submit"
-            disabled={isStreaming || !input.trim()}
-            style={{
-              padding: '10px 20px',
-              borderRadius: 8,
-              border: 'none',
-              background: isStreaming ? '#333' : '#4a9eff',
-              color: '#fff',
-              fontSize: 14,
-              cursor: isStreaming ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {isStreaming ? '...' : 'Send'}
-          </button>
-        </div>
-      </form>
+      {observerOpen && <ObserverDrawer calls={liveCalls} />}
     </div>
   )
 }
