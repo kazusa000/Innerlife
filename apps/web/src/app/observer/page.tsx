@@ -21,14 +21,17 @@ export default function ObserverPage() {
     const res = await fetch('/api/sessions')
     const data = (await res.json()) as { sessions: Session[] }
     setSessions(data.sessions)
-    if (!currentSessionId && data.sessions.length > 0) {
-      setCurrentSessionId(data.sessions[0].id)
-    }
-  }, [currentSessionId])
+  }, [])
 
   useEffect(() => {
     loadSessions()
   }, [loadSessions])
+
+  useEffect(() => {
+    if (!currentSessionId && sessions.length > 0) {
+      setCurrentSessionId(sessions[0].id)
+    }
+  }, [sessions, currentSessionId])
 
   useEffect(() => {
     if (!currentSessionId) return
