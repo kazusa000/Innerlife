@@ -11,10 +11,17 @@ export async function GET(
   if (!call) {
     return Response.json({ error: 'Not found' }, { status: 404 })
   }
-  return Response.json({
-    ...call,
-    tools: JSON.parse(call.toolsJson),
-    messages: JSON.parse(call.messagesJson),
-    response: call.responseJson ? JSON.parse(call.responseJson) : null,
-  })
+  try {
+    return Response.json({
+      ...call,
+      tools: JSON.parse(call.toolsJson),
+      messages: JSON.parse(call.messagesJson),
+      response: call.responseJson ? JSON.parse(call.responseJson) : null,
+    })
+  } catch (e) {
+    return Response.json(
+      { error: 'Failed to parse call data' },
+      { status: 500 }
+    )
+  }
 }
