@@ -768,7 +768,7 @@ Phase 1（已完成）
 - [x] **B1 多会话支持** — 前端侧边栏显示会话列表，可新建/切换/删除会话
   - 后端：`GET /api/sessions`、`POST /api/sessions`、`DELETE /api/sessions/:id`
   - 效果：不再只有一个写死的 Default Chat
-- [ ] **B2 Observer 调试面板** — 观测每轮 AI 实际收到的输入、工具循环、token 等
+- [x] **B2 Observer 调试面板** — 观测每轮 AI 实际收到的输入、工具循环、token 等
   - 新表 `llm_calls`：存每次 provider.complete 前后的完整 request/response 快照
   - runAgent 增加 observer hook，可按开关启用（默认关，`OBSERVER_ENABLED=1` 启用）
   - 前端：聊天页内联抽屉看当前轮 + 独立 `/observer` 页做历史回放
