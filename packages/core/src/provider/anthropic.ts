@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent } from './types'
 import type { ContentBlock } from '../types'
+import { throwIfAborted } from '../utils/abort'
 
 export class AnthropicProvider implements LLMProvider {
   name = 'anthropic'
@@ -13,6 +14,8 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   async *streamMessage(params: LLMRequest): AsyncGenerator<LLMStreamEvent> {
+    throwIfAborted(params.signal)
+
     const stream = this.client.messages.stream({
       model: params.model,
       system: params.systemPrompt,
@@ -27,6 +30,8 @@ export class AnthropicProvider implements LLMProvider {
       })),
       max_tokens: params.maxTokens ?? 4096,
       temperature: params.temperature,
+    }, {
+      signal: params.signal,
     })
 
     let currentToolId = ''
@@ -34,6 +39,8 @@ export class AnthropicProvider implements LLMProvider {
     let currentToolInput = ''
 
     for await (const event of stream) {
+      throwIfAborted(params.signal)
+
       switch (event.type) {
         case 'content_block_start': {
           const block = event.content_block
@@ -67,6 +74,7 @@ export class AnthropicProvider implements LLMProvider {
       }
     }
 
+    throwIfAborted(params.signal)
     const finalMessage = await stream.finalMessage()
 
     const allBlocks: ContentBlock[] = finalMessage.content.map((block) => {

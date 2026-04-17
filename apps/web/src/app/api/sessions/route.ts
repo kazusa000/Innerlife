@@ -9,7 +9,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
-  const agent = getDefaultAgent()
-  const session = sessionRepo.createSession(agent.id, body.title ?? 'New Chat')
+  const agentId = body.agentId ?? getDefaultAgent().id
+  const session = sessionRepo.createSession(agentId, body.title ?? 'New Chat')
   return Response.json({ session })
 }

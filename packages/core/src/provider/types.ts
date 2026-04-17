@@ -7,6 +7,7 @@ export interface LLMRequest {
   tools?: ToolDefinition[]
   maxTokens?: number
   temperature?: number
+  signal?: AbortSignal
 }
 
 export interface LLMResponse {

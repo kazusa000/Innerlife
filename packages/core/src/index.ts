@@ -7,7 +7,7 @@ export type {
   ToolDefinition,
 } from './types'
 export type { AgentConfig, AgentEvent } from './agent/types'
-export type { Tool, ToolResult } from './tools/types'
+export type { Tool, ToolResult, ToolCallOptions } from './tools'
 export type {
   LLMProvider,
   LLMRequest,
@@ -17,6 +17,13 @@ export type {
 
 export { runAgent } from './agent/runner'
 export type { RunAgentObserver } from './agent/runner'
-export { BashTool } from './tools/bash'
-export { toolsToDefinitions, executeTool } from './tools/registry'
+export {
+  BashTool,
+  FileReadTool,
+  FileWriteTool,
+  WebFetchTool,
+  toolsToDefinitions,
+  executeTool,
+} from './tools'
 export { AnthropicProvider } from './provider/anthropic'
+export { createAbortError, isAbortError, throwIfAborted } from './utils/abort'

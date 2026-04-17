@@ -14,4 +14,5 @@ export type AgentEvent =
   | { type: 'tool_start'; toolName: string; input: Record<string, unknown> }
   | { type: 'tool_result'; toolName: string; result: ToolResult }
   | { type: 'complete'; response: LLMResponse }
+  | { type: 'aborted' }
   | { type: 'error'; error: Error }

@@ -2,6 +2,7 @@ import type { AgentConfig, AgentEvent } from './types'
 import type { LLMProvider, LLMResponse } from '../provider/types'
 import type { Message, ContentBlock, ToolDefinition, ToolUseBlock } from '../types'
 import { toolsToDefinitions, executeTool } from '../tools/registry'
+import { isAbortError, throwIfAborted } from '../utils/abort'
 
 export interface RunAgentObserver {
   onLLMCallStart(payload: {
@@ -24,11 +25,19 @@ export async function* runAgent(
   messages: Message[],
   provider: LLMProvider,
   observer?: RunAgentObserver,
+  signal?: AbortSignal,
 ): AsyncGenerator<AgentEvent> {
   const maxTurns = config.maxTurns ?? 20
   let turns = 0
 
   while (true) {
+    try {
+      throwIfAborted(signal)
+    } catch {
+      yield { type: 'aborted' }
+      return
+    }
+
     if (++turns > maxTurns) {
       yield { type: 'error', error: new Error(`Max turns (${maxTurns}) exceeded`) }
       return
@@ -51,7 +60,10 @@ export async function* runAgent(
         systemPrompt: config.systemPrompt,
         messages,
         tools: toolDefs,
+        signal,
       })) {
+        throwIfAborted(signal)
+
         if (event.type === 'text_delta') {
           yield { type: 'text_delta', text: event.text }
         } else if (event.type === 'message_complete') {
@@ -59,6 +71,20 @@ export async function* runAgent(
         }
       }
     } catch (err) {
+      if (isAbortError(err)) {
+        const abortError = err instanceof Error ? err : new Error(String(err))
+        if (callId !== undefined && observer) {
+          observer.onLLMCallEnd(callId, {
+            response: [],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 0, outputTokens: 0 },
+            error: abortError.message,
+          })
+        }
+        yield { type: 'aborted' }
+        return
+      }
+
       const error = err instanceof Error ? err : new Error(String(err))
       if (callId !== undefined && observer) {
         observer.onLLMCallEnd(callId, {
@@ -108,8 +134,24 @@ export async function* runAgent(
     const toolResults: ContentBlock[] = []
 
     for (const toolCall of toolUses) {
+      try {
+        throwIfAborted(signal)
+      } catch {
+        yield { type: 'aborted' }
+        return
+      }
+
       yield { type: 'tool_start', toolName: toolCall.name, input: toolCall.input }
-      const result = await executeTool(config.tools, toolCall)
+      let result
+      try {
+        result = await executeTool(config.tools, toolCall, { signal })
+      } catch (err) {
+        if (isAbortError(err)) {
+          yield { type: 'aborted' }
+          return
+        }
+        throw err
+      }
       yield { type: 'tool_result', toolName: toolCall.name, result }
 
       toolResults.push({
