@@ -6,6 +6,7 @@ export const agents = sqliteTable('agents', {
   description: text('description'),
   personality: text('personality'),
   skills: text('skills'),
+  modules: text('modules'),
   status: text('status', { enum: ['idle', 'running', 'error'] })
     .notNull()
     .default('idle'),

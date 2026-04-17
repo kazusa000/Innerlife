@@ -16,6 +16,7 @@ export function initDb() {
       description TEXT,
       personality TEXT,
       skills TEXT,
+      modules TEXT,
       status TEXT NOT NULL DEFAULT 'idle',
       model TEXT NOT NULL,
       config TEXT,
@@ -68,6 +69,10 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id, started_at);
     CREATE INDEX IF NOT EXISTS idx_llm_calls_user_msg ON llm_calls(user_message_id, turn_index);
   `)
+  const columns = sqlite.pragma("table_info('agents')") as Array<{ name: string }>
+  if (!columns.some((column) => column.name === 'modules')) {
+    sqlite.exec('ALTER TABLE agents ADD COLUMN modules TEXT;')
+  }
   initialized = true
 }
 
