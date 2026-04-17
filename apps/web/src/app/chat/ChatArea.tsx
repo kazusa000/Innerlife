@@ -156,10 +156,10 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
                   {
                     callId: event.callId,
                     turnIndex: event.turnIndex,
-                    model: event.model,
-                    systemPrompt: event.systemPrompt,
-                    tools: event.tools,
-                    messages: event.messages,
+                    model: event.payload.model,
+                    systemPrompt: event.payload.systemPrompt,
+                    tools: event.payload.tools,
+                    messages: event.payload.messages,
                     finished: false,
                   },
                 ])
@@ -171,10 +171,10 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
                     c.callId === event.callId
                       ? {
                           ...c,
-                          response: event.response,
-                          stopReason: event.stopReason,
-                          usage: event.usage,
-                          error: event.error,
+                          response: event.payload.response,
+                          stopReason: event.payload.stopReason,
+                          usage: event.payload.usage,
+                          error: event.payload.error,
                           finished: true,
                         }
                       : c,

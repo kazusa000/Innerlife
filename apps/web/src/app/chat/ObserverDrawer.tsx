@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { MessagesView, ResponseView } from '@/lib/call-renderers'
 
 export interface LiveCall {
   callId: string
@@ -22,10 +23,33 @@ interface Props {
   setActiveCallId: (id: string | null) => void
 }
 
-type Tab = 'system' | 'tools' | 'messages' | 'response'
+type Tab = 'system' | 'tools' | 'history' | 'response'
+
+const INPUT_TABS: Tab[] = ['system', 'tools', 'history']
+const OUTPUT_TABS: Tab[] = ['response']
+
+function tabButton(t: Tab, active: Tab, setTab: (t: Tab) => void) {
+  return (
+    <button
+      key={t}
+      onClick={() => setTab(t)}
+      style={{
+        padding: '4px 10px',
+        borderRadius: 4,
+        border: 'none',
+        background: active === t ? '#1a1a2e' : 'transparent',
+        color: active === t ? '#ededed' : '#888',
+        cursor: 'pointer',
+        fontSize: 12,
+      }}
+    >
+      {t}
+    </button>
+  )
+}
 
 export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) {
-  const [tab, setTab] = useState<Tab>('messages')
+  const [tab, setTab] = useState<Tab>('history')
 
   useEffect(() => {
     if (!activeCallId && calls.length > 0) {
@@ -89,28 +113,22 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
           <div
             style={{
               display: 'flex',
-              gap: 2,
+              alignItems: 'center',
+              gap: 4,
               padding: '6px 10px',
               borderBottom: '1px solid #222',
               fontSize: 12,
             }}
           >
-            {(['system', 'tools', 'messages', 'response'] as Tab[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: 4,
-                  border: 'none',
-                  background: tab === t ? '#1a1a2e' : 'transparent',
-                  color: tab === t ? '#ededed' : '#888',
-                  cursor: 'pointer',
-                }}
-              >
-                {t}
-              </button>
-            ))}
+            <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
+              input
+            </span>
+            {INPUT_TABS.map((t) => tabButton(t, tab, setTab))}
+            <span style={{ flex: 1 }} />
+            <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
+              output
+            </span>
+            {OUTPUT_TABS.map((t) => tabButton(t, tab, setTab))}
           </div>
           <div
             style={{
@@ -125,22 +143,16 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
           >
             {tab === 'system' && active.systemPrompt}
             {tab === 'tools' && JSON.stringify(active.tools, null, 2)}
-            {tab === 'messages' && JSON.stringify(active.messages, null, 2)}
-            {tab === 'response' &&
-              (active.response
-                ? JSON.stringify(
-                    {
-                      stopReason: active.stopReason,
-                      usage: active.usage,
-                      response: active.response,
-                      error: active.error,
-                    },
-                    null,
-                    2,
-                  )
-                : active.error
-                  ? `Error: ${active.error}`
-                  : '(pending)')}
+            {tab === 'history' && <MessagesView messages={active.messages} />}
+            {tab === 'response' && (
+              <ResponseView
+                response={active.response}
+                stopReason={active.stopReason}
+                inputTokens={active.usage?.inputTokens ?? null}
+                outputTokens={active.usage?.outputTokens ?? null}
+                error={active.error}
+              />
+            )}
           </div>
         </>
       )}
