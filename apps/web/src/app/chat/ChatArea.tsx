@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { ObserverDrawer, LiveCall } from './ObserverDrawer'
 
+const INTERRUPTED_SUFFIX = ' —（中断）'
+
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
@@ -39,6 +41,15 @@ interface Props {
   onFirstMessage?: () => void
 }
 
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof Error && error.name === 'AbortError') ||
+    (typeof DOMException !== 'undefined' &&
+      error instanceof DOMException &&
+      error.name === 'AbortError')
+  )
+}
+
 export function ChatArea({ sessionId, onFirstMessage }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -48,9 +59,13 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
   const [liveCalls, setLiveCalls] = useState<LiveCall[]>([])
   const [activeCallId, setActiveCallId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
+    setIsStreaming(false)
     setMessages([])
     setCurrentTools([])
     fetch(`/api/sessions/${sessionId}/messages`)
@@ -69,8 +84,39 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
   }, [sessionId])
 
   useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort()
+    }
+  }, [])
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, currentTools])
+
+  function setAssistantText(text: string) {
+    setMessages((prev) => {
+      const updated = [...prev]
+      const last = updated[updated.length - 1]
+      if (last?.role === 'assistant') {
+        updated[updated.length - 1] = { ...last, content: text }
+      } else {
+        updated.push({ role: 'assistant', content: text })
+      }
+      return updated
+    })
+  }
+
+  function markInterrupted(currentText: string) {
+    const content = currentText
+      ? `${currentText}${INTERRUPTED_SUFFIX}`
+      : '（中断）'
+
+    setAssistantText(content)
+  }
+
+  function handleStop() {
+    abortControllerRef.current?.abort()
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -86,12 +132,16 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
     setActiveCallId(null)
 
     let assistantText = ''
+    let abortedHandled = false
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMessage, sessionId }),
+        signal: abortController.signal,
       })
 
       if (!res.ok) {
@@ -121,16 +171,7 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
             switch (event.type) {
               case 'text_delta':
                 assistantText += event.text
-                setMessages((prev) => {
-                  const updated = [...prev]
-                  const last = updated[updated.length - 1]
-                  if (last?.role === 'assistant') {
-                    updated[updated.length - 1] = { ...last, content: assistantText }
-                  } else {
-                    updated.push({ role: 'assistant', content: assistantText })
-                  }
-                  return updated
-                })
+                setAssistantText(assistantText)
                 break
 
               case 'tool_start':
@@ -186,6 +227,12 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
                 assistantText = ''
                 break
 
+              case 'aborted':
+                abortedHandled = true
+                markInterrupted(assistantText)
+                assistantText = ''
+                break
+
               case 'error':
                 setMessages((prev) => [
                   ...prev,
@@ -199,11 +246,18 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
         }
       }
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: `Connection error: ${err}` },
-      ])
+      if (isAbortError(err)) {
+        if (!abortedHandled) {
+          markInterrupted(assistantText)
+        }
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `Connection error: ${err}` },
+        ])
+      }
     } finally {
+      abortControllerRef.current = null
       setIsStreaming(false)
       setCurrentTools([])
       if (isFirst) onFirstMessage?.()
@@ -211,84 +265,53 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
   }
 
   return (
-    <div style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-        <header
-          style={{
-            padding: '16px 20px',
-            borderBottom: '1px solid #222',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <h1 style={{ fontSize: 18, fontWeight: 600 }}>Multi-Agent System</h1>
+    <div className="chat-area-root">
+      <div className="chat-col">
+        <header className="chat-header">
+          <div className="chat-header-title">
+            <span className="dot" aria-hidden />
+            <h1>Conversation</h1>
+          </div>
           <button
             onClick={() => setObserverOpen((o) => !o)}
             title="Toggle Observer"
-            style={{
-              padding: '6px 10px',
-              borderRadius: 6,
-              border: '1px solid #333',
-              background: observerOpen ? '#1a1a2e' : 'transparent',
-              color: observerOpen ? '#4a9eff' : '#888',
-              fontSize: 16,
-              cursor: 'pointer',
-            }}
+            className={`btn btn-ghost${observerOpen ? ' is-active' : ''}`}
           >
-            🔍
+            Observer
           </button>
         </header>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+        <div className="thread">
           {messages.length === 0 && (
-            <p style={{ color: '#666', textAlign: 'center', marginTop: 100 }}>
-              Send a message to start chatting.
-            </p>
+            <div className="thread-empty">
+              <div className="thread-empty-glyph" aria-hidden />
+              <p className="thread-empty-title">Say hello</p>
+              <p className="thread-empty-sub">
+                Start with anything — a thought, a question, a quiet check-in.
+              </p>
+            </div>
           )}
 
           {messages.map((msg, i) => (
-            <div
-              key={i}
-              style={{
-                marginBottom: 16,
-                padding: '12px 16px',
-                borderRadius: 8,
-                background: msg.role === 'user' ? '#1a1a2e' : '#111',
-                borderLeft: msg.role === 'assistant' ? '3px solid #4a9eff' : 'none',
-              }}
-            >
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-                {msg.role === 'user' ? 'You' : 'Agent'}
-              </div>
-              <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{msg.content}</div>
+            <div key={i} className={`msg msg-${msg.role}`}>
+              <div className="bubble">{msg.content}</div>
             </div>
           ))}
 
           {currentTools.map((tool, i) => (
-            <div
-              key={i}
-              style={{
-                marginBottom: 8,
-                padding: '8px 12px',
-                borderRadius: 6,
-                background: '#0d1117',
-                border: '1px solid #30363d',
-                fontSize: 13,
-              }}
-            >
-              <div style={{ color: '#f0883e' }}>
-                $ {tool.toolName}: {JSON.stringify(tool.input)}
+            <div key={i} className="tool-call">
+              <div className="tool-head">
+                <span className="tool-badge">tool</span>
+                <code>
+                  {tool.toolName}
+                  <span className="tool-input">
+                    {' · '}
+                    {JSON.stringify(tool.input)}
+                  </span>
+                </code>
               </div>
               {tool.output && (
-                <pre
-                  style={{
-                    color: tool.isError ? '#f85149' : '#7ee787',
-                    marginTop: 4,
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >
+                <pre className={tool.isError ? 'tool-out is-error' : 'tool-out'}>
                   {tool.output}
                 </pre>
               )}
@@ -298,41 +321,34 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
           <div ref={messagesEndRef} />
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          style={{ padding: '16px 20px', borderTop: '1px solid #222', flexShrink: 0 }}
-        >
-          <div style={{ display: 'flex', gap: 8 }}>
+        <form onSubmit={handleSubmit} className="composer">
+          <div className="composer-box">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Type a message..."
+              placeholder="Type a message…"
               disabled={isStreaming}
-              style={{
-                flex: 1,
-                padding: '10px 14px',
-                borderRadius: 8,
-                border: '1px solid #333',
-                background: '#111',
-                color: '#ededed',
-                fontSize: 14,
-                outline: 'none',
-              }}
+              className="composer-input"
             />
             <button
-              type="submit"
-              disabled={isStreaming || !input.trim()}
-              style={{
-                padding: '10px 20px',
-                borderRadius: 8,
-                border: 'none',
-                background: isStreaming ? '#333' : '#4a9eff',
-                color: '#fff',
-                fontSize: 14,
-                cursor: isStreaming ? 'not-allowed' : 'pointer',
-              }}
+              type={isStreaming ? 'button' : 'submit'}
+              onClick={isStreaming ? handleStop : undefined}
+              disabled={!isStreaming && !input.trim()}
+              className={`composer-send${isStreaming ? ' is-stop' : ''}`}
+              aria-label={isStreaming ? 'Stop' : 'Send'}
             >
-              {isStreaming ? '...' : 'Send'}
+              {isStreaming ? (
+                <span className="stop-glyph" aria-hidden />
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+                  <path
+                    d="M2 8l12-6-4.5 13-2.5-5-5-2z"
+                    fill="currentColor"
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              )}
             </button>
           </div>
         </form>
@@ -341,6 +357,254 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
       {observerOpen && (
         <ObserverDrawer calls={liveCalls} activeCallId={activeCallId} setActiveCallId={setActiveCallId} />
       )}
+
+      <style jsx>{`
+        .chat-area-root {
+          display: flex;
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+        }
+        .chat-col {
+          display: flex;
+          flex-direction: column;
+          flex: 1;
+          min-width: 0;
+        }
+        .chat-header {
+          padding: 14px 24px;
+          border-bottom: 1px solid var(--border-subtle);
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          backdrop-filter: blur(18px) saturate(140%);
+          -webkit-backdrop-filter: blur(18px) saturate(140%);
+          background: rgba(10, 10, 15, 0.6);
+        }
+        .chat-header-title {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .chat-header-title h1 {
+          font-family: var(--font-display);
+          font-size: 17px;
+          font-weight: 500;
+          font-variation-settings: 'SOFT' 80, 'opsz' 24;
+          color: var(--fg);
+          letter-spacing: -0.01em;
+        }
+        .dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 999px;
+          background: var(--success);
+          box-shadow: 0 0 10px rgba(74, 222, 128, 0.6);
+        }
+        :global(.btn-ghost.is-active) {
+          background: var(--indigo-soft);
+          color: var(--indigo);
+        }
+
+        .thread {
+          flex: 1;
+          overflow-y: auto;
+          padding: 32px 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+        .thread-empty {
+          margin: auto;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+          gap: 10px;
+          padding-bottom: 48px;
+        }
+        .thread-empty-glyph {
+          width: 64px;
+          height: 64px;
+          border-radius: 999px;
+          background:
+            radial-gradient(circle at 30% 30%, var(--indigo-glow), transparent 60%),
+            radial-gradient(circle at 70% 70%, var(--orange-soft), transparent 60%);
+          border: 1px solid var(--border);
+        }
+        .thread-empty-title {
+          font-family: var(--font-display);
+          font-size: 20px;
+          font-variation-settings: 'SOFT' 100, 'opsz' 28;
+          color: var(--fg);
+        }
+        .thread-empty-sub {
+          color: var(--fg-muted);
+          font-size: 14px;
+          max-width: 38ch;
+        }
+
+        .msg {
+          display: flex;
+          width: 100%;
+        }
+        .msg-user {
+          justify-content: flex-end;
+        }
+        .msg-assistant {
+          justify-content: flex-start;
+        }
+        .bubble {
+          max-width: min(680px, 75%);
+          padding: 10px 14px;
+          border-radius: 18px;
+          font-size: 14.5px;
+          line-height: 1.55;
+          white-space: pre-wrap;
+          word-wrap: break-word;
+          animation: bubble-in var(--dur) var(--ease);
+        }
+        .msg-user .bubble {
+          background: linear-gradient(135deg, var(--indigo) 0%, #a78bfa 100%);
+          color: #0b0b16;
+          border-bottom-right-radius: 6px;
+          font-weight: 500;
+          box-shadow: 0 8px 24px -12px var(--indigo-glow);
+        }
+        .msg-assistant .bubble {
+          background: var(--bg-glass);
+          border: 1px solid var(--border);
+          color: var(--fg);
+          border-bottom-left-radius: 6px;
+          backdrop-filter: blur(12px) saturate(140%);
+          -webkit-backdrop-filter: blur(12px) saturate(140%);
+        }
+        @keyframes bubble-in {
+          from {
+            opacity: 0;
+            transform: translateY(4px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .tool-call {
+          align-self: flex-start;
+          max-width: min(680px, 75%);
+          background: rgba(251, 146, 60, 0.06);
+          border: 1px solid rgba(251, 146, 60, 0.22);
+          border-radius: 14px;
+          padding: 10px 14px;
+          font-size: 13px;
+        }
+        .tool-head {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          color: var(--orange);
+          font-family: ui-monospace, 'JetBrains Mono', monospace;
+        }
+        .tool-badge {
+          font-family: var(--font-body);
+          font-size: 10px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          padding: 2px 6px;
+          background: var(--orange-soft);
+          border-radius: 999px;
+          color: var(--orange);
+          font-weight: 600;
+        }
+        .tool-input {
+          color: var(--fg-subtle);
+        }
+        .tool-out {
+          margin-top: 8px;
+          padding: 8px 10px;
+          border-radius: 8px;
+          background: rgba(0, 0, 0, 0.3);
+          color: var(--fg-muted);
+          font-family: ui-monospace, 'JetBrains Mono', monospace;
+          font-size: 12px;
+          white-space: pre-wrap;
+          max-height: 200px;
+          overflow-y: auto;
+        }
+        .tool-out.is-error {
+          color: var(--danger);
+          background: rgba(248, 113, 113, 0.08);
+        }
+
+        .composer {
+          padding: 16px 24px 24px;
+          flex-shrink: 0;
+        }
+        .composer-box {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 6px 6px 16px;
+          border-radius: 999px;
+          background: var(--bg-glass);
+          border: 1px solid var(--border);
+          backdrop-filter: blur(14px) saturate(140%);
+          -webkit-backdrop-filter: blur(14px) saturate(140%);
+          transition: border-color var(--dur) var(--ease),
+            box-shadow var(--dur) var(--ease);
+        }
+        .composer-box:focus-within {
+          border-color: var(--indigo);
+          box-shadow: 0 0 0 4px var(--indigo-soft);
+        }
+        .composer-input {
+          flex: 1;
+          padding: 10px 0;
+          border: none;
+          background: transparent;
+          color: var(--fg);
+          font-size: 14.5px;
+          outline: none;
+        }
+        .composer-send {
+          width: 36px;
+          height: 36px;
+          border-radius: 999px;
+          border: none;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(135deg, var(--indigo) 0%, #a78bfa 100%);
+          color: #0b0b16;
+          transition: transform var(--dur-fast) var(--ease),
+            opacity var(--dur) var(--ease);
+          box-shadow: 0 6px 16px -6px var(--indigo-glow);
+        }
+        .composer-send.is-stop {
+          background: linear-gradient(135deg, #fb7185 0%, #f97316 100%);
+          color: #190b0f;
+          box-shadow: 0 6px 16px -6px rgba(251, 113, 133, 0.42);
+        }
+        .composer-send:hover:not(:disabled) {
+          transform: scale(1.05);
+        }
+        .composer-send:active:not(:disabled) {
+          transform: scale(0.96);
+        }
+        .composer-send:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+        .stop-glyph {
+          width: 10px;
+          height: 10px;
+          border-radius: 3px;
+          background: currentColor;
+        }
+      `}</style>
     </div>
   )
 }
