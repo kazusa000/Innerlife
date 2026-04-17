@@ -1,7 +1,7 @@
 # 当前功能状态
 
-> 这个文件用大白话记录系统**目前能做什么**。每次写代码后必须更新。
-> 不写未来计划（计划见 `docs/superpowers/plans/`）。
+> 这个文件用大白话记录系统**目前能做什么**。由 Coordinator 在 TASK 归档到 `TASKS/done/` 之后统一更新。
+> 不写未来计划（路线图见 `DESIGN.md §11`）。
 
 最后更新：2026-04-17
 
@@ -24,6 +24,9 @@
 - 关掉浏览器再回来，历史对话还在
 - **左侧边栏管理多个会话**：新建、切换、删除，切换时会自动加载该会话的历史消息
 - 默认会自动创建一个虚拟人，无会话时自动建一个
+- **回复可随时中断**：流式回复途中点"停止"按钮立即取消这一轮，正在跑的 bash / fetch / LLM stream 全链路终止；已流出来的文本保留并尾部标记 `—（中断）`
+- **除 bash 外新增三件套工具**：`file_read`（读文件，超 100KB 自动裁剪）、`file_write`（create / overwrite / append 三种模式，自动建父目录）、`web_fetch`（30s 超时、HTML 去噪转纯文本）
+- **创建虚拟人表单保留"模块配置"占位区**：数据层已加 `agents.modules` JSON 字段，为后续 B6 模块化系统做准备；当前还未启用运行时行为
 - **开启 `OBSERVER_ENABLED=1` 后可观测 AI 每轮内部**：聊天页 观测抽屉实时看完整 prompt / 工具 schema / LLM 响应；独立 `/observer` 页事后回放 + 清空
 
 ---
@@ -34,19 +37,22 @@
 agent 的"大脑"。负责和 LLM 对话、决定何时调用工具、把工具结果喂回 LLM、循环直到回答完成。
 
 - 支持流式输出
-- 支持调用 bash 工具
-- 已对接 Anthropic Claude（默认 Sonnet 4.6）
+- 支持调用 `bash` / `file_read` / `file_write` / `web_fetch` 四个工具（B4 起全部支持 `AbortSignal` 取消）
+- `runAgent` 贯穿 `AbortSignal`：每次 LLM 调用前 / stream 中 / 工具调用前都检查，取消时 yield 新的 `{type: 'aborted'}` 事件
+- 已对接 Anthropic Claude（默认 Sonnet 4.6），provider 也穿透 signal
 - 工具系统是开放的，将来加新工具不用改内核
 
 ### 💾 数据存档
 用 SQLite 存东西，文件固定在**项目根目录** `data.db`（不管从哪个子目录启动都是同一份）。
 
 目前存了：
-- **虚拟人**（agent）—— 名字、描述、性格、技能、用哪个 model
+- **虚拟人**（agent）—— 名字、描述、性格、技能、用哪个 model、`modules` JSON（B3 新增占位，暂无运行时行为）
 - **会话** —— 一次完整的对话上下文
 - **消息** —— 每条对话内容
 - **工具执行记录** —— agent 调用过哪些命令、结果是什么
 - **LLM 调用快照** (`llm_calls`) —— 每次发给 LLM 的完整 prompt + tools + messages + response，env `OBSERVER_ENABLED=1` 启用
+
+Drizzle migration 位于 `packages/db/migrations/`；`db-init.ts` 在启动时会兜底 `ALTER TABLE` 保障老库兼容。
 
 直接看里面的数据：`sqlite3 data.db` 或用 DB Browser for SQLite 打开。
 
@@ -90,8 +96,7 @@ cd apps/web && npx next dev --turbopack
 
 为了避免误解，列一下"看起来该有但其实还没做"的：
 
-- ❌ 没有模块化系统（性格 / 记忆 / 情绪 / 感知等，schema 和架构已设计，代码未实现）
-- ❌ 没有除 bash 之外的工具
-- ❌ 没有中断 / 取消正在进行的回复
-- ❌ 没有上下文压缩，对话长了会爆 token
+- ❌ 没有模块化系统运行时（性格 / 记忆 / 情绪 / 感知等。`agents.modules` 字段已加占位，AgentSystem 基座是 B6，尚未做）
+- ❌ 工具尚未自动注册（A4 待做，目前仍手动 `tools: [...]` 注入）
+- ❌ 没有上下文压缩，对话长了会爆 token（B5 待做）
 - ❌ 没有 daemon 后台常驻，关掉 dev server 就停了
