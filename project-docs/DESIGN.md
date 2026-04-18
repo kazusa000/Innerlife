@@ -229,7 +229,7 @@ interface TurnContext {
 
   // 用户输入（感知系统填）
   input: {
-    raw: string | Buffer
+    raw: string  // Phase 2 基座只做文本；Phase 3 起拓宽为 string | Buffer 接入多模态
     text: string
     modality: 'text' | 'image' | 'audio'
     perception?: Record<string, unknown>
@@ -253,7 +253,7 @@ interface TurnContext {
 
   // LLM 回复后填入
   response?: {
-    content: ContentBlock[]
+    content: unknown[]  // Phase 2 保持宽松（兼容 provider 原生形状）；Phase 3 起收紧为 ContentBlock[]
     stopReason: string
     usage: { inputTokens: number; outputTokens: number }
   }
