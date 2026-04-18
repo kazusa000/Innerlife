@@ -75,6 +75,13 @@ Only after every box is checked may you report the task as complete. "Code is wr
 - Conventional-style prefixes are encouraged: `feat(core): ...`, `fix(web): ...`, `docs: ...`, `test: ...`.
 - Don't skip hooks (`--no-verify`, `--no-gpg-sign`) unless explicitly told.
 - Never force-push.
+- **Commit identity**: use the project owner's name/email inline — do **not** touch global `git config`. Prefix every commit with:
+
+  ```bash
+  git -c user.name="wjj" -c user.email="1211334842wjj@gmail.com" commit -m "..."
+  ```
+
+  Same for `git -c ... merge` if you ever need it (you shouldn't — merging is the Coordinator's job).
 
 ## Responsibilities
 
