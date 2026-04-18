@@ -1,6 +1,6 @@
 # D1 — Memory（sqlite 方案）
 
-**状态**: pending
+**状态**: done
 **前置依赖**: B6（模块化基座，已完成）
 **预计规模**: medium
 
@@ -78,17 +78,17 @@ memories {
 
 ## 完成标准
 
-- [ ] `sqlite.ts` 实现 `AgentSystem` 三个钩子（`beforeTurn` 检索 / `beforeLLM` 注入 / `afterTurn` 总结+写表）
-- [ ] `registry.ts` 支持字符串 `sqlite` 实例化；`memory.noop` 保留
-- [ ] DB 迁移生成 + `db-init.ts` 兜底 + sqlite3 能看到 `memories` 表 + 两个索引
-- [ ] Observer 能看到 turn 内的 memory summarize call（`kind: 'memory'`）+ 检索命中数（写到 turn metadata）
+- [x] `sqlite.ts` 实现 `AgentSystem` 三个钩子（`beforeTurn` 检索 / `beforeLLM` 注入 / `afterTurn` 总结+写表）
+- [x] `registry.ts` 支持字符串 `sqlite` 实例化；`memory.noop` 保留
+- [x] DB 迁移生成 + `db-init.ts` 兜底 + sqlite3 能看到 `memories` 表 + 两个索引
+- [x] Observer 能看到 turn 内的 memory summarize call（`kind: 'memory'`）+ 检索命中数（写到 turn metadata）
 - [ ] 端到端手动验证：开新会话告诉 agent "我猫叫橘子"，再开**新会话**问"我猫叫什么"，agent 能答上（跨 session 检索成功）
-- [ ] 单测：
+- [x] 单测：
   - 给定 mock LLM 返回 `{summary, tags, importance}`，断言 afterTurn 写了一条正确的 memory 行
   - 给定 fixture memories + input text，断言关键词检索命中预期 ID 集合
   - 空 modules / `scheme: noop` → 既不写表也不注入 fragment
-- [ ] `npm run typecheck` / `npm test --workspace @mas/systems --workspace @mas/core --workspace @mas/db` 全过
-- [ ] 关闭时（`scheme: "noop"` 或字段缺失）行为完全等同 noop，Observer 里没有 memory call
+- [x] `npm run typecheck` / `npm test --workspace @mas/systems --workspace @mas/core --workspace @mas/db` 全过
+- [x] 关闭时（`scheme: "noop"` 或字段缺失）行为完全等同 noop，Observer 里没有 memory call
 
 ## 备注 / 注意事项
 
@@ -101,3 +101,10 @@ memories {
 - **先读** `packages/systems/src/compaction/summary.ts` 学 "system 产 pendingXxx → runner 跑 LLM" 模式
 - **先读** `packages/systems/src/values/priority-list.ts` 学最简 AgentSystem 落地形状
 - DESIGN §4.4.3 / §7.4 / §10.10 / §11 (D1 行) 为权威；扩 TurnContext 走 Completion Note 披露
+
+## Completion Note
+
+- **Changes**: 新增 `memory:sqlite` 系统，在 `beforeTurn` 做关键词检索、`beforeLLM` 注入相关记忆、`afterTurn` 通过 `pendingMemoryWrite` 触发 summarize 并落 `memories` 表。补了 `memories` schema/repository/migration、observer `kind: 'memory'` 与 turn metadata、以及调试面板对 metadata / memory call 的展示。
+- **Verified**: `npm test --workspace @mas/db --workspace @mas/systems --workspace @mas/core`；`npm run typecheck --workspace @mas/db --workspace @mas/systems --workspace @mas/core`；`npm run build --workspace @mas/web`；`npm run db:generate --workspace @mas/db`。另外在 worktree 本地通过 `apps/web/src/lib/db-init.ts` 初始化 `data.db` 后，用 `better-sqlite3` 验证了 `memories` 表和 `idx_memories_agent_created_at` / `idx_memories_agent_id` 两个索引存在。
+- **Caveats**: 本地没有 `ANTHROPIC_API_KEY`，所以没做真实 LLM 的跨 session 手动验证，对应完成标准保留未勾选。现有历史 migration 仍然不是“从全新空库直接重放”的基线，这次依赖 `db-init.ts` 兜底保证新表存在；`db:migrate` 在空库上的失败属于既有迁移基线问题，不是 D1 新增回归。
+- **Design deltas**: 实际改了 `packages/core/src/agent/runner.ts` 和 observer 调试 UI。原因是 `pendingMemoryWrite` 必须由 runner 统一调 LLM 并持久化，而检索命中数如果不补 observer metadata 展示就无法在现有调试面板里看到。另一个取舍是 `memories.content` 存截断后的本轮用户/助手片段，而不是整轮原文，避免和 `messages` 表重复存大块内容。
