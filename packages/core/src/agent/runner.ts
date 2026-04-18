@@ -3,6 +3,7 @@ import type { LLMProvider, LLMResponse } from '../provider/types'
 import type { Message, ContentBlock, TextBlock, ToolDefinition, ToolUseBlock } from '../types'
 import { toolsToDefinitions, executeTool } from '../tools/registry'
 import { isAbortError, throwIfAborted } from '../utils/abort'
+import { COMPACTION_SUMMARY_PREFIX } from '@mas/systems'
 import type {
   AgentSystem,
   ConversationBlock,
@@ -298,7 +299,7 @@ function createSummaryMessage(summaryText: string): Message {
     content: [
       {
         type: 'text',
-        text: ['Conversation summary:', summaryText].join('\n'),
+        text: [COMPACTION_SUMMARY_PREFIX, summaryText].join('\n'),
       },
     ],
   }

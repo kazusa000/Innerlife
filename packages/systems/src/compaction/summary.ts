@@ -3,6 +3,7 @@ import type { AgentSystem, ConversationBlock, ConversationMessage, PendingCompac
 export const DEFAULT_MAX_MESSAGES = 40
 export const DEFAULT_KEEP_RECENT_MESSAGES = 20
 export const DEFAULT_MAX_INPUT_TOKENS = 12_000
+export const COMPACTION_SUMMARY_PREFIX = 'Conversation summary:'
 
 function estimateTokens(messages: ConversationMessage[]): number {
   const chars = messages.reduce((total, message) => total + estimateContentChars(message.content), 0)
@@ -34,12 +35,30 @@ function buildSummaryPrompt(): string {
   ].join('\n')
 }
 
+function isCompactionSummaryMessage(message: ConversationMessage): boolean {
+  if (message.role !== 'system') {
+    return false
+  }
+
+  return extractMessageText(message).startsWith(COMPACTION_SUMMARY_PREFIX)
+}
+
+function extractMessageText(message: ConversationMessage): string {
+  if (typeof message.content === 'string') {
+    return message.content
+  }
+
+  return message.content
+    .map((block) => (block.type === 'text' && typeof block.text === 'string' ? block.text : ''))
+    .join('\n')
+}
+
 function createPendingCompaction(
   messages: ConversationMessage[],
   reason: PendingCompaction['reason'],
 ): PendingCompaction | undefined {
   const sourceMessages = messages.slice(0, -DEFAULT_KEEP_RECENT_MESSAGES)
-    .filter((message) => message.role !== 'system')
+    .filter((message) => message.role !== 'system' || isCompactionSummaryMessage(message))
   const keepMessages = messages.slice(-DEFAULT_KEEP_RECENT_MESSAGES)
 
   if (sourceMessages.length === 0 || keepMessages.length === 0) {

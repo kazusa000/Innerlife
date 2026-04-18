@@ -14,6 +14,13 @@ function createMessage(index: number, text = `message ${index}`): ConversationMe
   }
 }
 
+function createSystemMessage(text: string): ConversationMessage {
+  return {
+    role: 'system',
+    content: [{ type: 'text', text }],
+  }
+}
+
 function createContext(messageCount = 0, text = 'hello'): TurnContext {
   return {
     agentId: 'agent-1',
@@ -58,4 +65,26 @@ test('summary compaction requests compaction when estimated tokens exceed thresh
 
   assert.equal(ctx.pendingCompaction?.kind, 'summary')
   assert.equal(ctx.pendingCompaction?.reason.type, 'estimated_tokens')
+})
+
+test('summary compaction keeps the prior compaction summary in later compaction input', async () => {
+  const system = new SummaryCompactionSystem()
+  const ctx = createContext()
+  ctx.messages = [
+    createSystemMessage('Base system prompt that should not be compacted'),
+    createSystemMessage('Conversation summary:\nKey facts: old summary survives'),
+    ...Array.from({ length: 42 }, (_, index) => createMessage(index)),
+  ]
+
+  await system.beforeLLM?.(ctx)
+
+  assert.equal(ctx.pendingCompaction?.kind, 'summary')
+  assert.equal(
+    ctx.pendingCompaction?.sourceMessages.some((message) => message.role === 'system'),
+    true,
+  )
+  assert.deepEqual(
+    ctx.pendingCompaction?.sourceMessages.filter((message) => message.role === 'system'),
+    [createSystemMessage('Conversation summary:\nKey facts: old summary survives')],
+  )
 })

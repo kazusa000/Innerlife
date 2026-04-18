@@ -38,7 +38,7 @@
 
 ## Completion Note
 
-- **Changes**: 新增 `compaction.summary` AgentSystem，在 `beforeLLM` 前按消息数 / 粗略 token 估算触发一次摘要调用；runner 用一条 `system` 摘要消息替换早期上下文并保留最近 20 条原文。Observer / DB / Web 同步新增 `kind` 与 compaction metadata，可查看压缩前后 messages 对比。
+- **Changes**: 新增 `compaction.summary` AgentSystem，在 `beforeLLM` 前按消息数 / 粗略 token 估算触发一次摘要调用；runner 用一条 `system` 摘要消息替换早期上下文并保留最近 20 条原文。根据 review 退回补了一次修复：连续 compaction 时会保留上一轮的 compaction summary，不再把早期摘要丢掉；同时新增回归测试覆盖该场景。Observer / DB / Web 同步新增 `kind` 与 compaction metadata，可查看压缩前后 messages 对比。
 - **Verified**: `npm --workspace @mas/core test`；`npm --workspace @mas/systems test`；`npm --workspace @mas/core run typecheck`；`npm --workspace @mas/systems run typecheck`；`npm --workspace @mas/db run typecheck`；`npm --workspace @mas/observer run typecheck`；`npm --workspace @mas/web run build`
 - **Caveats**: token 估算目前是基于消息 JSON 字符数的粗略近似值，适合作为 Phase 1 触发阈值，不保证与 provider 真实计费 token 完全一致。
 - **Design deltas**: 为了让 compaction 仍以 AgentSystem 形式接入，但能在主 LLM 调用前改写 `messages`，我扩展了 `TurnContext`，新增可变 `messages` 与 `pendingCompaction`。具体压缩调用仍由 runner 执行，避免系统层直接持有 provider 依赖。
@@ -64,3 +64,9 @@
 - 加一条单测：连续触发两次 compaction，断言第二轮的 summary input 包含上一轮 summary 的内容
 
 **其他部分**：6 条标准里 5 条都过、所有 typecheck/test 全绿，是这一条逻辑漏洞。修完即可重新走 review。
+
+## Rework Resolution (2026-04-18)
+
+- 已按反馈修复：`summary.ts` 现在只过滤普通 `system` message，保留带 `Conversation summary:` 前缀的 compaction 摘要进入下一轮 `sourceMessages`
+- `runner.ts` 改为复用同一个摘要前缀常量，避免生成端和识别端再次漂移
+- 新增回归测试：连续触发 compaction 时，第二轮压缩输入必须包含上一轮摘要内容
