@@ -8,7 +8,9 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test src/*.test.ts src/**/*.test.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@mas/db": "*"
+  },
   "devDependencies": {
     "tsx": "^4.21.0"
   }

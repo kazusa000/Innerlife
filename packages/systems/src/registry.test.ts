@@ -9,6 +9,7 @@ function createTurnContext() {
     userId: 'user-1',
     input: { raw: 'hi', text: 'hi', modality: 'text' as const },
     state: {},
+    turnMetadata: {},
     promptFragments: [],
     messages: [],
   }
@@ -88,4 +89,21 @@ test('createSystems instantiates summary compaction system from string scheme', 
   const [system] = createSystems({ compaction: 'summary' })
   assert.equal(system?.name, 'compaction:summary')
   assert.equal(system?.type, 'compaction')
+})
+
+test('createSystems instantiates sqlite memory system from object config', () => {
+  const [system] = createSystems({
+    memory: {
+      scheme: 'sqlite',
+      retrieveTopK: 3,
+    },
+  })
+
+  assert.equal(system?.name, 'memory:sqlite')
+  assert.equal(system?.type, 'memory')
+})
+
+test('createSystems keeps memory noop disabled', () => {
+  assert.deepEqual(createSystems({ memory: { scheme: 'noop' } }), [])
+  assert.deepEqual(createSystems({ memory: {} }), [])
 })

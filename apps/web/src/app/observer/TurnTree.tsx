@@ -7,7 +7,7 @@ export interface TurnNode {
   calls: Array<{
     id: string
     turnIndex: number
-    kind: 'turn' | 'compaction'
+    kind: 'turn' | 'compaction' | 'memory'
     stopReason: string | null
     startedAt: number
     finishedAt: number | null
@@ -18,6 +18,16 @@ interface Props {
   turns: TurnNode[]
   currentCallId: string | null
   onSelectCall: (id: string) => void
+}
+
+function describeCallKind(kind: TurnNode['calls'][number]['kind']) {
+  if (kind === 'compaction') {
+    return 'compact'
+  }
+  if (kind === 'memory') {
+    return 'memory'
+  }
+  return 'call'
 }
 
 export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
@@ -67,7 +77,7 @@ export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
                   cursor: 'pointer',
                 }}
               >
-                └ {c.kind === 'compaction' ? 'compact' : 'call'} #{c.turnIndex}{' '}
+                └ {describeCallKind(c.kind)} #{c.turnIndex}{' '}
                 <span style={{ color: '#666' }}>
                   {c.stopReason ?? (c.finishedAt ? '?' : '…')}
                 </span>

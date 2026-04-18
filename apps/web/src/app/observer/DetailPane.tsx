@@ -5,7 +5,7 @@ import { CompactionView, MessagesView, ResponseView } from '@/lib/call-renderers
 
 interface CallDetail {
   id: string
-  kind: 'turn' | 'compaction'
+  kind: 'turn' | 'compaction' | 'memory'
   model: string
   systemPrompt: string
   tools: unknown
@@ -24,7 +24,7 @@ interface Props {
   callId: string | null
 }
 
-type Tab = 'system' | 'tools' | 'history' | 'compaction' | 'response'
+type Tab = 'system' | 'tools' | 'history' | 'metadata' | 'compaction' | 'response'
 const OUTPUT_TABS: Tab[] = ['response']
 
 export function DetailPane({ callId }: Props) {
@@ -59,9 +59,13 @@ export function DetailPane({ callId }: Props) {
     return <div style={{ flex: 1, padding: 40, color: '#666' }}>Loading…</div>
   }
 
-  const inputTabs: Tab[] = detail.kind === 'compaction'
-    ? ['system', 'tools', 'history', 'compaction']
-    : ['system', 'tools', 'history']
+  const inputTabs: Tab[] = [
+    'system',
+    'tools',
+    'history',
+    ...(detail.metadata !== null ? ['metadata' as const] : []),
+    ...(detail.kind === 'compaction' ? ['compaction' as const] : []),
+  ]
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -133,6 +137,7 @@ export function DetailPane({ callId }: Props) {
         {tab === 'system' && detail.systemPrompt}
         {tab === 'tools' && JSON.stringify(detail.tools, null, 2)}
         {tab === 'history' && <MessagesView messages={detail.messages} />}
+        {tab === 'metadata' && JSON.stringify(detail.metadata ?? null, null, 2)}
         {tab === 'compaction' && <CompactionView metadata={detail.metadata} />}
         {tab === 'response' && (
           <ResponseView

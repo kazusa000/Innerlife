@@ -1,6 +1,7 @@
-export { getDb, getRawSqlite } from './client'
+export { getDb, getRawSqlite, resetDb } from './client'
 export * as schema from './schema'
 export * as agentRepo from './repository/agents'
 export * as sessionRepo from './repository/sessions'
 export * as messageRepo from './repository/messages'
 export * as llmCallsRepo from './repository/llm-calls'
+export * as memoryRepo from './repository/memories'

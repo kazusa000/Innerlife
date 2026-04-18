@@ -15,6 +15,13 @@
       "when": 1776510195222,
       "tag": "0001_hard_namorita",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1776542460375,
+      "tag": "0002_blue_legion",
+      "breakpoints": true
     }
   ]
 }

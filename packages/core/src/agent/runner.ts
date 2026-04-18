@@ -8,6 +8,7 @@ import type {
   AgentSystem,
   ConversationBlock,
   ConversationMessage,
+  PendingMemoryWrite,
   PendingCompaction,
   SystemPhase,
   TurnContext,
@@ -15,7 +16,7 @@ import type {
 
 export interface RunAgentObserver {
   onLLMCallStart(payload: {
-    kind: 'turn' | 'compaction'
+    kind: 'turn' | 'compaction' | 'memory'
     model: string
     systemPrompt: string
     tools: ToolDefinition[]
@@ -158,6 +159,7 @@ export async function* runAgent(
         response: response.content,
         stopReason: response.stopReason,
         usage: response.usage,
+        metadata: Object.keys(ctx.turnMetadata).length > 0 ? ctx.turnMetadata : undefined,
       })
     }
 
@@ -170,7 +172,18 @@ export async function* runAgent(
     yield* runSystemPhase(systems, 'afterLLM', ctx)
 
     if (response.stopReason !== 'tool_use') {
+      ctx.pendingMemoryWrite = undefined
       yield* runSystemPhase(systems, 'afterTurn', ctx)
+      const memoryWrite = await runPendingMemoryWrite(
+        ctx.pendingMemoryWrite,
+        config,
+        provider,
+        observer,
+        signal,
+      )
+      if (memoryWrite.event) {
+        yield memoryWrite.event
+      }
       yield { type: 'complete', response }
       return
     }
@@ -228,6 +241,7 @@ function createTurnContext(config: AgentConfig, messages: Message[]): TurnContex
       modality: 'text',
     },
     state: {},
+    turnMetadata: {},
     promptFragments: [],
     messages,
   }
@@ -378,6 +392,78 @@ async function runPendingCompaction(
         type: 'system_error',
         system: 'compaction:summary',
         phase: 'beforeLLM',
+        error: err,
+      },
+    }
+  }
+}
+
+async function runPendingMemoryWrite(
+  pending: PendingMemoryWrite | undefined,
+  config: AgentConfig,
+  provider: LLMProvider,
+  observer?: RunAgentObserver,
+  signal?: AbortSignal,
+): Promise<{
+  event?: Extract<AgentEvent, { type: 'system_error' }>
+}> {
+  if (!pending) {
+    return {}
+  }
+
+  const messages: Message[] = [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: pending.sourceText }],
+    },
+  ]
+  const callId = observer?.onLLMCallStart({
+    kind: 'memory',
+    model: pending.model ?? config.model,
+    systemPrompt: pending.prompt,
+    tools: [],
+    messages: cloneMessages(messages),
+  })
+
+  try {
+    const response = await provider.sendMessage({
+      model: pending.model ?? config.model,
+      systemPrompt: pending.prompt,
+      messages,
+      signal,
+    })
+    const result = pending.parse(extractContentText(response.content))
+    await pending.persist(result)
+
+    if (callId !== undefined && observer) {
+      observer.onLLMCallEnd(callId, {
+        response: response.content,
+        stopReason: response.stopReason,
+        usage: response.usage,
+        metadata: {
+          storedMemory: result,
+        },
+      })
+    }
+
+    return {}
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+
+    if (callId !== undefined && observer) {
+      observer.onLLMCallEnd(callId, {
+        response: [],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 0, outputTokens: 0 },
+        error: err.message,
+      })
+    }
+
+    return {
+      event: {
+        type: 'system_error',
+        system: pending.system,
+        phase: 'afterTurn',
         error: err,
       },
     }

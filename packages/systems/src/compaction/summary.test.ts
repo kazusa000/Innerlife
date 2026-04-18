@@ -32,6 +32,7 @@ function createContext(messageCount = 0, text = 'hello'): TurnContext {
       modality: 'text',
     },
     state: {},
+    turnMetadata: {},
     promptFragments: [],
     messages: Array.from({ length: messageCount }, (_, index) => createMessage(index)),
   }

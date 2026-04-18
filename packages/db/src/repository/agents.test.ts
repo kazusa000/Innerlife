@@ -3,7 +3,7 @@ import test from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { getDb, getRawSqlite } from '../client'
+import { getDb, getRawSqlite, resetDb } from '../client'
 import { createAgent, getAgent, updateAgent } from './agents'
 
 test('createAgent and updateAgent round-trip nullable modules JSON', () => {
@@ -11,6 +11,7 @@ test('createAgent and updateAgent round-trip nullable modules JSON', () => {
   const dbPath = join(dir, 'test.db')
 
   try {
+    resetDb()
     getDb(dbPath)
     getRawSqlite().exec(`
       CREATE TABLE agents (
@@ -47,6 +48,7 @@ test('createAgent and updateAgent round-trip nullable modules JSON', () => {
     const loaded = getAgent(created.id)
     assert.deepEqual(loaded?.modules, modules)
   } finally {
+    resetDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })

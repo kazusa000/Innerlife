@@ -21,3 +21,11 @@ export function getRawSqlite(): Database.Database {
   }
   return rawSqlite!
 }
+
+export function resetDb() {
+  if (rawSqlite) {
+    rawSqlite.close()
+  }
+  db = null
+  rawSqlite = null
+}

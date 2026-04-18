@@ -1,4 +1,5 @@
 import { SummaryCompactionSystem } from './compaction'
+import { MemorySqliteSystem } from './memory'
 import { HelloWorldSystem, NoopSystem } from './noop'
 import { BigFivePersonalitySystem } from './personality'
 import { ValuesPriorityListSystem } from './values'
@@ -12,6 +13,10 @@ export const systemRegistry: SystemRegistry = {
   debug: {
     noop: () => new NoopSystem('debug'),
     'hello-world': () => new HelloWorldSystem(),
+  },
+  memory: {
+    noop: () => new NoopSystem('memory'),
+    sqlite: (config) => new MemorySqliteSystem(config),
   },
   personality: {
     noop: () => new NoopSystem('personality'),
