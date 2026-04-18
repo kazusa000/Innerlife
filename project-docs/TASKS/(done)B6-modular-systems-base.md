@@ -62,3 +62,13 @@
 - **Verified**: `npm test --workspace @mas/core -- src/agent/runner.test.ts` 通过；`npm test --workspace @mas/systems` 通过；`npm run typecheck --workspace @mas/core` 通过；`npm run typecheck --workspace @mas/systems` 通过；`npm run build --workspace @mas/web` 通过。
 - **Caveats**: 当前 registry 仅接入 `debug` 类型（`noop` / `hello-world`），其余 personality/emotion/memory 等具体系统留给后续任务；`system_error` 已通过 SSE 可见，但本 task 没额外实现每个生命周期阶段耗时统计。
 - **Design deltas** (if any): 无功能性分歧；实现上额外兼容了对象形态模块配置（如 `{ debug: { scheme: 'hello-world' } }`），以减少后续前端配置格式耦合。
+
+## Coordinator Addendum (2026-04-18, post-review)
+
+reviewer 发现 Completion Note 漏记了以下三处偏差，Coordinator 合并前补录（非退回补录，见策略 B）：
+
+1. **`TurnContext.input.raw` 窄化**：DESIGN §4.4 原始写 `string | Buffer`，Phase 2 基座只实现 `string`。Buffer 走多模态入口是 Phase 3+ 的事，DESIGN 本轮同步窄化。
+2. **`TurnResult.response.content` 窄化**：DESIGN §4.4 原始写 `ContentBlock[]`，实现用 `unknown[]`。ContentBlock 的结构化拆分也是 Phase 3+（工具结构化事件、多模态），现阶段保持宽松兼容。DESIGN 本轮同步窄化，等 Phase 3 需要时再拓宽。
+3. **`runAgent` 新增第 4 位置参数 `systems: AgentSystem[]`**：潜在 breaking change。本仓内唯一调用点 `apps/web/src/app/api/chat/route.ts` 已同步；仓外目前无调用者，不发布 major。DESIGN §10 已记录新签名。
+
+Verdict: 代码与测试 PASS（`runner.test` 6/0、`systems.test` 3/0、typecheck 全绿），仅文档侧补登记。
