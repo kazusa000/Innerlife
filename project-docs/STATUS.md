@@ -32,6 +32,7 @@
 - **模块化 AgentSystem 基座**：`@mas/systems` 包定义 `TurnContext` + `AgentSystem` 接口与四个生命周期钩子（`beforeTurn` / `beforeLLM` / `afterLLM` / `afterTurn`）；runner 按 `priority` 拼接各系统 prompt fragments；系统抛错只 yield `system_error`、不中断主流程
 - **性格系统（personality:big-five）**：5 维 Big Five 滑块 + 说话风格 + 背景故事；`beforeLLM` 以 `priority: 10` 注入 system prompt，关闭（`scheme: noop` 或字段缺失）行为等同 noop
 - **价值观系统（values:priority-list）**：表单可增删 + 上移/下移的字符串列表；`beforeLLM` 以 `priority: 50` 渲染成 "Values (in priority order)" 段落；空列表不注入
+- **上下文压缩（compaction:summary）**：消息数 > 40 或粗略 token 估算超阈值时，runner 调一次 LLM 把早期消息摘要成一条 `system` message，保留最近 20 条原文；DB 不删原消息。摘要 prompt 强制包含关键事实 / 用户偏好 / 未解决任务；连续多轮压缩会保留之前的 summary 作为下一轮输入。Observer 用 `kind: 'compaction'` 标记并展示 trigger / before / after 对比
 
 ---
 
@@ -101,5 +102,4 @@ cd apps/web && npx next dev --turbopack
 为了避免误解，列一下"看起来该有但其实还没做"的：
 
 - ❌ **性格 / 价值观已接入**（C1 / C4）；情绪 / 关系 / 记忆 / 感知系统尚未实现（C2 / C3 / D 系列 task）
-- ❌ 没有上下文压缩，对话长了会爆 token（B5 待做）
 - ❌ 没有 daemon 后台常驻，关掉 dev server 就停了
