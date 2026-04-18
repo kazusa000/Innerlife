@@ -106,7 +106,9 @@ function buildSummaryPrompt(): string {
     'Return strict JSON with exactly these keys:',
     '{"summary": string, "tags": string[], "importance": number}',
     'importance must be a number between 0 and 1.',
-    'tags should be short reusable keywords.',
+    'tags must include at least 6 short reusable keywords.',
+    'For every important concept, include both Chinese and English synonyms in tags when possible.',
+    'Example tags: ["名字", "name", "称呼", "introduction", "宠物", "pet"].',
     'Do not add markdown or code fences.',
   ].join('\n')
 }

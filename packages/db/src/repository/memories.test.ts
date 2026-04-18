@@ -102,3 +102,39 @@ test('findRelevantMemories scopes by agent and orders by importance then recency
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('findRelevantMemories matches bilingual tags from both Chinese and English input terms', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const memory = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: 'User introduced their name as 王家骏.',
+      summary: '用户叫王家骏',
+      tags: ['名字', 'name', '称呼', 'introduction'],
+      importance: 0.95,
+      createdAt: new Date('2026-04-18T10:00:00.000Z'),
+    })
+
+    const chineseResults = findRelevantMemories({
+      agentId: 'agent-1',
+      terms: ['名字'],
+      topK: 5,
+    })
+    const englishResults = findRelevantMemories({
+      agentId: 'agent-1',
+      terms: ['name'],
+      topK: 5,
+    })
+
+    assert.deepEqual(chineseResults.map((entry) => entry.id), [memory.id])
+    assert.deepEqual(englishResults.map((entry) => entry.id), [memory.id])
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

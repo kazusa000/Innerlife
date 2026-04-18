@@ -143,5 +143,48 @@ test('memory sqlite system prepares a pending write after turn', async () => {
   assert.equal(ctx.pendingMemoryWrite?.kind, 'sqlite')
   assert.equal(ctx.pendingMemoryWrite?.model, 'memory-model')
   assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /strict JSON/i)
+  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /中英文|Chinese and English/i)
   assert.equal(typeof ctx.pendingMemoryWrite?.persist, 'function')
+})
+
+test('memory sqlite system parses and persists mixed bilingual tags from summarize output', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const system = new MemorySqliteSystem({
+      summarizeModel: 'memory-model',
+    })
+    const ctx = createContext('我叫王家骏')
+    ctx.response = {
+      content: [{ type: 'text', text: '记住了，你叫王家骏。' }],
+      stopReason: 'end_turn',
+      usage: { inputTokens: 12, outputTokens: 9 },
+    }
+
+    await system.afterTurn?.(ctx)
+
+    const parsed = ctx.pendingMemoryWrite?.parse(JSON.stringify({
+      summary: '用户叫王家骏',
+      tags: ['名字', 'name', '称呼', 'introduction', '王家骏', 'identity'],
+      importance: 0.9,
+    }))
+
+    assert.deepEqual(parsed, {
+      summary: '用户叫王家骏',
+      tags: ['名字', 'name', '称呼', 'introduction', '王家骏', 'identity'],
+      importance: 0.9,
+    })
+
+    await ctx.pendingMemoryWrite?.persist(parsed!)
+
+    const stored = memoryRepo.listMemoriesByAgent('agent-1')
+    assert.equal(stored.length, 1)
+    assert.deepEqual(stored[0]?.tags, ['名字', 'name', '称呼', 'introduction', '王家骏', 'identity'])
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
