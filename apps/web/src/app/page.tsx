@@ -13,8 +13,124 @@ interface Agent {
   createdAt: string
 }
 
+type BigFiveKey =
+  | 'openness'
+  | 'conscientiousness'
+  | 'extraversion'
+  | 'agreeableness'
+  | 'neuroticism'
+
+type BigFiveScores = Record<BigFiveKey, number>
+
+type PersonalityModule = {
+  scheme?: string
+  big5?: Partial<BigFiveScores>
+  speechStyle?: string
+  background?: string
+}
+
+type PersonalityFormState = {
+  enabled: boolean
+  big5: BigFiveScores
+  speechStyle: string
+  background: string
+}
+
+const DEFAULT_BIG5: BigFiveScores = {
+  openness: 0.5,
+  conscientiousness: 0.5,
+  extraversion: 0.5,
+  agreeableness: 0.5,
+  neuroticism: 0.5,
+}
+
+const MODEL_LABELS: Record<string, string> = {
+  'claude-sonnet-4-6': 'Sonnet 4.6',
+  'claude-haiku-4-5-20251001': 'Haiku 4.5',
+  'claude-opus-4-6': 'Opus 4.6',
+}
+
+const BIG_FIVE_FIELDS: Array<{
+  key: BigFiveKey
+  label: string
+  hint: string
+}> = [
+  {
+    key: 'openness',
+    label: '开放性',
+    hint: '高一点更爱探索新角度、抽象问题和新鲜表达。',
+  },
+  {
+    key: 'conscientiousness',
+    label: '尽责性',
+    hint: '高一点更讲条理、结构、计划和完成度。',
+  },
+  {
+    key: 'extraversion',
+    label: '外向性',
+    hint: '高一点更主动、热络、愿意带动交流节奏。',
+  },
+  {
+    key: 'agreeableness',
+    label: '宜人性',
+    hint: '高一点更温和、合作，也更照顾对方感受。',
+  },
+  {
+    key: 'neuroticism',
+    label: '神经质',
+    hint: '高一点更敏感、更警惕，也更容易担心风险。',
+  },
+]
+
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function clampTrait(value: unknown): number {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return 0.5
+  }
+
+  return Math.min(1, Math.max(0, value))
+}
+
+function readPersonalityModule(
+  modules: Record<string, unknown> | null
+): PersonalityModule | null {
+  if (!isRecord(modules)) {
+    return null
+  }
+
+  const personality = modules.personality
+  if (typeof personality === 'string') {
+    return { scheme: personality }
+  }
+
+  return isRecord(personality) ? (personality as PersonalityModule) : null
+}
+
+function getPersonalityFormState(
+  modules: Record<string, unknown> | null,
+  defaultEnabled: boolean
+): PersonalityFormState {
+  const personality = readPersonalityModule(modules)
+
+  return {
+    enabled: personality ? personality.scheme !== 'noop' : defaultEnabled,
+    big5: {
+      openness: clampTrait(personality?.big5?.openness),
+      conscientiousness: clampTrait(personality?.big5?.conscientiousness),
+      extraversion: clampTrait(personality?.big5?.extraversion),
+      agreeableness: clampTrait(personality?.big5?.agreeableness),
+      neuroticism: clampTrait(personality?.big5?.neuroticism),
+    },
+    speechStyle: typeof personality?.speechStyle === 'string'
+      ? personality.speechStyle
+      : '',
+    background: typeof personality?.background === 'string'
+      ? personality.background
+      : '',
+  }
 }
 
 function readValuePriorities(modules: Record<string, unknown> | null | undefined) {
@@ -33,23 +149,32 @@ function readValuePriorities(modules: Record<string, unknown> | null | undefined
     .filter(Boolean)
 }
 
-function stripValuesModule(modules: Record<string, unknown> | null | undefined) {
+function stripManagedModules(modules: Record<string, unknown> | null) {
   if (!isRecord(modules)) {
     return {}
   }
 
-  const next = { ...modules }
-  delete next.values
-  return next
+  const { personality: _personality, values: _values, ...rest } = modules
+  return rest
 }
 
 function buildModules(
   baseModules: Record<string, unknown>,
+  personality: PersonalityFormState,
   valuePriorities: string[],
 ) {
-  const priorities = valuePriorities.map(value => value.trim()).filter(Boolean)
-  const next = { ...baseModules }
+  const next: Record<string, unknown> = { ...baseModules }
 
+  next.personality = personality.enabled
+    ? {
+        scheme: 'big-five',
+        big5: personality.big5,
+        speechStyle: personality.speechStyle.trim(),
+        background: personality.background.trim(),
+      }
+    : { scheme: 'noop' }
+
+  const priorities = valuePriorities.map(value => value.trim()).filter(Boolean)
   if (priorities.length > 0) {
     next.values = {
       scheme: 'priority-list',
@@ -57,13 +182,7 @@ function buildModules(
     }
   }
 
-  return Object.keys(next).length > 0 ? next : null
-}
-
-const MODEL_LABELS: Record<string, string> = {
-  'claude-sonnet-4-6': 'Sonnet 4.6',
-  'claude-haiku-4-5-20251001': 'Haiku 4.5',
-  'claude-opus-4-6': 'Opus 4.6',
+  return next
 }
 
 function gradientFor(seed: string) {
@@ -88,6 +207,10 @@ export default function HomePage() {
   const [description, setDescription] = useState('')
   const [model, setModel] = useState('claude-sonnet-4-6')
   const [baseModules, setBaseModules] = useState<Record<string, unknown>>({})
+  const [personalityEnabled, setPersonalityEnabled] = useState(true)
+  const [big5, setBig5] = useState<BigFiveScores>({ ...DEFAULT_BIG5 })
+  const [speechStyle, setSpeechStyle] = useState('')
+  const [background, setBackground] = useState('')
   const [valuePriorities, setValuePriorities] = useState<string[]>([])
   const router = useRouter()
 
@@ -108,15 +231,25 @@ export default function HomePage() {
     setDescription('')
     setModel('claude-sonnet-4-6')
     setBaseModules({})
+    setPersonalityEnabled(true)
+    setBig5({ ...DEFAULT_BIG5 })
+    setSpeechStyle('')
+    setBackground('')
     setValuePriorities([])
   }
 
   function startEdit(agent: Agent) {
+    const personality = getPersonalityFormState(agent.modules, false)
+
     setEditingId(agent.id)
     setName(agent.name)
     setDescription(agent.description ?? '')
     setModel(agent.model)
-    setBaseModules(stripValuesModule(agent.modules))
+    setBaseModules(stripManagedModules(agent.modules))
+    setPersonalityEnabled(personality.enabled)
+    setBig5(personality.big5)
+    setSpeechStyle(personality.speechStyle)
+    setBackground(personality.background)
     setValuePriorities(readValuePriorities(agent.modules))
     setShowForm(true)
   }
@@ -151,7 +284,12 @@ export default function HomePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
-    const modules = buildModules(baseModules, valuePriorities)
+
+    const modules = buildModules(
+      baseModules,
+      { enabled: personalityEnabled, big5, speechStyle, background },
+      valuePriorities,
+    )
 
     if (editingId) {
       await fetch(`/api/agents/${editingId}`, {
@@ -245,16 +383,97 @@ export default function HomePage() {
                   <option value="claude-opus-4-6">Claude Opus 4.6</option>
                 </select>
               </label>
+
               <section className="modules-panel" aria-label="Modules configuration">
                 <div className="modules-panel-head">
                   <span className="field-label">模块配置</span>
-                  <span className="placeholder-pill">Values ready</span>
+                  <span className="placeholder-pill">Personality · Values</span>
                 </div>
-                <div className="module-card">
+
+                <section className="module-card" aria-label="Personality configuration">
                   <div className="module-card-head">
-                    <div>
-                      <p className="module-card-title">价值观</p>
-                      <p className="module-card-text">
+                    <div className="module-copy-wrap">
+                      <div className="module-copy-top">
+                        <span className="field-label">性格</span>
+                        <span className="module-pill">Big Five</span>
+                      </div>
+                      <p className="module-copy">
+                        把五维人格、说话风格和背景故事写进 system prompt。
+                      </p>
+                    </div>
+                    <label
+                      className={`module-toggle ${personalityEnabled ? 'is-active' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={personalityEnabled}
+                        onChange={(e) => setPersonalityEnabled(e.target.checked)}
+                      />
+                      <span>{personalityEnabled ? '启用中' : '已关闭'}</span>
+                    </label>
+                  </div>
+
+                  {personalityEnabled ? (
+                    <div className="personality-grid">
+                      {BIG_FIVE_FIELDS.map(({ key, label, hint }) => (
+                        <label key={key} className="trait-card">
+                          <div className="trait-head">
+                            <span className="trait-label">{label}</span>
+                            <span className="trait-value">{big5[key].toFixed(2)}</span>
+                          </div>
+                          <p className="trait-hint">{hint}</p>
+                          <input
+                            className="trait-slider"
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.05"
+                            value={big5[key]}
+                            onChange={(e) =>
+                              setBig5((current) => ({
+                                ...current,
+                                [key]: Number(e.target.value),
+                              }))}
+                          />
+                        </label>
+                      ))}
+
+                      <label className="field personality-field-wide">
+                        <span className="field-label">说话风格</span>
+                        <input
+                          className="input"
+                          value={speechStyle}
+                          onChange={(e) => setSpeechStyle(e.target.value)}
+                          placeholder="简洁、口语化、偶尔自嘲"
+                        />
+                      </label>
+
+                      <label className="field personality-field-wide">
+                        <span className="field-label">背景故事</span>
+                        <textarea
+                          className="input textarea"
+                          rows={4}
+                          value={background}
+                          onChange={(e) => setBackground(e.target.value)}
+                          placeholder="一位喜欢拆解问题第一性原理的前端工程师"
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <p className="module-copy">
+                      关闭后会写入 `personality.noop`，聊天时不会注入额外性格段。
+                    </p>
+                  )}
+                </section>
+
+                <section className="module-card" aria-label="Values configuration">
+                  <div className="module-card-head">
+                    <div className="module-copy-wrap">
+                      <div className="module-copy-top">
+                        <span className="field-label">价值观</span>
+                        <span className="module-pill">Priority list</span>
+                      </div>
+                      <p className="module-copy">
                         按优先级排序。越靠前，冲突场景下注入 prompt 时权重越高。
                       </p>
                     </div>
@@ -307,7 +526,7 @@ export default function HomePage() {
                       ))}
                     </div>
                   )}
-                </div>
+                </section>
               </section>
             </div>
             <div className="form-actions">
@@ -456,7 +675,7 @@ export default function HomePage() {
           background: rgba(255, 255, 255, 0.02);
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 14px;
         }
         .modules-panel-head {
           display: flex;
@@ -477,29 +696,130 @@ export default function HomePage() {
           background: rgba(255, 255, 255, 0.03);
         }
         .module-card {
+          border: 1px solid rgba(129, 140, 248, 0.18);
+          border-radius: 22px;
+          padding: 16px;
+          background:
+            linear-gradient(
+              135deg,
+              rgba(129, 140, 248, 0.08),
+              rgba(255, 255, 255, 0.02)
+            ),
+            rgba(255, 255, 255, 0.02);
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 14px;
         }
         .module-card-head {
           display: flex;
           align-items: flex-start;
           justify-content: space-between;
-          gap: 12px;
+          gap: 16px;
           flex-wrap: wrap;
         }
-        .module-card-title {
-          margin: 0;
-          color: var(--fg);
-          font-size: 14px;
-          font-weight: 600;
+        .module-copy-wrap {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          min-width: 0;
         }
-        .module-card-text {
+        .module-copy-top {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .module-pill {
+          font-size: 11px;
+          line-height: 1;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #d9ddff;
+          border: 1px solid rgba(129, 140, 248, 0.28);
+          border-radius: 999px;
+          padding: 6px 10px;
+          background: rgba(129, 140, 248, 0.14);
+        }
+        .module-copy {
           color: var(--fg-muted);
           font-size: 13px;
           line-height: 1.6;
           margin: 0;
           max-width: 60ch;
+        }
+        .module-toggle {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          padding: 8px 12px;
+          background: rgba(255, 255, 255, 0.04);
+          color: var(--fg-subtle);
+          cursor: pointer;
+          transition: border-color var(--dur) var(--ease),
+            background var(--dur) var(--ease),
+            color var(--dur) var(--ease);
+        }
+        .module-toggle.is-active {
+          border-color: rgba(129, 140, 248, 0.4);
+          background: rgba(129, 140, 248, 0.16);
+          color: var(--fg);
+        }
+        .module-toggle input {
+          margin: 0;
+          accent-color: var(--indigo);
+        }
+        .module-toggle span {
+          font-size: 12px;
+          font-weight: 500;
+        }
+        .personality-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 12px;
+        }
+        .trait-card {
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 18px;
+          padding: 14px;
+          background: rgba(0, 0, 0, 0.18);
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .trait-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+        .trait-label {
+          color: var(--fg);
+          font-size: 14px;
+          font-weight: 500;
+        }
+        .trait-value {
+          color: #d9ddff;
+          font-size: 12px;
+          font-variant-numeric: tabular-nums;
+        }
+        .trait-hint {
+          margin: 0;
+          color: var(--fg-muted);
+          font-size: 12px;
+          line-height: 1.55;
+        }
+        .trait-slider {
+          width: 100%;
+          accent-color: var(--indigo);
+        }
+        .personality-field-wide {
+          grid-column: 1 / -1;
+        }
+        .textarea {
+          min-height: 112px;
+          resize: vertical;
         }
         .module-add,
         .priority-button {
@@ -565,6 +885,27 @@ export default function HomePage() {
           gap: 8px;
           padding-top: 4px;
         }
+        @media (max-width: 760px) {
+          .priority-row {
+            grid-template-columns: 30px minmax(0, 1fr);
+          }
+          .priority-actions {
+            grid-column: 1 / -1;
+            justify-content: flex-start;
+            padding-left: 40px;
+          }
+        }
+        @media (max-width: 640px) {
+          .module-card {
+            padding: 14px;
+          }
+          .personality-grid {
+            grid-template-columns: 1fr;
+          }
+          .form-actions {
+            flex-wrap: wrap;
+          }
+        }
 
         .empty {
           padding: 72px 24px;
@@ -606,16 +947,6 @@ export default function HomePage() {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
           gap: 16px;
-        }
-        @media (max-width: 760px) {
-          .priority-row {
-            grid-template-columns: 30px minmax(0, 1fr);
-          }
-          .priority-actions {
-            grid-column: 1 / -1;
-            justify-content: flex-start;
-            padding-left: 40px;
-          }
         }
         .persona {
           padding: 20px;

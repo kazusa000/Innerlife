@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "typecheck": "next typegen . && tsc --noEmit --incremental false",
     "predev": "node ../../scripts/generate-tool-manifest.mjs",
     "prebuild": "node ../../scripts/generate-tool-manifest.mjs",
     "prestart": "node ../../scripts/generate-tool-manifest.mjs",

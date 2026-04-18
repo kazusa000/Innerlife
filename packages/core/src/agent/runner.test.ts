@@ -5,6 +5,7 @@ import type { AgentConfig } from './types'
 import type { LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent } from '../provider/types'
 import type { Tool } from '../tools/types'
 import type { ContentBlock } from '../types'
+import { createSystems } from '@mas/systems'
 import type { AgentSystem, TurnContext } from '@mas/systems'
 
 class FakeProvider implements LLMProvider {
@@ -190,6 +191,58 @@ test('runAgent composes sorted prompt fragments from systems before calling the 
     },
   ])
   assert.equal(seen.systemPrompt, 'test\n\nfirst\n\nsecond\n\nthird')
+})
+
+test('runAgent includes big-five personality prompts and skips noop personality', async () => {
+  async function captureSystemPrompt(systems: AgentSystem[]) {
+    let systemPrompt = ''
+    const provider = new FakeProvider(async function* (params) {
+      systemPrompt = params.systemPrompt
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: 'done' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1 },
+        },
+      }
+    })
+
+    for await (const _event of runAgent(
+      createConfig(),
+      [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      provider,
+      systems,
+    )) {
+    }
+
+    return systemPrompt
+  }
+
+  const bigFivePrompt = await captureSystemPrompt(createSystems({
+    personality: {
+      scheme: 'big-five',
+      big5: {
+        openness: 0.85,
+        conscientiousness: 0.55,
+        extraversion: 0.25,
+        agreeableness: 0.7,
+        neuroticism: 0.2,
+      },
+      speechStyle: '简洁、口语化',
+      background: '一位前端工程师',
+    },
+  }))
+
+  assert.match(bigFivePrompt, /开放性/)
+  assert.match(bigFivePrompt, /说话风格：简洁、口语化/)
+  assert.match(bigFivePrompt, /背景故事：一位前端工程师/)
+
+  const noopPrompt = await captureSystemPrompt(createSystems({
+    personality: { scheme: 'noop' },
+  }))
+
+  assert.equal(noopPrompt, 'test')
 })
 
 test('runAgent emits system_error and continues when a system hook throws', async () => {
