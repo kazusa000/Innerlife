@@ -1,6 +1,6 @@
 # B5 — 上下文压缩（summary 方案）
 
-**状态**: pending
+**状态**: done
 **前置依赖**: B6（模块化系统基座）—— compaction 以 `AgentSystem` 形式实现
 **预计规模**: medium
 
@@ -21,12 +21,12 @@
 
 ## 完成标准
 
-- [ ] 对话消息数超过阈值（建议 40 条）或输入 token 估算超过某值时自动触发压缩
-- [ ] 压缩后保留最近 N 条（建议 20 条）原文 + 一条摘要 system message
-- [ ] 摘要必须包含：关键事实、用户偏好、未解决的任务（prompt 模板要写清楚）
-- [ ] 被摘要吃掉的原消息**不从 DB 删除**，只在 runner 发给 LLM 的 messages 数组里被替换
-- [ ] Observer 面板里能看到"触发了一次压缩"，压缩前后 messages 对比
-- [ ] 关闭（modules.compaction = "noop"）时行为和现在一模一样
+- [x] 对话消息数超过阈值（建议 40 条）或输入 token 估算超过某值时自动触发压缩
+- [x] 压缩后保留最近 N 条（建议 20 条）原文 + 一条摘要 system message
+- [x] 摘要必须包含：关键事实、用户偏好、未解决的任务（prompt 模板要写清楚）
+- [x] 被摘要吃掉的原消息**不从 DB 删除**，只在 runner 发给 LLM 的 messages 数组里被替换
+- [x] Observer 面板里能看到"触发了一次压缩"，压缩前后 messages 对比
+- [x] 关闭（modules.compaction = "noop"）时行为和现在一模一样
 
 ## 备注 / 注意事项
 
@@ -35,3 +35,10 @@
 - **不要做**：reactive / snip / micro 三层（那些放 B5-v2 或 Phase 4）
 - 如果 B6 还没落地，就先写 `packages/systems/src/compaction/summary.ts` 的骨架，但**不要合并**到主分支；等 B6 完成再联调
 - Observer 要区分"正常 LLM call"和"压缩用的 LLM call"，用 `kind: "compaction"` 字段标记，避免 turn 计数混乱
+
+## Completion Note
+
+- **Changes**: 新增 `compaction.summary` AgentSystem，在 `beforeLLM` 前按消息数 / 粗略 token 估算触发一次摘要调用；runner 用一条 `system` 摘要消息替换早期上下文并保留最近 20 条原文。Observer / DB / Web 同步新增 `kind` 与 compaction metadata，可查看压缩前后 messages 对比。
+- **Verified**: `npm --workspace @mas/core test`；`npm --workspace @mas/systems test`；`npm --workspace @mas/core run typecheck`；`npm --workspace @mas/systems run typecheck`；`npm --workspace @mas/db run typecheck`；`npm --workspace @mas/observer run typecheck`；`npm --workspace @mas/web run build`
+- **Caveats**: token 估算目前是基于消息 JSON 字符数的粗略近似值，适合作为 Phase 1 触发阈值，不保证与 provider 真实计费 token 完全一致。
+- **Design deltas**: 为了让 compaction 仍以 AgentSystem 形式接入，但能在主 LLM 调用前改写 `messages`，我扩展了 `TurnContext`，新增可变 `messages` 与 `pendingCompaction`。具体压缩调用仍由 runner 执行，避免系统层直接持有 provider 依赖。
