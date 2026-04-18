@@ -29,6 +29,7 @@
 - **创建虚拟人表单保留"模块配置"占位区**：数据层已加 `agents.modules` JSON 字段，为后续 B6 模块化系统做准备；当前还未启用运行时行为
 - **开启 `OBSERVER_ENABLED=1` 后可观测 AI 每轮内部**：聊天页 观测抽屉实时看完整 prompt / 工具 schema / LLM 响应；独立 `/observer` 页事后回放 + 清空
 - **工具自动注册**：`packages/core/src/tools/*.ts` 里导出 `export const XxxTool: Tool = {...}`，启动前（`predev/prebuild/prestart`）扫描生成 `generated.ts`，`registry.getDefaultTools()` 统一供给 chat 路由；加新工具只需加文件，不再改注册数组
+- **模块化 AgentSystem 基座**：新增 `@mas/systems` 包，定义 `TurnContext` + `AgentSystem` 接口与四个生命周期钩子（`beforeTurn` / `beforeLLM` / `afterLLM` / `afterTurn`）；runner 按 `priority` 拼接各系统 prompt fragments；系统抛错只 yield `system_error`、不中断主流程；目前仅接入 `debug:hello-world` 玩具系统验证链路（性格 / 情绪 / 记忆等具体系统留给后续 task）
 
 ---
 
@@ -97,6 +98,6 @@ cd apps/web && npx next dev --turbopack
 
 为了避免误解，列一下"看起来该有但其实还没做"的：
 
-- ❌ 没有模块化系统运行时（性格 / 记忆 / 情绪 / 感知等。`agents.modules` 字段已加占位，AgentSystem 基座是 B6，尚未做）
+- ❌ 只有模块化基座和 `debug:hello-world` 玩具系统；**真正的**性格 / 记忆 / 情绪 / 感知系统尚未实现（C / D 系列 task）
 - ❌ 没有上下文压缩，对话长了会爆 token（B5 待做）
 - ❌ 没有 daemon 后台常驻，关掉 dev server 就停了
