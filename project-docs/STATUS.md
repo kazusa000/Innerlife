@@ -3,7 +3,7 @@
 > 这个文件用大白话记录系统**目前能做什么**。由 Coordinator 在 TASK 归档到 `TASKS/done/` 之后统一更新。
 > 不写未来计划（路线图见 `DESIGN.md §11`）。
 
-最后更新：2026-04-18
+最后更新：2026-04-19
 
 ---
 
@@ -33,6 +33,8 @@
 - **性格系统（personality:big-five）**：5 维 Big Five 滑块 + 说话风格 + 背景故事；`beforeLLM` 以 `priority: 10` 注入 system prompt，关闭（`scheme: noop` 或字段缺失）行为等同 noop
 - **价值观系统（values:priority-list）**：表单可增删 + 上移/下移的字符串列表；`beforeLLM` 以 `priority: 50` 渲染成 "Values (in priority order)" 段落；空列表不注入
 - **上下文压缩（compaction:summary）**：消息数 > 40 或粗略 token 估算超阈值时，runner 调一次 LLM 把早期消息摘要成一条 `system` message，保留最近 20 条原文；DB 不删原消息。摘要 prompt 强制包含关键事实 / 用户偏好 / 未解决任务；连续多轮压缩会保留之前的 summary 作为下一轮输入。Observer 用 `kind: 'compaction'` 标记并展示 trigger / before / after 对比
+- **情绪系统（emotion:dimensional）**：mood / energy / stress 三轴；`beforeTurn` 加载该 (agent, session) 最新状态，`beforeLLM` 注入"当前情绪"段落（priority 20），`afterLLM` 让同一 LLM 分析本轮情绪变化产 delta，`afterTurn` 衰减回基线 + apply delta + append 一条 `emotion_states`。表单可开关 + 设 baseline；Observer 用 `kind: 'emotion'` 标记，详情页显示最新状态 + delta + trigger
+- **记忆系统（memory:sqlite）**：`beforeTurn` 关键词检索（按 `agentId` 跨 session）→ `beforeLLM` 渲染 "Relevant memories" 段落（priority 30）→ `afterTurn` 让 LLM 总结本轮成 `{summary, tags, importance}` 落 `memories` 表。表单暂无 UI（D4 task 单独做），开启需手动改 `agents.modules.memory.scheme = "sqlite"`。Observer 用 `kind: 'memory'` 标记 + 检索命中数
 
 ---
 
@@ -101,5 +103,5 @@ cd apps/web && npx next dev --turbopack
 
 为了避免误解，列一下"看起来该有但其实还没做"的：
 
-- ❌ **性格 / 价值观已接入**（C1 / C4）；情绪 / 关系 / 记忆 / 感知系统尚未实现（C2 / C3 / D 系列 task）
+- ❌ **性格 / 价值观 / 情绪 / 记忆已接入**（C1 / C4 / C2 / D1）；关系 / 感知系统尚未实现（C3 / D2-D4 task）
 - ❌ 没有 daemon 后台常驻，关掉 dev server 就停了
