@@ -1,10 +1,15 @@
 import { HelloWorldSystem, NoopSystem } from './noop'
+import { BigFivePersonalitySystem } from './personality'
 import type { AgentModules, AgentSystem, SystemRegistry } from './types'
 
 export const systemRegistry: SystemRegistry = {
   debug: {
     noop: () => new NoopSystem('debug'),
     'hello-world': () => new HelloWorldSystem(),
+  },
+  personality: {
+    noop: () => new NoopSystem('personality'),
+    'big-five': (config) => new BigFivePersonalitySystem(config),
   },
 }
 
@@ -43,11 +48,11 @@ export function createSystems(modules: AgentModules): AgentSystem[] {
       return []
     }
 
-    const system = factory()
     if (schemeName === 'noop') {
       return []
     }
 
+    const system = factory(value)
     return [system]
   })
 }
