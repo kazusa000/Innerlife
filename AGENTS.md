@@ -27,24 +27,28 @@ Tasks live in `project-docs/TASKS/`. A single task file moves through three stat
 
 Rules:
 
-- **Claim**: rename the task file to `(doing)<ID>.md` before touching code. This signals ownership. If the file is already prefixed, don't take it.
-- **Finish**: when you're done and self-tested, rename to `(done)<ID>.md` and add a short **Completion Note** to the task body (see below). Leave it in `project-docs/TASKS/` — do **not** move to `done/`; that's the Coordinator's final step after they verify and merge.
-- **Don't skip states**: no writing code before renaming to `(doing)`; no moving to `done/` yourself.
+- **Claim**: create your worktree first, `cd` into it, then rename the task file to `(doing)<ID>.md` and commit that rename as the **first commit** on `task/<ID>`. The rename must live on the task branch — never rename in the `master` working tree. If the file already has a `(doing)` or `(done)` prefix on `master`, someone else has it — don't take it.
+- **Finish**: when done and self-tested, rename to `(done)<ID>.md`, append a **Completion Note** to the task body, and commit that rename+note as its own commit on `task/<ID>`. Leave the file in `project-docs/TASKS/` — do **not** move to `done/`; that's the Coordinator's step after merge.
+- **Don't skip states**: no writing code before the `(doing)` rename commit; no moving to `done/` yourself.
 
 ## Git Worktree Workflow
 
-Each task must land on its **own** branch in its **own** worktree. This lets multiple agents work simultaneously without stomping on each other's checkout.
+Every task lands on its **own** branch in its **own** worktree. **No exceptions** — don't work on `master`, even if the task looks tiny. This keeps agents isolated and keeps `master`'s working tree clean for the Coordinator.
 
 From the repo root (`multi-agent-system/multi-agent-system/`):
 
 ```bash
-# Create a branch + worktree for your task
+# 1. Create branch + worktree off master
 git worktree add ../wt/<ID> -b task/<ID>
 
-# Move into it
+# 2. Move in — ALL subsequent work happens here, not in the main checkout
 cd ../wt/<ID>
 
-# Do your work; commit to task/<ID> as you go
+# 3. Claim: rename the task file and commit as the FIRST commit on the branch
+git mv project-docs/TASKS/<ID>.md "project-docs/TASKS/(doing)<ID>.md"
+git commit -m "chore: claim <ID>"
+
+# 4. Do the work; commit to task/<ID> AS YOU GO (not only at the end)
 git add <files>
 git commit -m "<conventional commit message>"
 ```
@@ -52,13 +56,18 @@ git commit -m "<conventional commit message>"
 Branch naming: `task/<ID>` (lowercase, matches the task ID, e.g. `task/a4-tool-autoregistry`).
 Worktree path: `../wt/<ID>/` (sibling to the main repo checkout).
 
-When you're done:
+### Before you report complete — hard checklist
 
-1. Ensure your branch has clean commits (squash trivial fixups if useful, but don't force-push shared history).
-2. Do **not** merge into `master` yourself — the Coordinator reviews on your branch and merges.
-3. Leave the worktree in place until the Coordinator closes it out.
+All must be true. If any fails, you are **not** done:
 
-If the task is tiny (one-file, zero-risk, e.g. typo fix), you may skip the worktree and work on `master` directly — but default to a worktree.
+- [ ] Every code change is committed to `task/<ID>` (no unstaged, no untracked residue)
+- [ ] `(done)<ID>.md` with Completion Note appended is committed on `task/<ID>`
+- [ ] `git status` inside the worktree prints "nothing to commit, working tree clean"
+- [ ] `git log master..task/<ID> --oneline` prints at least one commit (otherwise the Coordinator has nothing to review)
+- [ ] You did **not** merge into `master` — that's the Coordinator's job
+- [ ] The worktree is left in place for the Coordinator to inspect
+
+Only after every box is checked may you report the task as complete. "Code is written" ≠ "task is complete" — unless it's in a commit on the task branch, it doesn't exist as far as the Coordinator is concerned.
 
 ## Commit Hygiene
 
