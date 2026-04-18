@@ -4,6 +4,41 @@ export interface PromptFragment {
   content: string
 }
 
+export interface ConversationBlock {
+  type: string
+  text?: string
+  name?: string
+  input?: Record<string, unknown>
+  id?: string
+  tool_use_id?: string
+  content?: string | ConversationBlock[]
+  is_error?: boolean
+}
+
+export interface ConversationMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string | ConversationBlock[]
+}
+
+export type CompactionReason =
+  | {
+      type: 'message_count'
+      messageCount: number
+    }
+  | {
+      type: 'estimated_tokens'
+      messageCount: number
+      estimatedTokens: number
+    }
+
+export interface PendingCompaction {
+  kind: 'summary'
+  reason: CompactionReason
+  prompt: string
+  sourceMessages: ConversationMessage[]
+  keepMessages: ConversationMessage[]
+}
+
 export interface TurnContext {
   agentId: string
   sessionId: string
@@ -16,6 +51,8 @@ export interface TurnContext {
   }
   state: Record<string, unknown>
   promptFragments: PromptFragment[]
+  messages: ConversationMessage[]
+  pendingCompaction?: PendingCompaction
   response?: {
     content: unknown[]
     stopReason: string

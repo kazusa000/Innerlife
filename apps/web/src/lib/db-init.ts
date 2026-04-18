@@ -54,10 +54,12 @@ export function initDb() {
       session_id TEXT NOT NULL REFERENCES sessions(id),
       user_message_id TEXT NOT NULL REFERENCES messages(id),
       turn_index INTEGER NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'turn',
       model TEXT NOT NULL,
       system_prompt TEXT NOT NULL,
       tools_json TEXT NOT NULL,
       messages_json TEXT NOT NULL,
+      metadata_json TEXT,
       response_json TEXT,
       stop_reason TEXT,
       input_tokens INTEGER,
@@ -72,6 +74,13 @@ export function initDb() {
   const columns = sqlite.pragma("table_info('agents')") as Array<{ name: string }>
   if (!columns.some((column) => column.name === 'modules')) {
     sqlite.exec('ALTER TABLE agents ADD COLUMN modules TEXT;')
+  }
+  const llmCallColumns = sqlite.pragma("table_info('llm_calls')") as Array<{ name: string }>
+  if (!llmCallColumns.some((column) => column.name === 'kind')) {
+    sqlite.exec("ALTER TABLE llm_calls ADD COLUMN kind TEXT NOT NULL DEFAULT 'turn';")
+  }
+  if (!llmCallColumns.some((column) => column.name === 'metadata_json')) {
+    sqlite.exec('ALTER TABLE llm_calls ADD COLUMN metadata_json TEXT;')
   }
   initialized = true
 }

@@ -1,14 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { MessagesView, ResponseView } from '@/lib/call-renderers'
+import { CompactionView, MessagesView, ResponseView } from '@/lib/call-renderers'
 
 interface CallDetail {
   id: string
+  kind: 'turn' | 'compaction'
   model: string
   systemPrompt: string
   tools: unknown
   messages: unknown
+  metadata: unknown
   response: unknown
   stopReason: string | null
   inputTokens: number | null
@@ -22,9 +24,7 @@ interface Props {
   callId: string | null
 }
 
-type Tab = 'system' | 'tools' | 'history' | 'response'
-
-const INPUT_TABS: Tab[] = ['system', 'tools', 'history']
+type Tab = 'system' | 'tools' | 'history' | 'compaction' | 'response'
 const OUTPUT_TABS: Tab[] = ['response']
 
 export function DetailPane({ callId }: Props) {
@@ -59,10 +59,14 @@ export function DetailPane({ callId }: Props) {
     return <div style={{ flex: 1, padding: 40, color: '#666' }}>Loading…</div>
   }
 
+  const inputTabs: Tab[] = detail.kind === 'compaction'
+    ? ['system', 'tools', 'history', 'compaction']
+    : ['system', 'tools', 'history']
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       <div style={{ padding: '8px 14px', borderBottom: '1px solid #222', fontSize: 12, color: '#888' }}>
-        {detail.model} · in {detail.inputTokens ?? '?'} / out {detail.outputTokens ?? '?'} tokens · {detail.stopReason ?? 'pending'}
+        {detail.kind} · {detail.model} · in {detail.inputTokens ?? '?'} / out {detail.outputTokens ?? '?'} tokens · {detail.stopReason ?? 'pending'}
       </div>
       <div
         style={{
@@ -76,7 +80,7 @@ export function DetailPane({ callId }: Props) {
         <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
           input
         </span>
-        {INPUT_TABS.map((t) => (
+        {inputTabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -129,6 +133,7 @@ export function DetailPane({ callId }: Props) {
         {tab === 'system' && detail.systemPrompt}
         {tab === 'tools' && JSON.stringify(detail.tools, null, 2)}
         {tab === 'history' && <MessagesView messages={detail.messages} />}
+        {tab === 'compaction' && <CompactionView metadata={detail.metadata} />}
         {tab === 'response' && (
           <ResponseView
             response={detail.response}

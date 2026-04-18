@@ -1,7 +1,12 @@
+import { SummaryCompactionSystem } from './compaction'
 import { HelloWorldSystem, NoopSystem } from './noop'
 import type { AgentModules, AgentSystem, SystemRegistry } from './types'
 
 export const systemRegistry: SystemRegistry = {
+  compaction: {
+    noop: () => new NoopSystem('compaction'),
+    summary: () => new SummaryCompactionSystem(),
+  },
   debug: {
     noop: () => new NoopSystem('debug'),
     'hello-world': () => new HelloWorldSystem(),

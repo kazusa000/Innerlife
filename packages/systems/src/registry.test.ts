@@ -18,6 +18,7 @@ test('createSystems instantiates hello-world debug system from string scheme', a
     input: { raw: 'hi', text: 'hi', modality: 'text' as const },
     state: {},
     promptFragments: [],
+    messages: [],
   }
 
   await system?.beforeLLM?.(ctx)
@@ -34,4 +35,10 @@ test('createSystems instantiates hello-world debug system from string scheme', a
 test('createSystems accepts object scheme configuration', () => {
   const systems = createSystems({ debug: { scheme: 'hello-world' } })
   assert.equal(systems[0]?.name, 'debug:hello-world')
+})
+
+test('createSystems instantiates summary compaction system from string scheme', () => {
+  const [system] = createSystems({ compaction: 'summary' })
+  assert.equal(system?.name, 'compaction:summary')
+  assert.equal(system?.type, 'compaction')
 })

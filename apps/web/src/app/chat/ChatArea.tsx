@@ -197,6 +197,7 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
                   {
                     callId: event.callId,
                     turnIndex: event.turnIndex,
+                    kind: event.payload.kind,
                     model: event.payload.model,
                     systemPrompt: event.payload.systemPrompt,
                     tools: event.payload.tools,
@@ -215,6 +216,7 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
                           response: event.payload.response,
                           stopReason: event.payload.stopReason,
                           usage: event.payload.usage,
+                          metadata: event.payload.metadata,
                           error: event.payload.error,
                           finished: true,
                         }

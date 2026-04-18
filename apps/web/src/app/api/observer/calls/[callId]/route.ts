@@ -14,8 +14,10 @@ export async function GET(
   try {
     return Response.json({
       ...call,
+      kind: call.kind ?? 'turn',
       tools: JSON.parse(call.toolsJson),
       messages: JSON.parse(call.messagesJson),
+      metadata: call.metadataJson ? JSON.parse(call.metadataJson) : null,
       response: call.responseJson ? JSON.parse(call.responseJson) : null,
     })
   } catch (e) {

@@ -20,7 +20,7 @@ export class AnthropicProvider implements LLMProvider {
       model: params.model,
       system: params.systemPrompt,
       messages: params.messages.map((m) => ({
-        role: m.role,
+        role: m.role as 'user' | 'assistant',
         content: m.content,
       })),
       tools: params.tools?.map((t) => ({

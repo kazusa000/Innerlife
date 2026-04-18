@@ -174,6 +174,70 @@ export function MessagesView({ messages }: { messages: unknown }) {
   )
 }
 
+export function CompactionView({ metadata }: { metadata: unknown }) {
+  if (!metadata || typeof metadata !== 'object') {
+    return <pre style={{ fontSize: 11 }}>{JSON.stringify(metadata, null, 2)}</pre>
+  }
+
+  const record = metadata as {
+    reason?: unknown
+    beforeMessages?: unknown
+    afterMessages?: unknown
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div>
+        <div
+          style={{
+            fontSize: 10,
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            color: '#f0883e',
+            marginBottom: 6,
+            fontWeight: 600,
+          }}
+        >
+          Trigger
+        </div>
+        <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+          {JSON.stringify(record.reason ?? null, null, 2)}
+        </pre>
+      </div>
+      <div>
+        <div
+          style={{
+            fontSize: 10,
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            color: '#4a9eff',
+            marginBottom: 6,
+            fontWeight: 600,
+          }}
+        >
+          Before
+        </div>
+        <MessagesView messages={record.beforeMessages ?? []} />
+      </div>
+      <div>
+        <div
+          style={{
+            fontSize: 10,
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            color: '#7ee787',
+            marginBottom: 6,
+            fontWeight: 600,
+          }}
+        >
+          After
+        </div>
+        <MessagesView messages={record.afterMessages ?? []} />
+      </div>
+    </div>
+  )
+}
+
 export function ResponseInfoBar({
   stopReason,
   inputTokens,

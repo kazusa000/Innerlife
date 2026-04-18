@@ -15,6 +15,7 @@ export function createDbObserver(opts: DbObserverOptions): Observer {
     onLLMCallStart(payload) {
       const currentTurn = turnIndex++
       const callId = llmCallsRepo.startCall({
+        kind: payload.kind,
         sessionId: opts.sessionId,
         userMessageId: opts.userMessageId,
         turnIndex: currentTurn,
@@ -38,6 +39,7 @@ export function createDbObserver(opts: DbObserverOptions): Observer {
         stopReason: payload.stopReason,
         inputTokens: payload.usage.inputTokens,
         outputTokens: payload.usage.outputTokens,
+        metadataJson: payload.metadata ? JSON.stringify(payload.metadata) : undefined,
         error: payload.error,
       })
       opts.onEvent?.({

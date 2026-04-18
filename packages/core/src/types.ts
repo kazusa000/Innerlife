@@ -20,7 +20,7 @@ export interface ToolResultBlock {
 export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock
 
 export interface Message {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'system'
   content: string | ContentBlock[]
 }
 

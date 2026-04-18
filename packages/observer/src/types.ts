@@ -1,6 +1,7 @@
 import type { Message, ToolDefinition, ContentBlock, LLMResponse } from '@mas/core'
 
 export interface LLMCallStartPayload {
+  kind: 'turn' | 'compaction'
   model: string
   systemPrompt: string
   tools: ToolDefinition[]
@@ -11,6 +12,7 @@ export interface LLMCallEndPayload {
   response: ContentBlock[]
   stopReason: LLMResponse['stopReason']
   usage: { inputTokens: number; outputTokens: number }
+  metadata?: Record<string, unknown>
   error?: string
 }
 
