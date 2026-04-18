@@ -1,10 +1,15 @@
 import { HelloWorldSystem, NoopSystem } from './noop'
+import { ValuesPriorityListSystem } from './values'
 import type { AgentModules, AgentSystem, SystemRegistry } from './types'
 
 export const systemRegistry: SystemRegistry = {
   debug: {
     noop: () => new NoopSystem('debug'),
     'hello-world': () => new HelloWorldSystem(),
+  },
+  values: {
+    noop: () => new NoopSystem('values'),
+    'priority-list': (config) => new ValuesPriorityListSystem(config),
   },
 }
 
@@ -38,16 +43,16 @@ export function createSystems(modules: AgentModules): AgentSystem[] {
     }
 
     const schemeName = resolveSchemeName(value)
+    if (schemeName === 'noop') {
+      return []
+    }
+
     const factory = schemes[schemeName]
     if (!factory) {
       return []
     }
 
-    const system = factory()
-    if (schemeName === 'noop') {
-      return []
-    }
-
+    const system = factory(value)
     return [system]
   })
 }

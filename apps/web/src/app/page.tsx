@@ -8,8 +8,56 @@ interface Agent {
   name: string
   description: string | null
   model: string
+  modules: Record<string, unknown> | null
   status: string
   createdAt: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function readValuePriorities(modules: Record<string, unknown> | null | undefined) {
+  if (!isRecord(modules)) {
+    return []
+  }
+
+  const values = modules.values
+  if (!isRecord(values) || !Array.isArray(values.priorities)) {
+    return []
+  }
+
+  return values.priorities
+    .filter((value): value is string => typeof value === 'string')
+    .map(value => value.trim())
+    .filter(Boolean)
+}
+
+function stripValuesModule(modules: Record<string, unknown> | null | undefined) {
+  if (!isRecord(modules)) {
+    return {}
+  }
+
+  const next = { ...modules }
+  delete next.values
+  return next
+}
+
+function buildModules(
+  baseModules: Record<string, unknown>,
+  valuePriorities: string[],
+) {
+  const priorities = valuePriorities.map(value => value.trim()).filter(Boolean)
+  const next = { ...baseModules }
+
+  if (priorities.length > 0) {
+    next.values = {
+      scheme: 'priority-list',
+      priorities,
+    }
+  }
+
+  return Object.keys(next).length > 0 ? next : null
 }
 
 const MODEL_LABELS: Record<string, string> = {
@@ -39,6 +87,8 @@ export default function HomePage() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [model, setModel] = useState('claude-sonnet-4-6')
+  const [baseModules, setBaseModules] = useState<Record<string, unknown>>({})
+  const [valuePriorities, setValuePriorities] = useState<string[]>([])
   const router = useRouter()
 
   async function loadAgents() {
@@ -57,6 +107,8 @@ export default function HomePage() {
     setName('')
     setDescription('')
     setModel('claude-sonnet-4-6')
+    setBaseModules({})
+    setValuePriorities([])
   }
 
   function startEdit(agent: Agent) {
@@ -64,24 +116,54 @@ export default function HomePage() {
     setName(agent.name)
     setDescription(agent.description ?? '')
     setModel(agent.model)
+    setBaseModules(stripValuesModule(agent.modules))
+    setValuePriorities(readValuePriorities(agent.modules))
     setShowForm(true)
+  }
+
+  function updatePriority(index: number, value: string) {
+    setValuePriorities((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? value : item)),
+    )
+  }
+
+  function addPriority() {
+    setValuePriorities((current) => [...current, ''])
+  }
+
+  function removePriority(index: number) {
+    setValuePriorities((current) => current.filter((_, itemIndex) => itemIndex !== index))
+  }
+
+  function movePriority(index: number, direction: -1 | 1) {
+    setValuePriorities((current) => {
+      const targetIndex = index + direction
+      if (targetIndex < 0 || targetIndex >= current.length) {
+        return current
+      }
+
+      const next = [...current]
+      ;[next[index], next[targetIndex]] = [next[targetIndex], next[index]]
+      return next
+    })
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
+    const modules = buildModules(baseModules, valuePriorities)
 
     if (editingId) {
       await fetch(`/api/agents/${editingId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, model }),
+        body: JSON.stringify({ name, description, model, modules }),
       })
     } else {
       await fetch('/api/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, model }),
+        body: JSON.stringify({ name, description, model, modules }),
       })
     }
     resetForm()
@@ -163,18 +245,69 @@ export default function HomePage() {
                   <option value="claude-opus-4-6">Claude Opus 4.6</option>
                 </select>
               </label>
-              <section
-                className="modules-placeholder"
-                aria-label="Modules configuration placeholder"
-              >
-                <div className="modules-placeholder-head">
-                  <span className="field-label">模块配置（暂未启用）</span>
-                  <span className="placeholder-pill">Coming soon</span>
+              <section className="modules-panel" aria-label="Modules configuration">
+                <div className="modules-panel-head">
+                  <span className="field-label">模块配置</span>
+                  <span className="placeholder-pill">Values ready</span>
                 </div>
-                <p className="modules-placeholder-text">
-                  后续版本会在这里配置 personality、memory、emotion 等模块。
-                  当前版本仅预留数据入口，暂不提供编辑控件。
-                </p>
+                <div className="module-card">
+                  <div className="module-card-head">
+                    <div>
+                      <p className="module-card-title">价值观</p>
+                      <p className="module-card-text">
+                        按优先级排序。越靠前，冲突场景下注入 prompt 时权重越高。
+                      </p>
+                    </div>
+                    <button type="button" className="module-add" onClick={addPriority}>
+                      Add value
+                    </button>
+                  </div>
+
+                  {valuePriorities.length === 0 ? (
+                    <p className="module-empty">
+                      未配置时不写入 `modules.values`，行为等同 noop。
+                    </p>
+                  ) : (
+                    <div className="priority-list">
+                      {valuePriorities.map((value, index) => (
+                        <div key={index} className="priority-row">
+                          <span className="priority-index">{index + 1}</span>
+                          <input
+                            className="input"
+                            value={value}
+                            onChange={(e) => updatePriority(index, e.target.value)}
+                            placeholder="e.g. Honesty over being liked"
+                          />
+                          <div className="priority-actions">
+                            <button
+                              type="button"
+                              className="priority-button"
+                              onClick={() => movePriority(index, -1)}
+                              disabled={index === 0}
+                            >
+                              Up
+                            </button>
+                            <button
+                              type="button"
+                              className="priority-button"
+                              onClick={() => movePriority(index, 1)}
+                              disabled={index === valuePriorities.length - 1}
+                            >
+                              Down
+                            </button>
+                            <button
+                              type="button"
+                              className="priority-button priority-button-danger"
+                              onClick={() => removePriority(index)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </section>
             </div>
             <div className="form-actions">
@@ -316,16 +449,16 @@ export default function HomePage() {
           font-weight: 500;
           letter-spacing: 0.02em;
         }
-        .modules-placeholder {
+        .modules-panel {
           border: 1px dashed var(--border);
           border-radius: 18px;
           padding: 14px 16px;
           background: rgba(255, 255, 255, 0.02);
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 12px;
         }
-        .modules-placeholder-head {
+        .modules-panel-head {
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -343,12 +476,89 @@ export default function HomePage() {
           padding: 6px 10px;
           background: rgba(255, 255, 255, 0.03);
         }
-        .modules-placeholder-text {
+        .module-card {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .module-card-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        .module-card-title {
+          margin: 0;
+          color: var(--fg);
+          font-size: 14px;
+          font-weight: 600;
+        }
+        .module-card-text {
           color: var(--fg-muted);
           font-size: 13px;
           line-height: 1.6;
           margin: 0;
           max-width: 60ch;
+        }
+        .module-add,
+        .priority-button {
+          border: 1px solid var(--border);
+          background: rgba(255, 255, 255, 0.04);
+          color: var(--fg);
+          border-radius: 999px;
+          padding: 7px 12px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: background 120ms ease, border-color 120ms ease;
+        }
+        .module-add:hover,
+        .priority-button:hover:not(:disabled) {
+          background: rgba(255, 255, 255, 0.08);
+          border-color: rgba(255, 255, 255, 0.18);
+        }
+        .priority-button:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+        .priority-button-danger {
+          color: #ffb4b4;
+        }
+        .module-empty {
+          margin: 0;
+          color: var(--fg-muted);
+          font-size: 13px;
+          line-height: 1.6;
+        }
+        .priority-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .priority-row {
+          display: grid;
+          grid-template-columns: 30px minmax(0, 1fr) auto;
+          gap: 10px;
+          align-items: center;
+        }
+        .priority-index {
+          width: 30px;
+          height: 30px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--fg);
+          background: rgba(99, 102, 241, 0.16);
+          border: 1px solid rgba(99, 102, 241, 0.24);
+        }
+        .priority-actions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
         }
         .form-actions {
           display: flex;
@@ -396,6 +606,16 @@ export default function HomePage() {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
           gap: 16px;
+        }
+        @media (max-width: 760px) {
+          .priority-row {
+            grid-template-columns: 30px minmax(0, 1fr);
+          }
+          .priority-actions {
+            grid-column: 1 / -1;
+            justify-content: flex-start;
+            padding-left: 40px;
+          }
         }
         .persona {
           padding: 20px;
