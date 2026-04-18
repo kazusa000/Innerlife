@@ -42,3 +42,25 @@
 - **Verified**: `npm --workspace @mas/core test`；`npm --workspace @mas/systems test`；`npm --workspace @mas/core run typecheck`；`npm --workspace @mas/systems run typecheck`；`npm --workspace @mas/db run typecheck`；`npm --workspace @mas/observer run typecheck`；`npm --workspace @mas/web run build`
 - **Caveats**: token 估算目前是基于消息 JSON 字符数的粗略近似值，适合作为 Phase 1 触发阈值，不保证与 provider 真实计费 token 完全一致。
 - **Design deltas**: 为了让 compaction 仍以 AgentSystem 形式接入，但能在主 LLM 调用前改写 `messages`，我扩展了 `TurnContext`，新增可变 `messages` 与 `pendingCompaction`。具体压缩调用仍由 runner 执行，避免系统层直接持有 provider 依赖。
+
+## Coordinator Review Feedback (2026-04-18)
+
+**Verdict: FAIL — bounced back**
+
+第 2 条完成标准（"压缩后保留最近 N 条原文 + 一条摘要 system message"）实际执行时存在 high 级别 bug：
+
+**问题**：连续压缩会丢早期摘要。`packages/systems/src/compaction/summary.ts:41` 在下一轮 compaction 时把 `sourceMessages` 中所有 `role === 'system'` 的消息过滤掉。但上一轮 compaction 的结果由 `runner.ts:295` 写成了一条 `system` 摘要 message —— 等于：第二次压缩看不到第一次压缩的产物，长对话经过多次压缩后，最早期的事实/偏好/未解决任务会被逐步**永久丢失**。
+
+**复核证据**（reviewer 用 node 直接跑）：
+```
+{ "pending": true, "sourceHasSystem": false, "sourceCount": 20, "keepFirstRole": "user" }
+```
+`sourceHasSystem: false` = 已有摘要确实没被纳入新一轮压缩输入。
+
+**修复方向**（建议，不锁死）：
+- 在 `summary.ts` 区分"原始 system message"和"compaction 自己生成的 summary system message"。后者应该保留进入下一轮，前者按现行行为过滤
+- 简单办法：给 compaction 生成的 summary message 打一个 metadata/前缀（如 `Conversation summary so far:` 已经是固定前缀了，可以基于此识别），或者加一个特殊 marker
+- 或者：保留**最旧的一条 system summary**进入下一轮 source，与新历史合并重写
+- 加一条单测：连续触发两次 compaction，断言第二轮的 summary input 包含上一轮 summary 的内容
+
+**其他部分**：6 条标准里 5 条都过、所有 typecheck/test 全绿，是这一条逻辑漏洞。修完即可重新走 review。
