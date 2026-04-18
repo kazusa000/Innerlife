@@ -1,5 +1,5 @@
 {
-  "name": "@mas/core",
+  "name": "@mas/systems",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -8,10 +8,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test src/**/*.test.ts"
   },
-  "dependencies": {
-    "@mas/systems": "*",
-    "@anthropic-ai/sdk": "^0.52.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "tsx": "^4.21.0"
   }

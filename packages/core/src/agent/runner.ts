@@ -1,8 +1,9 @@
 import type { AgentConfig, AgentEvent } from './types'
 import type { LLMProvider, LLMResponse } from '../provider/types'
-import type { Message, ContentBlock, ToolDefinition, ToolUseBlock } from '../types'
+import type { Message, ContentBlock, TextBlock, ToolDefinition, ToolUseBlock } from '../types'
 import { toolsToDefinitions, executeTool } from '../tools/registry'
 import { isAbortError, throwIfAborted } from '../utils/abort'
+import type { AgentSystem, SystemPhase, TurnContext } from '@mas/systems'
 
 export interface RunAgentObserver {
   onLLMCallStart(payload: {
@@ -24,11 +25,15 @@ export async function* runAgent(
   config: AgentConfig,
   messages: Message[],
   provider: LLMProvider,
+  systems: AgentSystem[] = [],
   observer?: RunAgentObserver,
   signal?: AbortSignal,
 ): AsyncGenerator<AgentEvent> {
   const maxTurns = config.maxTurns ?? 20
   let turns = 0
+  const ctx = createTurnContext(config, messages)
+
+  yield* runSystemPhase(systems, 'beforeTurn', ctx)
 
   while (true) {
     try {
@@ -44,10 +49,13 @@ export async function* runAgent(
     }
 
     const toolDefs = toolsToDefinitions(config.tools)
+    ctx.promptFragments = []
+    yield* runSystemPhase(systems, 'beforeLLM', ctx)
+    const systemPrompt = composeSystemPrompt(config.systemPrompt, ctx.promptFragments)
 
     const callId = observer?.onLLMCallStart({
       model: config.model,
-      systemPrompt: config.systemPrompt,
+      systemPrompt,
       tools: toolDefs,
       messages: [...messages],
     })
@@ -57,7 +65,7 @@ export async function* runAgent(
     try {
       for await (const event of provider.streamMessage({
         model: config.model,
-        systemPrompt: config.systemPrompt,
+        systemPrompt,
         messages,
         tools: toolDefs,
         signal,
@@ -121,8 +129,15 @@ export async function* runAgent(
     }
 
     messages.push({ role: 'assistant', content: response.content })
+    ctx.response = {
+      content: response.content,
+      stopReason: response.stopReason,
+      usage: response.usage,
+    }
+    yield* runSystemPhase(systems, 'afterLLM', ctx)
 
     if (response.stopReason !== 'tool_use') {
+      yield* runSystemPhase(systems, 'afterTurn', ctx)
       yield { type: 'complete', response }
       return
     }
@@ -163,5 +178,80 @@ export async function* runAgent(
     }
 
     messages.push({ role: 'user', content: toolResults })
+  }
+}
+
+function createTurnContext(config: AgentConfig, messages: Message[]): TurnContext {
+  const lastUserMessage = [...messages].reverse().find((message) => message.role === 'user')
+  const inputText = extractUserText(lastUserMessage)
+
+  return {
+    agentId: config.id,
+    sessionId: config.sessionId ?? 'default-session',
+    userId: config.userId ?? 'default-user',
+    input: {
+      raw: inputText,
+      text: inputText,
+      modality: 'text',
+    },
+    state: {},
+    promptFragments: [],
+  }
+}
+
+function extractUserText(message?: Message): string {
+  if (!message) {
+    return ''
+  }
+
+  if (typeof message.content === 'string') {
+    return message.content
+  }
+
+  return message.content
+    .filter((block): block is TextBlock => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n')
+}
+
+function composeSystemPrompt(basePrompt: string, fragments: TurnContext['promptFragments']) {
+  if (fragments.length === 0) {
+    return basePrompt
+  }
+
+  const ordered = [...fragments].sort((a, b) => a.priority - b.priority)
+  return [basePrompt, ...ordered.map((fragment) => fragment.content)].join('\n\n')
+}
+
+async function* runSystemPhase(
+  systems: AgentSystem[],
+  phase: SystemPhase,
+  ctx: TurnContext,
+): AsyncGenerator<AgentEvent> {
+  const settled = await Promise.all(
+    systems.map(async (system) => {
+      const hook = system[phase]
+      if (!hook) {
+        return null
+      }
+
+      try {
+        await hook.call(system, ctx)
+        return null
+      } catch (error) {
+        return {
+          type: 'system_error' as const,
+          system: system.name,
+          phase,
+          error: error instanceof Error ? error : new Error(String(error)),
+        }
+      }
+    }),
+  )
+
+  for (const result of settled) {
+    if (result) {
+      yield result
+    }
   }
 }

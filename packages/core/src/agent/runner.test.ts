@@ -4,6 +4,8 @@ import { runAgent } from './runner'
 import type { AgentConfig } from './types'
 import type { LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent } from '../provider/types'
 import type { Tool } from '../tools/types'
+import type { ContentBlock } from '../types'
+import type { AgentSystem, TurnContext } from '@mas/systems'
 
 class FakeProvider implements LLMProvider {
   name = 'fake'
@@ -78,6 +80,7 @@ test('runAgent stops before executing a tool when signal aborts after tool-use r
     createConfig([tool]),
     [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
     provider,
+    [],
     undefined,
     abortController.signal,
   )) {
@@ -102,6 +105,7 @@ test('runAgent emits aborted when provider stream is cancelled mid-response', as
     createConfig(),
     [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
     provider,
+    [],
     undefined,
     abortController.signal,
   )) {
@@ -111,5 +115,213 @@ test('runAgent emits aborted when provider stream is cancelled mid-response', as
   assert.deepEqual(events, [
     { type: 'text_delta', text: 'hello' },
     { type: 'aborted' },
+  ])
+})
+
+test('runAgent composes sorted prompt fragments from systems before calling the provider', async () => {
+  const seen: { systemPrompt?: string } = {}
+
+  const provider = new FakeProvider(async function* (params) {
+    seen.systemPrompt = params.systemPrompt
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [{ type: 'text', text: 'done' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      },
+    }
+  })
+
+  const systems: AgentSystem[] = [
+    {
+      name: 'late-fragment',
+      type: 'debug',
+      async beforeLLM(ctx: TurnContext) {
+        ctx.promptFragments.push({
+          source: 'late-fragment',
+          priority: 50,
+          content: 'third',
+        })
+      },
+    },
+    {
+      name: 'early-fragment',
+      type: 'debug',
+      async beforeLLM(ctx: TurnContext) {
+        ctx.promptFragments.push({
+          source: 'early-fragment',
+          priority: 10,
+          content: 'first',
+        })
+      },
+    },
+    {
+      name: 'middle-fragment',
+      type: 'debug',
+      async beforeLLM(ctx: TurnContext) {
+        ctx.promptFragments.push({
+          source: 'middle-fragment',
+          priority: 20,
+          content: 'second',
+        })
+      },
+    },
+  ]
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig(),
+    [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    provider,
+    systems,
+  )) {
+    events.push(event)
+  }
+
+  assert.deepEqual(events, [
+    {
+      type: 'complete',
+      response: {
+        content: [{ type: 'text', text: 'done' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      },
+    },
+  ])
+  assert.equal(seen.systemPrompt, 'test\n\nfirst\n\nsecond\n\nthird')
+})
+
+test('runAgent emits system_error and continues when a system hook throws', async () => {
+  const provider = new FakeProvider(async function* (params) {
+    assert.equal(params.systemPrompt, 'test\n\nstill here')
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [{ type: 'text', text: 'ok' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      },
+    }
+  })
+
+  const systems: AgentSystem[] = [
+    {
+      name: 'broken-system',
+      type: 'debug',
+      async beforeLLM() {
+        throw new Error('hook failed')
+      },
+    },
+    {
+      name: 'healthy-system',
+      type: 'debug',
+      async beforeLLM(ctx: TurnContext) {
+        ctx.promptFragments.push({
+          source: 'healthy-system',
+          priority: 5,
+          content: 'still here',
+        })
+      },
+    },
+  ]
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig(),
+    [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    provider,
+    systems,
+  )) {
+    events.push(
+      event.type === 'error'
+        ? { type: 'error', error: event.error.message }
+        : event.type === 'system_error'
+          ? { type: 'system_error', system: event.system, error: event.error.message, phase: event.phase }
+          : event,
+    )
+  }
+
+  assert.deepEqual(events, [
+    {
+      type: 'system_error',
+      system: 'broken-system',
+      phase: 'beforeLLM',
+      error: 'hook failed',
+    },
+    {
+      type: 'complete',
+      response: {
+        content: [{ type: 'text', text: 'ok' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      },
+    },
+  ])
+})
+
+test('runAgent lets systems share turn state across lifecycle hooks', async () => {
+  const phases: string[] = []
+
+  const provider = new FakeProvider(async function* () {
+    phases.push('provider')
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [{ type: 'text', text: 'response' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 2, outputTokens: 3 },
+      },
+    }
+  })
+
+  const systems: AgentSystem[] = [
+    {
+      name: 'stateful-system',
+      type: 'debug',
+      async beforeTurn(ctx: TurnContext) {
+        phases.push('beforeTurn')
+        ctx.state.debug = { seenText: ctx.input.text }
+      },
+      async beforeLLM(ctx: TurnContext) {
+        phases.push('beforeLLM')
+        const debugState = ctx.state.debug as { seenText: string }
+        ctx.promptFragments.push({
+          source: 'stateful-system',
+          priority: 1,
+          content: `echo:${debugState.seenText}`,
+        })
+      },
+      async afterLLM(ctx: TurnContext) {
+        phases.push('afterLLM')
+        ctx.state.after = (ctx.response?.content[0] as ContentBlock & { type: 'text'; text: string }).text
+      },
+      async afterTurn(ctx: TurnContext) {
+        phases.push('afterTurn')
+        assert.deepEqual(ctx.state, {
+          debug: { seenText: 'hi there' },
+          after: 'response',
+        })
+      },
+    },
+  ]
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig(),
+    [{ role: 'user', content: [{ type: 'text', text: 'hi there' }] }],
+    provider,
+    systems,
+  )) {
+    events.push(event)
+  }
+
+  assert.equal(events.at(-1)?.type, 'complete')
+  assert.deepEqual(phases, [
+    'beforeTurn',
+    'beforeLLM',
+    'provider',
+    'afterLLM',
+    'afterTurn',
   ])
 })

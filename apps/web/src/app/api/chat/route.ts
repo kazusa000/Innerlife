@@ -9,6 +9,7 @@ import {
 import type { AgentConfig, Message } from '@mas/core'
 import { messageRepo, sessionRepo, agentRepo } from '@mas/db'
 import { createDbObserver, createNoopObserver } from '@mas/observer'
+import { createSystems } from '@mas/systems'
 import { initDb } from '@/lib/db-init'
 
 const INTERRUPTED_SUFFIX = ' —（中断）'
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
   const agent = session ? agentRepo.getAgent(session.agentId) : null
 
   const provider = new AnthropicProvider()
+  const systems = createSystems(agent?.modules ?? null)
   const toolPrompt = 'You can use tools to execute bash commands, read files, write files, and fetch web pages. Be concise.'
   const config: AgentConfig = {
     id: agent?.id ?? 'default',
@@ -52,6 +54,8 @@ export async function POST(request: Request) {
       : `You are a helpful AI assistant. ${toolPrompt}`,
     tools: [BashTool, FileReadTool, FileWriteTool, WebFetchTool],
     maxTurns: 10,
+    sessionId,
+    userId: 'default-user',
   }
 
   const encoder = new TextEncoder()
@@ -99,6 +103,7 @@ export async function POST(request: Request) {
           config,
           messages,
           provider,
+          systems,
           observer,
           request.signal,
         )) {
@@ -113,6 +118,13 @@ export async function POST(request: Request) {
           const serializable =
             event.type === 'error'
               ? { type: 'error', error: event.error.message || String(event.error) }
+              : event.type === 'system_error'
+                ? {
+                    type: 'system_error',
+                    system: event.system,
+                    phase: event.phase,
+                    error: event.error.message || String(event.error),
+                  }
               : event
           push(serializable)
 
