@@ -22,6 +22,7 @@ export {
   FileReadTool,
   FileWriteTool,
   WebFetchTool,
+  getDefaultTools,
   toolsToDefinitions,
   executeTool,
 } from './tools'

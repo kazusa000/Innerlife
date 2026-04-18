@@ -1,10 +1,7 @@
 import {
   runAgent,
   AnthropicProvider,
-  BashTool,
-  FileReadTool,
-  FileWriteTool,
-  WebFetchTool,
+  getDefaultTools,
 } from '@mas/core'
 import type { AgentConfig, Message } from '@mas/core'
 import { messageRepo, sessionRepo, agentRepo } from '@mas/db'
@@ -43,6 +40,7 @@ export async function POST(request: Request) {
   const agent = session ? agentRepo.getAgent(session.agentId) : null
 
   const provider = new AnthropicProvider()
+  const tools = getDefaultTools()
   const toolPrompt = 'You can use tools to execute bash commands, read files, write files, and fetch web pages. Be concise.'
   const config: AgentConfig = {
     id: agent?.id ?? 'default',
@@ -50,7 +48,7 @@ export async function POST(request: Request) {
     systemPrompt: agent?.description
       ? `You are ${agent.name}. ${agent.description}. ${toolPrompt}`
       : `You are a helpful AI assistant. ${toolPrompt}`,
-    tools: [BashTool, FileReadTool, FileWriteTool, WebFetchTool],
+    tools,
     maxTurns: 10,
   }
 
