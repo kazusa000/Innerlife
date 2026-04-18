@@ -40,5 +40,5 @@ export interface AgentSystem {
 }
 
 export type AgentModules = Record<string, unknown> | null | undefined
-export type SystemFactory = () => AgentSystem
+export type SystemFactory = (config?: unknown) => AgentSystem
 export type SystemRegistry = Record<string, Record<string, SystemFactory>>
