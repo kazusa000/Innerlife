@@ -481,15 +481,20 @@ export default function HomePage() {
               </label>
               <label className="field">
                 <span className="field-label">Model</span>
-                <select
+                <input
                   className="input"
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                >
-                  <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
-                  <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
-                  <option value="claude-opus-4-6">Claude Opus 4.6</option>
-                </select>
+                  placeholder="e.g. claude-sonnet-4-6, deepseek-chat, deepseek-reasoner"
+                  list="model-suggestions"
+                />
+                <datalist id="model-suggestions">
+                  <option value="claude-sonnet-4-6" />
+                  <option value="claude-haiku-4-5-20251001" />
+                  <option value="claude-opus-4-6" />
+                  <option value="deepseek-chat" />
+                  <option value="deepseek-reasoner" />
+                </datalist>
               </label>
 
               <section className="modules-panel" aria-label="Modules configuration">
