@@ -15,6 +15,7 @@
     "@mas/core": "*",
     "@mas/db": "*",
     "@mas/observer": "*",
+    "@mas/systems": "*",
     "drizzle-orm": "^0.44.2",
     "next": "^15.3.2",
     "react": "^19.1.0",
