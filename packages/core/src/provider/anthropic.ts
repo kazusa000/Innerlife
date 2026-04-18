@@ -7,9 +7,10 @@ export class AnthropicProvider implements LLMProvider {
   name = 'anthropic'
   private client: Anthropic
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, baseURL?: string) {
     this.client = new Anthropic({
       apiKey: apiKey ?? process.env.ANTHROPIC_API_KEY,
+      baseURL: baseURL ?? process.env.ANTHROPIC_BASE_URL,
     })
   }
 
