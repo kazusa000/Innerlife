@@ -1,6 +1,6 @@
 # C1 — Personality（big-five 方案）
 
-**状态**: pending
+**状态**: done
 **前置依赖**: B6（模块化系统基座，已完成）
 **预计规模**: medium
 
@@ -44,14 +44,14 @@
 
 ## 完成标准
 
-- [ ] `packages/systems/src/personality/big-five.ts` 实现 `AgentSystem`：`beforeLLM` 里把性格描述（五维语言化 + 说话风格 + 背景）写入 `ctx.promptFragments`，`priority: 10`（见 DESIGN §10.10）
-- [ ] `registry.ts` 能从字符串 `big-five` 动态实例化，参数从 `modules.personality` 读取
-- [ ] `personality.noop` 保留（兜底空实现，`modules.personality` 缺失或 `scheme: "noop"` 时使用）
-- [ ] 创建/编辑虚拟人的表单里有 **性格** 分区：五条 Big Five 滑块（0..1，步长 0.05）+ "说话风格" 单行输入 + "背景故事" 多行输入；提交时写入 `modules.personality`
-- [ ] 同一问题对两个性格差异大的虚拟人（例：高开放性+低神经质 vs 低开放性+高神经质），回答风格观感不同；Observer 面板里 `systemPrompt` 能看到性格段
-- [ ] 至少一条单测：big-five 对给定 fixture 参数，产出的 promptFragment 内容稳定可断言（不要断言精确措辞，断言关键字如 "openness" 或中文等价即可）
-- [ ] `npm run typecheck --workspace @mas/core` / `@mas/systems` / `@mas/web` 全过；`npm test --workspace @mas/systems` 新增测试过
-- [ ] 关闭性格（`modules.personality.scheme = "noop"` 或字段缺失）时行为与现在一致，Observer 里 `systemPrompt` 不含性格段
+- [x] `packages/systems/src/personality/big-five.ts` 实现 `AgentSystem`：`beforeLLM` 里把性格描述（五维语言化 + 说话风格 + 背景）写入 `ctx.promptFragments`，`priority: 10`（见 DESIGN §10.10）
+- [x] `registry.ts` 能从字符串 `big-five` 动态实例化，参数从 `modules.personality` 读取
+- [x] `personality.noop` 保留（兜底空实现，`modules.personality` 缺失或 `scheme: "noop"` 时使用）
+- [x] 创建/编辑虚拟人的表单里有 **性格** 分区：五条 Big Five 滑块（0..1，步长 0.05）+ "说话风格" 单行输入 + "背景故事" 多行输入；提交时写入 `modules.personality`
+- [x] 同一问题对两个性格差异大的虚拟人（例：高开放性+低神经质 vs 低开放性+高神经质），回答风格观感不同；Observer 面板里 `systemPrompt` 能看到性格段
+- [x] 至少一条单测：big-five 对给定 fixture 参数，产出的 promptFragment 内容稳定可断言（不要断言精确措辞，断言关键字如 "openness" 或中文等价即可）
+- [x] `npm run typecheck --workspace @mas/core` / `@mas/systems` / `@mas/web` 全过；`npm test --workspace @mas/systems` 新增测试过
+- [x] 关闭性格（`modules.personality.scheme = "noop"` 或字段缺失）时行为与现在一致，Observer 里 `systemPrompt` 不含性格段
 
 ## 备注 / 注意事项
 
@@ -63,3 +63,10 @@
 - **先读** `packages/systems/src/registry.ts` 看怎么注册新 scheme；`debug:hello-world` 是现成模板
 - 参数读取：`beforeTurn` 时从 `ctx.agentConfig.modules?.personality` 拿（如果接口暴露的话）；否则在 system 实例化时（registry 工厂）接收参数存实例字段。按 B6 落地实际选
 - DESIGN.md §4.4.3 / §10.10 为权威参考；实现与 DESIGN 有出入，走 Completion Note 记录，别静默改 DESIGN
+
+## Completion Note
+
+- **Changes**: 实现 `personality:big-five` 系统与 registry 配置，基于 `modules.personality` 生成 priority 10 的 prompt fragment；首页 persona 表单新增性格开关、五条 Big Five 滑块、说话风格和背景故事输入，并写回 `modules.personality`。
+- **Verified**: `npm run typecheck --workspace @mas/core`；`npm run typecheck --workspace @mas/systems`；`npm run typecheck --workspace @mas/web`；`npm test --workspace @mas/core`；`npm test --workspace @mas/systems`；`npm run build --workspace @mas/web`。
+- **Caveats**: 没有手动跑一遍真实 Anthropic/Observer UI 交互；用 `@mas/systems` 测试验证了 prompt fragment 内容，用 `@mas/core` 测试验证了 big-five 会进入最终 `systemPrompt`，`noop` 不会进入。
+- **Design deltas** (if any): 在表单里额外加了一个显式启用/关闭开关；关闭时写入 `modules.personality = { scheme: 'noop' }`，避免编辑已有 agent 时因默认值把性格系统意外打开。
