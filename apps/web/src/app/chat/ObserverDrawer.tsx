@@ -6,7 +6,7 @@ import { MessagesView, ResponseView } from '@/lib/call-renderers'
 export interface LiveCall {
   callId: string
   turnIndex: number
-  kind?: 'turn' | 'compaction'
+  kind?: 'turn' | 'compaction' | 'memory'
   model: string
   systemPrompt: string
   tools: unknown[]
@@ -25,10 +25,20 @@ interface Props {
   setActiveCallId: (id: string | null) => void
 }
 
-type Tab = 'system' | 'tools' | 'history' | 'response'
+type Tab = 'system' | 'tools' | 'history' | 'metadata' | 'response'
 
 const INPUT_TABS: Tab[] = ['system', 'tools', 'history']
 const OUTPUT_TABS: Tab[] = ['response']
+
+function describeCallKind(kind?: LiveCall['kind']) {
+  if (kind === 'compaction') {
+    return 'compact'
+  }
+  if (kind === 'memory') {
+    return 'memory'
+  }
+  return 'call'
+}
 
 function tabButton(t: Tab, active: Tab, setTab: (t: Tab) => void) {
   return (
@@ -104,7 +114,7 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
                 whiteSpace: 'nowrap',
               }}
             >
-              {c.kind === 'compaction' ? 'compact' : 'call'} #{c.turnIndex} {c.finished ? '✓' : '…'}
+              {describeCallKind(c.kind)} #{c.turnIndex} {c.finished ? '✓' : '…'}
             </button>
           ))}
         </div>
@@ -125,7 +135,8 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
             <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
               input
             </span>
-            {INPUT_TABS.map((t) => tabButton(t, tab, setTab))}
+            {[...INPUT_TABS, ...(active.metadata !== undefined ? ['metadata' as const] : [])]
+              .map((t) => tabButton(t, tab, setTab))}
             <span style={{ flex: 1 }} />
             <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
               output
@@ -146,6 +157,7 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
             {tab === 'system' && active.systemPrompt}
             {tab === 'tools' && JSON.stringify(active.tools, null, 2)}
             {tab === 'history' && <MessagesView messages={active.messages} />}
+            {tab === 'metadata' && JSON.stringify(active.metadata ?? null, null, 2)}
             {tab === 'response' && (
               <ResponseView
                 response={active.response}

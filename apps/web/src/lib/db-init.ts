@@ -49,6 +49,16 @@ export function initDb() {
       duration_ms INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
+    CREATE TABLE IF NOT EXISTS memories (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id),
+      session_id TEXT NOT NULL REFERENCES sessions(id),
+      content TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      tags TEXT NOT NULL,
+      importance REAL NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
     CREATE TABLE IF NOT EXISTS llm_calls (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -68,6 +78,8 @@ export function initDb() {
       finished_at INTEGER,
       error TEXT
     );
+    CREATE INDEX IF NOT EXISTS idx_memories_agent_created_at ON memories(agent_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_memories_agent_id ON memories(agent_id);
     CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id, started_at);
     CREATE INDEX IF NOT EXISTS idx_llm_calls_user_msg ON llm_calls(user_message_id, turn_index);
   `)

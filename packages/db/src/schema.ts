@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core'
 
 export const agents = sqliteTable('agents', {
   id: text('id').primaryKey(),
@@ -65,6 +65,26 @@ export const toolExecutions = sqliteTable('tool_executions', {
     .$defaultFn(() => new Date()),
 })
 
+export const memories = sqliteTable('memories', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id')
+    .notNull()
+    .references(() => agents.id),
+  sessionId: text('session_id')
+    .notNull()
+    .references(() => sessions.id),
+  content: text('content').notNull(),
+  summary: text('summary').notNull(),
+  tags: text('tags').notNull(),
+  importance: real('importance').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (table) => ({
+  agentCreatedAtIdx: index('idx_memories_agent_created_at').on(table.agentId, table.createdAt),
+  agentIdIdx: index('idx_memories_agent_id').on(table.agentId),
+}))
+
 export const llmCalls = sqliteTable('llm_calls', {
   id: text('id').primaryKey(),
   sessionId: text('session_id')
@@ -74,7 +94,7 @@ export const llmCalls = sqliteTable('llm_calls', {
     .notNull()
     .references(() => messages.id),
   turnIndex: integer('turn_index').notNull(),
-  kind: text('kind', { enum: ['turn', 'compaction'] })
+  kind: text('kind', { enum: ['turn', 'compaction', 'memory'] })
     .notNull()
     .default('turn'),
   model: text('model').notNull(),

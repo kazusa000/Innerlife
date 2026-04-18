@@ -39,6 +39,33 @@ export interface PendingCompaction {
   keepMessages: ConversationMessage[]
 }
 
+export interface MemoryRecord {
+  id: string
+  agentId: string
+  sessionId: string
+  content: string
+  summary: string
+  tags: string[]
+  importance: number
+  createdAt: Date
+}
+
+export interface MemoryWriteResult {
+  summary: string
+  tags: string[]
+  importance: number
+}
+
+export interface PendingMemoryWrite {
+  kind: 'sqlite'
+  system: string
+  model?: string | null
+  prompt: string
+  sourceText: string
+  parse(responseText: string): MemoryWriteResult
+  persist(result: MemoryWriteResult): Promise<void> | void
+}
+
 export interface TurnContext {
   agentId: string
   sessionId: string
@@ -49,10 +76,15 @@ export interface TurnContext {
     modality: 'text' | 'image' | 'audio'
     perception?: Record<string, unknown>
   }
-  state: Record<string, unknown>
+  state: {
+    memories?: MemoryRecord[]
+    [key: string]: unknown
+  }
+  turnMetadata: Record<string, unknown>
   promptFragments: PromptFragment[]
   messages: ConversationMessage[]
   pendingCompaction?: PendingCompaction
+  pendingMemoryWrite?: PendingMemoryWrite
   response?: {
     content: unknown[]
     stopReason: string
