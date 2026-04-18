@@ -4,7 +4,7 @@ import { runAgent } from './runner'
 import type { AgentConfig } from './types'
 import type { LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent } from '../provider/types'
 import type { Tool } from '../tools/types'
-import type { ContentBlock, Message } from '../types'
+import type { ContentBlock, Message, ToolDefinition } from '../types'
 import { createSystems, type AgentSystem, type TurnContext } from '@mas/systems'
 
 class FakeProvider implements LLMProvider {
@@ -519,5 +519,149 @@ test('runAgent compacts older messages before the main LLM call and records comp
         createTextMessage((index + 25) % 2 === 0 ? 'user' : 'assistant', `message ${index + 25}`),
       ),
     ],
+  })
+})
+
+test('runAgent executes pending emotion analysis as a separate observer call and exposes parsed deltas to afterTurn', async () => {
+  const observerStarts: Array<{ kind: string; model: string; systemPrompt: string }> = []
+  const observerEnds: Array<{ callId: string; metadata?: Record<string, unknown> }> = []
+  const seen: { emotionRequest?: LLMRequest; analysis?: unknown } = {}
+
+  const provider: LLMProvider = {
+    name: 'fake',
+    async *streamMessage(params) {
+      assert.equal(params.model, 'fake-model')
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: 'answer' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 8, outputTokens: 6 },
+        },
+      }
+    },
+    async sendMessage(params) {
+      seen.emotionRequest = params
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              mood_delta: -0.25,
+              energy_delta: 0.1,
+              stress_delta: 0.2,
+              trigger: '用户用了责备语气',
+            }),
+          },
+        ],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 5, outputTokens: 7 },
+      }
+    },
+  }
+
+  const systems: AgentSystem[] = [
+    {
+      name: 'emotion:dimensional',
+      type: 'emotion',
+      async afterLLM(ctx: TurnContext) {
+        ctx.pendingEmotionAnalysis = {
+          kind: 'dimensional',
+          model: 'claude-haiku-4-5-20251001',
+          systemPrompt: 'Return JSON for emotion deltas only.',
+          messages: [
+            createTextMessage('user', 'User said: 你怎么这么慢\nAssistant said: answer'),
+          ],
+          currentState: {
+            mood: 0.1,
+            energy: 0.2,
+            stress: 0.3,
+          },
+          baseline: {
+            mood: 0,
+            energy: 0,
+            stress: 0,
+          },
+          decayPerTurn: 0.15,
+        }
+      },
+      async afterTurn(ctx: TurnContext) {
+        seen.analysis = clone(ctx.emotionAnalysis)
+      },
+    },
+  ]
+
+  const observer = {
+    onLLMCallStart(payload: {
+      kind: 'turn' | 'compaction' | 'emotion'
+      model: string
+      systemPrompt: string
+      tools: ToolDefinition[]
+      messages: Message[]
+    }) {
+      observerStarts.push({
+        kind: payload.kind,
+        model: payload.model,
+        systemPrompt: payload.systemPrompt,
+      })
+      return `call-${observerStarts.length}`
+    },
+    onLLMCallEnd(callId: string, payload: {
+      response: ContentBlock[]
+      stopReason: LLMResponse['stopReason']
+      usage: { inputTokens: number; outputTokens: number }
+      metadata?: Record<string, unknown>
+      error?: string
+    }) {
+      observerEnds.push({ callId, metadata: clone(payload.metadata) })
+    },
+  }
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig(),
+    [createTextMessage('user', 'hello')],
+    provider,
+    systems,
+    observer,
+  )) {
+    events.push(event)
+  }
+
+  assert.deepEqual(events, [
+    {
+      type: 'complete',
+      response: {
+        content: [{ type: 'text', text: 'answer' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 8, outputTokens: 6 },
+      },
+    },
+  ])
+  assert.equal(seen.emotionRequest?.model, 'claude-haiku-4-5-20251001')
+  assert.equal(seen.emotionRequest?.systemPrompt, 'Return JSON for emotion deltas only.')
+  assert.deepEqual(observerStarts.map((item) => item.kind), ['turn', 'emotion'])
+  assert.deepEqual(seen.analysis, {
+    delta: {
+      mood: -0.25,
+      energy: 0.1,
+      stress: 0.2,
+    },
+    trigger: '用户用了责备语气',
+    rawResponse: '{"mood_delta":-0.25,"energy_delta":0.1,"stress_delta":0.2,"trigger":"用户用了责备语气"}',
+  })
+  assert.deepEqual(observerEnds[1]?.metadata, {
+    currentState: {
+      mood: 0.1,
+      energy: 0.2,
+      stress: 0.3,
+    },
+    delta: {
+      mood: -0.25,
+      energy: 0.1,
+      stress: 0.2,
+    },
+    trigger: '用户用了责备语气',
+    decayPerTurn: 0.15,
   })
 })

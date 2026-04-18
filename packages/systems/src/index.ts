@@ -4,9 +4,12 @@ export type {
   CompactionReason,
   ConversationBlock,
   ConversationMessage,
+  EmotionAnalysisResult,
+  EmotionStateVector,
   MemoryRecord,
   MemoryWriteResult,
   PendingCompaction,
+  PendingEmotionAnalysis,
   PendingMemoryWrite,
   PromptFragment,
   SystemFactory,
@@ -21,6 +24,14 @@ export {
   DEFAULT_MAX_MESSAGES,
   SummaryCompactionSystem,
 } from './compaction'
+export {
+  DEFAULT_BASELINE as DEFAULT_EMOTION_BASELINE,
+  applyDecayAndDelta,
+  buildEmotionFragment,
+  DimensionalEmotionSystem,
+  normalizeEmotionConfig,
+  normalizeEmotionState,
+} from './emotion'
 export { MemorySqliteSystem } from './memory'
 export { NoopSystem, HelloWorldSystem } from './noop'
 export { ValuesPriorityListSystem } from './values'

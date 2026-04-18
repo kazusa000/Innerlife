@@ -66,6 +66,28 @@ export interface PendingMemoryWrite {
   persist(result: MemoryWriteResult): Promise<void> | void
 }
 
+export interface EmotionStateVector {
+  mood: number
+  energy: number
+  stress: number
+}
+
+export interface PendingEmotionAnalysis {
+  kind: 'dimensional'
+  model?: string | null
+  systemPrompt: string
+  messages: ConversationMessage[]
+  currentState: EmotionStateVector
+  baseline: EmotionStateVector
+  decayPerTurn: number
+}
+
+export interface EmotionAnalysisResult {
+  delta: EmotionStateVector
+  trigger: string | null
+  rawResponse: string
+}
+
 export interface TurnContext {
   agentId: string
   sessionId: string
@@ -85,6 +107,8 @@ export interface TurnContext {
   messages: ConversationMessage[]
   pendingCompaction?: PendingCompaction
   pendingMemoryWrite?: PendingMemoryWrite
+  pendingEmotionAnalysis?: PendingEmotionAnalysis
+  emotionAnalysis?: EmotionAnalysisResult
   response?: {
     content: unknown[]
     stopReason: string

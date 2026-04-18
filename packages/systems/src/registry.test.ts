@@ -107,3 +107,8 @@ test('createSystems keeps memory noop disabled', () => {
   assert.deepEqual(createSystems({ memory: { scheme: 'noop' } }), [])
   assert.deepEqual(createSystems({ memory: {} }), [])
 })
+
+test('createSystems treats noop emotion configs as disabled', () => {
+  assert.deepEqual(createSystems({ emotion: { scheme: 'noop' } }), [])
+  assert.deepEqual(createSystems({ emotion: {} }), [])
+})

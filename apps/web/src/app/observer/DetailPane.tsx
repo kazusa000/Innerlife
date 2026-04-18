@@ -1,16 +1,17 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CompactionView, MessagesView, ResponseView } from '@/lib/call-renderers'
+import { CompactionView, EmotionView, MessagesView, ResponseView } from '@/lib/call-renderers'
 
 interface CallDetail {
   id: string
-  kind: 'turn' | 'compaction' | 'memory'
+  kind: 'turn' | 'compaction' | 'memory' | 'emotion'
   model: string
   systemPrompt: string
   tools: unknown
   messages: unknown
   metadata: unknown
+  latestEmotionState: unknown
   response: unknown
   stopReason: string | null
   inputTokens: number | null
@@ -24,7 +25,7 @@ interface Props {
   callId: string | null
 }
 
-type Tab = 'system' | 'tools' | 'history' | 'metadata' | 'compaction' | 'response'
+type Tab = 'system' | 'tools' | 'history' | 'metadata' | 'compaction' | 'emotion' | 'response'
 const OUTPUT_TABS: Tab[] = ['response']
 
 export function DetailPane({ callId }: Props) {
@@ -65,6 +66,7 @@ export function DetailPane({ callId }: Props) {
     'history',
     ...(detail.metadata !== null ? ['metadata' as const] : []),
     ...(detail.kind === 'compaction' ? ['compaction' as const] : []),
+    ...(detail.kind === 'emotion' || detail.latestEmotionState ? ['emotion' as const] : []),
   ]
 
   return (
@@ -139,6 +141,12 @@ export function DetailPane({ callId }: Props) {
         {tab === 'history' && <MessagesView messages={detail.messages} />}
         {tab === 'metadata' && JSON.stringify(detail.metadata ?? null, null, 2)}
         {tab === 'compaction' && <CompactionView metadata={detail.metadata} />}
+        {tab === 'emotion' && (
+          <EmotionView
+            metadata={detail.metadata}
+            latestState={detail.latestEmotionState}
+          />
+        )}
         {tab === 'response' && (
           <ResponseView
             response={detail.response}

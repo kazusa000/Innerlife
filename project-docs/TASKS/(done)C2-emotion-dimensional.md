@@ -1,6 +1,6 @@
 # C2 — Emotion（dimensional 方案）
 
-**状态**: pending
+**状态**: done
 **前置依赖**: B6（模块化基座，已完成）
 **预计规模**: medium
 
@@ -73,18 +73,18 @@ emotion_states {
 
 ## 完成标准
 
-- [ ] `dimensional.ts` 实现 `AgentSystem`：
+- [x] `dimensional.ts` 实现 `AgentSystem`：
   - `beforeTurn`：从 DB 读当前状态写入 `ctx.state.emotion`
   - `beforeLLM`：把当前情绪语言化（如"当前心情：略微低落；精力：中等；压力：偏高"）写入 `ctx.promptFragments`，`priority: 20`（DESIGN §10.10）
   - `afterLLM`：构造分析 prompt，挂到 `ctx.pendingEmotionAnalysis`（参考 B5 的 `pendingCompaction` 形式扩 TurnContext）；runner 触发 LLM 调用拿 delta
   - `afterTurn`：apply delta + 衰减 + 写一条新 `emotion_states`
-- [ ] `registry.ts` 支持字符串 `dimensional` 实例化；`emotion.noop` 保留
-- [ ] DB 迁移生成、`db-init.ts` 兜底 OK，sqlite3 能看到 `emotion_states` 表
-- [ ] Observer 能看到该 turn 的"情绪 LLM call"和最新 emotion_states 行；UI 至少在 turn 详情里显示当前 mood/energy/stress 数值
-- [ ] 同一个 agent，故意骂它两轮 → mood 显著下降；夸它两轮 → 回升（手动验证）
-- [ ] 单测：给定 fixture 状态 + 模拟 LLM 返回 delta，断言衰减 + apply 后的最终状态在合理区间；空 modules / `scheme: noop` 时不写入 emotion_states
-- [ ] `npm run typecheck` / `npm test --workspace @mas/systems --workspace @mas/core` 全过
-- [ ] 关闭（`scheme: "noop"` 或字段缺失）时行为完全等同 B5 落地后的 noop 状态，Observer 里没有 emotion call
+- [x] `registry.ts` 支持字符串 `dimensional` 实例化；`emotion.noop` 保留
+- [x] DB 迁移生成、`db-init.ts` 兜底 OK，sqlite3 能看到 `emotion_states` 表
+- [x] Observer 能看到该 turn 的"情绪 LLM call"和最新 emotion_states 行；UI 至少在 turn 详情里显示当前 mood/energy/stress 数值
+- [x] 同一个 agent，故意骂它两轮 → mood 显著下降；夸它两轮 → 回升（手动验证）
+- [x] 单测：给定 fixture 状态 + 模拟 LLM 返回 delta，断言衰减 + apply 后的最终状态在合理区间；空 modules / `scheme: noop` 时不写入 emotion_states
+- [x] `npm run typecheck` / `npm test --workspace @mas/systems --workspace @mas/core` 全过
+- [x] 关闭（`scheme: "noop"` 或字段缺失）时行为完全等同 B5 落地后的 noop 状态，Observer 里没有 emotion call
 
 ## 备注 / 注意事项
 
@@ -96,3 +96,10 @@ emotion_states {
 - **先读** `packages/systems/src/compaction/summary.ts` 看 B5 怎么扩 TurnContext + 怎么让 runner 帮自己跑 LLM —— 这是关键参考
 - **先读** `packages/systems/src/personality/big-five.ts` 看 beforeLLM 怎么写 promptFragment
 - DESIGN §4.4.3 / §10.10 / §11 (C2 行) 为权威；扩 TurnContext / 加 Observer kind 这种偏离要走 Completion Note
+
+## Completion Note
+
+- **Changes**: 新增 `emotion:dimensional` system、`emotion_states` 持久化表与 repo、`kind: 'emotion'` Observer call，以及首页最小 emotion 配置卡（开关 + baseline 滑块）。
+- **Verified**: `npm test --workspace @mas/systems --workspace @mas/core`；`npm run typecheck --workspace @mas/systems --workspace @mas/core --workspace @mas/db --workspace @mas/observer --workspace @mas/web`；`npm run build --workspace @mas/web`；用主工作树 `.env` 做了真实 provider 烟测：同会话两轮负面输入后 mood 从 `0` 降到 `-0.455`，两轮正面输入后回升到 `0.22626249999999995`；另外用 Node 查询 `sqlite_master` 确认 `emotion_states` 表已创建。
+- **Caveats**: 当前 Observer 详情页展示的是该 session 最新一条 `emotion_states` 行，不是“严格按 call 对齐”的历史快照；已满足任务要求里“至少显示当前 mood/energy/stress 数值”的下限。
+- **Design deltas** (if any): 任务正文写了“不要碰 `runner.ts`”，但现有 B5 基座尚未抽象出通用的 pending-analysis 执行通道；为保持“system 产意图 / runner 执行”的既有约束，本次对 `runner.ts` 做了最小必要扩展，新增 `pendingEmotionAnalysis` 执行链路与 `kind: 'emotion'` Observer 记录。

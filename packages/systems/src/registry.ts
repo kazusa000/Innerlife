@@ -1,4 +1,5 @@
 import { SummaryCompactionSystem } from './compaction'
+import { DimensionalEmotionSystem } from './emotion'
 import { MemorySqliteSystem } from './memory'
 import { HelloWorldSystem, NoopSystem } from './noop'
 import { BigFivePersonalitySystem } from './personality'
@@ -13,6 +14,10 @@ export const systemRegistry: SystemRegistry = {
   debug: {
     noop: () => new NoopSystem('debug'),
     'hello-world': () => new HelloWorldSystem(),
+  },
+  emotion: {
+    noop: () => new NoopSystem('emotion'),
+    dimensional: (config) => new DimensionalEmotionSystem(config),
   },
   memory: {
     noop: () => new NoopSystem('memory'),

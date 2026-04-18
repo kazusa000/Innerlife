@@ -238,6 +238,53 @@ export function CompactionView({ metadata }: { metadata: unknown }) {
   )
 }
 
+export function EmotionView({
+  metadata,
+  latestState,
+}: {
+  metadata: unknown
+  latestState: unknown
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div>
+        <div
+          style={{
+            fontSize: 10,
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            color: '#f0883e',
+            marginBottom: 6,
+            fontWeight: 600,
+          }}
+        >
+          Analysis
+        </div>
+        <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+          {JSON.stringify(metadata ?? null, null, 2)}
+        </pre>
+      </div>
+      <div>
+        <div
+          style={{
+            fontSize: 10,
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            color: '#7ee787',
+            marginBottom: 6,
+            fontWeight: 600,
+          }}
+        >
+          Latest emotion_state row
+        </div>
+        <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+          {JSON.stringify(latestState ?? null, null, 2)}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
 export function ResponseInfoBar({
   stopReason,
   inputTokens,

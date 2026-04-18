@@ -8,15 +8,17 @@ import type {
   AgentSystem,
   ConversationBlock,
   ConversationMessage,
-  PendingMemoryWrite,
+  EmotionAnalysisResult,
   PendingCompaction,
+  PendingEmotionAnalysis,
+  PendingMemoryWrite,
   SystemPhase,
   TurnContext,
 } from '@mas/systems'
 
 export interface RunAgentObserver {
   onLLMCallStart(payload: {
-    kind: 'turn' | 'compaction' | 'memory'
+    kind: 'turn' | 'compaction' | 'memory' | 'emotion'
     model: string
     systemPrompt: string
     tools: ToolDefinition[]
@@ -62,6 +64,8 @@ export async function* runAgent(
     const toolDefs = toolsToDefinitions(config.tools)
     ctx.promptFragments = []
     ctx.pendingCompaction = undefined
+    ctx.pendingEmotionAnalysis = undefined
+    ctx.emotionAnalysis = undefined
     ctx.messages = messages
     yield* runSystemPhase(systems, 'beforeLLM', ctx)
     const baseSystemPrompt = composeSystemPrompt(config.systemPrompt, ctx.promptFragments)
@@ -173,6 +177,23 @@ export async function* runAgent(
 
     if (response.stopReason !== 'tool_use') {
       ctx.pendingMemoryWrite = undefined
+
+      const emotion = await runPendingEmotionAnalysis(
+        ctx.pendingEmotionAnalysis,
+        config,
+        provider,
+        observer,
+        signal,
+      )
+
+      if (emotion.event) {
+        yield emotion.event
+      }
+
+      if (emotion.analysis) {
+        ctx.emotionAnalysis = emotion.analysis
+      }
+
       yield* runSystemPhase(systems, 'afterTurn', ctx)
       const memoryWrite = await runPendingMemoryWrite(
         ctx.pendingMemoryWrite,
@@ -464,6 +485,114 @@ async function runPendingMemoryWrite(
         type: 'system_error',
         system: pending.system,
         phase: 'afterTurn',
+        error: err,
+      },
+    }
+  }
+}
+
+function clampSigned(value: unknown): number {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return 0
+  }
+
+  return Math.min(1, Math.max(-1, value))
+}
+
+function parseEmotionAnalysis(rawResponse: string): EmotionAnalysisResult {
+  const trimmed = rawResponse.trim()
+  const withoutFence = trimmed.startsWith('```')
+    ? trimmed
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim()
+    : trimmed
+  const record = JSON.parse(withoutFence) as {
+    mood_delta?: unknown
+    energy_delta?: unknown
+    stress_delta?: unknown
+    trigger?: unknown
+  }
+
+  return {
+    delta: {
+      mood: clampSigned(record.mood_delta),
+      energy: clampSigned(record.energy_delta),
+      stress: clampSigned(record.stress_delta),
+    },
+    trigger:
+      typeof record.trigger === 'string' && record.trigger.trim()
+        ? record.trigger.trim()
+        : null,
+    rawResponse: withoutFence,
+  }
+}
+
+async function runPendingEmotionAnalysis(
+  pending: PendingEmotionAnalysis | undefined,
+  config: AgentConfig,
+  provider: LLMProvider,
+  observer?: RunAgentObserver,
+  signal?: AbortSignal,
+): Promise<{
+  analysis?: EmotionAnalysisResult
+  event?: Extract<AgentEvent, { type: 'system_error' }>
+}> {
+  if (!pending) {
+    return {}
+  }
+
+  const model = pending.model ?? config.model
+  const callId = observer?.onLLMCallStart({
+    kind: 'emotion',
+    model,
+    systemPrompt: pending.systemPrompt,
+    tools: [],
+    messages: cloneMessages(pending.messages as Message[]),
+  })
+
+  try {
+    const response = await provider.sendMessage({
+      model,
+      systemPrompt: pending.systemPrompt,
+      messages: pending.messages as Message[],
+      signal,
+    })
+
+    const analysis = parseEmotionAnalysis(extractContentText(response.content))
+
+    if (callId !== undefined && observer) {
+      observer.onLLMCallEnd(callId, {
+        response: response.content,
+        stopReason: response.stopReason,
+        usage: response.usage,
+        metadata: {
+          currentState: pending.currentState,
+          delta: analysis.delta,
+          trigger: analysis.trigger,
+          decayPerTurn: pending.decayPerTurn,
+        },
+      })
+    }
+
+    return { analysis }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+
+    if (callId !== undefined && observer) {
+      observer.onLLMCallEnd(callId, {
+        response: [],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 0, outputTokens: 0 },
+        error: err.message,
+      })
+    }
+
+    return {
+      event: {
+        type: 'system_error',
+        system: 'emotion:dimensional',
+        phase: 'afterLLM',
         error: err,
       },
     }
