@@ -3,7 +3,7 @@
 > 这个文件用大白话记录系统**目前能做什么**。由 Coordinator 在 TASK 归档到 `TASKS/done/` 之后统一更新。
 > 不写未来计划（路线图见 `DESIGN.md §11`）。
 
-最后更新：2026-04-17
+最后更新：2026-04-18
 
 ---
 
@@ -28,6 +28,7 @@
 - **除 bash 外新增三件套工具**：`file_read`（读文件，超 100KB 自动裁剪）、`file_write`（create / overwrite / append 三种模式，自动建父目录）、`web_fetch`（30s 超时、HTML 去噪转纯文本）
 - **创建虚拟人表单保留"模块配置"占位区**：数据层已加 `agents.modules` JSON 字段，为后续 B6 模块化系统做准备；当前还未启用运行时行为
 - **开启 `OBSERVER_ENABLED=1` 后可观测 AI 每轮内部**：聊天页 观测抽屉实时看完整 prompt / 工具 schema / LLM 响应；独立 `/observer` 页事后回放 + 清空
+- **工具自动注册**：`packages/core/src/tools/*.ts` 里导出 `export const XxxTool: Tool = {...}`，启动前（`predev/prebuild/prestart`）扫描生成 `generated.ts`，`registry.getDefaultTools()` 统一供给 chat 路由；加新工具只需加文件，不再改注册数组
 
 ---
 
@@ -97,6 +98,5 @@ cd apps/web && npx next dev --turbopack
 为了避免误解，列一下"看起来该有但其实还没做"的：
 
 - ❌ 没有模块化系统运行时（性格 / 记忆 / 情绪 / 感知等。`agents.modules` 字段已加占位，AgentSystem 基座是 B6，尚未做）
-- ❌ 工具尚未自动注册（A4 待做，目前仍手动 `tools: [...]` 注入）
 - ❌ 没有上下文压缩，对话长了会爆 token（B5 待做）
 - ❌ 没有 daemon 后台常驻，关掉 dev server 就停了
