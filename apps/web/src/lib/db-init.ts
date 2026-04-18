@@ -68,8 +68,18 @@ export function initDb() {
       finished_at INTEGER,
       error TEXT
     );
+    CREATE TABLE IF NOT EXISTS emotion_states (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id),
+      session_id TEXT NOT NULL REFERENCES sessions(id),
+      state TEXT NOT NULL,
+      delta TEXT,
+      trigger TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
     CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id, started_at);
     CREATE INDEX IF NOT EXISTS idx_llm_calls_user_msg ON llm_calls(user_message_id, turn_index);
+    CREATE INDEX IF NOT EXISTS idx_emotion_states_session ON emotion_states(session_id, created_at);
   `)
   const columns = sqlite.pragma("table_info('agents')") as Array<{ name: string }>
   if (!columns.some((column) => column.name === 'modules')) {
@@ -82,6 +92,17 @@ export function initDb() {
   if (!llmCallColumns.some((column) => column.name === 'metadata_json')) {
     sqlite.exec('ALTER TABLE llm_calls ADD COLUMN metadata_json TEXT;')
   }
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS emotion_states (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id),
+      session_id TEXT NOT NULL REFERENCES sessions(id),
+      state TEXT NOT NULL,
+      delta TEXT,
+      trigger TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+  `)
   initialized = true
 }
 

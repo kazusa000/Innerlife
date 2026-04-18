@@ -1,4 +1,4 @@
-import { llmCallsRepo } from '@mas/db'
+import { emotionStateRepo, llmCallsRepo } from '@mas/db'
 import { initDb } from '@/lib/db-init'
 
 export async function GET(
@@ -12,12 +12,14 @@ export async function GET(
     return Response.json({ error: 'Not found' }, { status: 404 })
   }
   try {
+    const latestEmotionState = emotionStateRepo.getLatestEmotionStateBySession(call.sessionId)
     return Response.json({
       ...call,
       kind: call.kind ?? 'turn',
       tools: JSON.parse(call.toolsJson),
       messages: JSON.parse(call.messagesJson),
       metadata: call.metadataJson ? JSON.parse(call.metadataJson) : null,
+      latestEmotionState: latestEmotionState ?? null,
       response: call.responseJson ? JSON.parse(call.responseJson) : null,
     })
   } catch (e) {

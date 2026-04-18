@@ -1,12 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { MessagesView, ResponseView } from '@/lib/call-renderers'
+import { EmotionView, MessagesView, ResponseView } from '@/lib/call-renderers'
 
 export interface LiveCall {
   callId: string
   turnIndex: number
-  kind?: 'turn' | 'compaction'
+  kind?: 'turn' | 'compaction' | 'emotion'
   model: string
   systemPrompt: string
   tools: unknown[]
@@ -25,9 +25,7 @@ interface Props {
   setActiveCallId: (id: string | null) => void
 }
 
-type Tab = 'system' | 'tools' | 'history' | 'response'
-
-const INPUT_TABS: Tab[] = ['system', 'tools', 'history']
+type Tab = 'system' | 'tools' | 'history' | 'emotion' | 'response'
 const OUTPUT_TABS: Tab[] = ['response']
 
 function tabButton(t: Tab, active: Tab, setTab: (t: Tab) => void) {
@@ -60,6 +58,9 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
   }, [calls, activeCallId])
 
   const active = calls.find((c) => c.callId === activeCallId) ?? calls[calls.length - 1]
+  const inputTabs: Tab[] = active?.kind === 'emotion'
+    ? ['system', 'tools', 'history', 'emotion']
+    : ['system', 'tools', 'history']
 
   return (
     <div
@@ -104,7 +105,7 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
                 whiteSpace: 'nowrap',
               }}
             >
-              {c.kind === 'compaction' ? 'compact' : 'call'} #{c.turnIndex} {c.finished ? '✓' : '…'}
+              {c.kind === 'compaction' ? 'compact' : c.kind === 'emotion' ? 'emotion' : 'call'} #{c.turnIndex} {c.finished ? '✓' : '…'}
             </button>
           ))}
         </div>
@@ -125,7 +126,7 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
             <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
               input
             </span>
-            {INPUT_TABS.map((t) => tabButton(t, tab, setTab))}
+            {inputTabs.map((t) => tabButton(t, tab, setTab))}
             <span style={{ flex: 1 }} />
             <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
               output
@@ -146,6 +147,7 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
             {tab === 'system' && active.systemPrompt}
             {tab === 'tools' && JSON.stringify(active.tools, null, 2)}
             {tab === 'history' && <MessagesView messages={active.messages} />}
+            {tab === 'emotion' && <EmotionView metadata={active.metadata} latestState={null} />}
             {tab === 'response' && (
               <ResponseView
                 response={active.response}

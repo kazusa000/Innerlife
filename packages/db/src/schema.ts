@@ -74,7 +74,7 @@ export const llmCalls = sqliteTable('llm_calls', {
     .notNull()
     .references(() => messages.id),
   turnIndex: integer('turn_index').notNull(),
-  kind: text('kind', { enum: ['turn', 'compaction'] })
+  kind: text('kind', { enum: ['turn', 'compaction', 'emotion'] })
     .notNull()
     .default('turn'),
   model: text('model').notNull(),
@@ -89,4 +89,20 @@ export const llmCalls = sqliteTable('llm_calls', {
   startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
   finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
   error: text('error'),
+})
+
+export const emotionStates = sqliteTable('emotion_states', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id')
+    .notNull()
+    .references(() => agents.id),
+  sessionId: text('session_id')
+    .notNull()
+    .references(() => sessions.id),
+  state: text('state').notNull(),
+  delta: text('delta'),
+  trigger: text('trigger'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
 })

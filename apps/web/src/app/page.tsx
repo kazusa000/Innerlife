@@ -22,11 +22,21 @@ type BigFiveKey =
 
 type BigFiveScores = Record<BigFiveKey, number>
 
+type EmotionKey = 'mood' | 'energy' | 'stress'
+type EmotionBaseline = Record<EmotionKey, number>
+
 type PersonalityModule = {
   scheme?: string
   big5?: Partial<BigFiveScores>
   speechStyle?: string
   background?: string
+}
+
+type EmotionModule = {
+  scheme?: string
+  baseline?: Partial<EmotionBaseline>
+  decayPerTurn?: number
+  analysisModel?: string | null
 }
 
 type PersonalityFormState = {
@@ -36,12 +46,25 @@ type PersonalityFormState = {
   background: string
 }
 
+type EmotionFormState = {
+  enabled: boolean
+  baseline: EmotionBaseline
+  decayPerTurn?: number
+  analysisModel?: string | null
+}
+
 const DEFAULT_BIG5: BigFiveScores = {
   openness: 0.5,
   conscientiousness: 0.5,
   extraversion: 0.5,
   agreeableness: 0.5,
   neuroticism: 0.5,
+}
+
+const DEFAULT_EMOTION_BASELINE: EmotionBaseline = {
+  mood: 0,
+  energy: 0,
+  stress: 0,
 }
 
 const MODEL_LABELS: Record<string, string> = {
@@ -94,6 +117,22 @@ function clampTrait(value: unknown): number {
   return Math.min(1, Math.max(0, value))
 }
 
+function clampMood(value: unknown): number {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return 0
+  }
+
+  return Math.min(1, Math.max(-1, value))
+}
+
+function clampEmotionLevel(value: unknown): number {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return 0
+  }
+
+  return Math.min(1, Math.max(0, value))
+}
+
 function readPersonalityModule(
   modules: Record<string, unknown> | null
 ): PersonalityModule | null {
@@ -133,6 +172,41 @@ function getPersonalityFormState(
   }
 }
 
+function readEmotionModule(
+  modules: Record<string, unknown> | null
+): EmotionModule | null {
+  if (!isRecord(modules)) {
+    return null
+  }
+
+  const emotion = modules.emotion
+  if (typeof emotion === 'string') {
+    return { scheme: emotion }
+  }
+
+  return isRecord(emotion) ? (emotion as EmotionModule) : null
+}
+
+function getEmotionFormState(
+  modules: Record<string, unknown> | null,
+  defaultEnabled: boolean
+): EmotionFormState {
+  const emotion = readEmotionModule(modules)
+
+  return {
+    enabled: emotion ? emotion.scheme !== 'noop' : defaultEnabled,
+    baseline: {
+      mood: clampMood(emotion?.baseline?.mood),
+      energy: clampEmotionLevel(emotion?.baseline?.energy),
+      stress: clampEmotionLevel(emotion?.baseline?.stress),
+    },
+    decayPerTurn:
+      typeof emotion?.decayPerTurn === 'number' ? emotion.decayPerTurn : undefined,
+    analysisModel:
+      typeof emotion?.analysisModel === 'string' ? emotion.analysisModel : null,
+  }
+}
+
 function readValuePriorities(modules: Record<string, unknown> | null | undefined) {
   if (!isRecord(modules)) {
     return []
@@ -155,12 +229,14 @@ function stripManagedModules(modules: Record<string, unknown> | null) {
   }
 
   const { personality: _personality, values: _values, ...rest } = modules
+  delete rest.emotion
   return rest
 }
 
 function buildModules(
   baseModules: Record<string, unknown>,
   personality: PersonalityFormState,
+  emotion: EmotionFormState,
   valuePriorities: string[],
 ) {
   const next: Record<string, unknown> = { ...baseModules }
@@ -171,6 +247,17 @@ function buildModules(
         big5: personality.big5,
         speechStyle: personality.speechStyle.trim(),
         background: personality.background.trim(),
+      }
+    : { scheme: 'noop' }
+
+  next.emotion = emotion.enabled
+    ? {
+        scheme: 'dimensional',
+        baseline: emotion.baseline,
+        ...(typeof emotion.decayPerTurn === 'number'
+          ? { decayPerTurn: emotion.decayPerTurn }
+          : {}),
+        ...(emotion.analysisModel ? { analysisModel: emotion.analysisModel } : {}),
       }
     : { scheme: 'noop' }
 
@@ -211,6 +298,12 @@ export default function HomePage() {
   const [big5, setBig5] = useState<BigFiveScores>({ ...DEFAULT_BIG5 })
   const [speechStyle, setSpeechStyle] = useState('')
   const [background, setBackground] = useState('')
+  const [emotionEnabled, setEmotionEnabled] = useState(false)
+  const [emotionBaseline, setEmotionBaseline] = useState<EmotionBaseline>({
+    ...DEFAULT_EMOTION_BASELINE,
+  })
+  const [emotionDecayPerTurn, setEmotionDecayPerTurn] = useState<number | undefined>(undefined)
+  const [emotionAnalysisModel, setEmotionAnalysisModel] = useState<string | null>(null)
   const [valuePriorities, setValuePriorities] = useState<string[]>([])
   const router = useRouter()
 
@@ -235,11 +328,16 @@ export default function HomePage() {
     setBig5({ ...DEFAULT_BIG5 })
     setSpeechStyle('')
     setBackground('')
+    setEmotionEnabled(false)
+    setEmotionBaseline({ ...DEFAULT_EMOTION_BASELINE })
+    setEmotionDecayPerTurn(undefined)
+    setEmotionAnalysisModel(null)
     setValuePriorities([])
   }
 
   function startEdit(agent: Agent) {
     const personality = getPersonalityFormState(agent.modules, false)
+    const emotion = getEmotionFormState(agent.modules, false)
 
     setEditingId(agent.id)
     setName(agent.name)
@@ -250,6 +348,10 @@ export default function HomePage() {
     setBig5(personality.big5)
     setSpeechStyle(personality.speechStyle)
     setBackground(personality.background)
+    setEmotionEnabled(emotion.enabled)
+    setEmotionBaseline(emotion.baseline)
+    setEmotionDecayPerTurn(emotion.decayPerTurn)
+    setEmotionAnalysisModel(emotion.analysisModel ?? null)
     setValuePriorities(readValuePriorities(agent.modules))
     setShowForm(true)
   }
@@ -288,6 +390,12 @@ export default function HomePage() {
     const modules = buildModules(
       baseModules,
       { enabled: personalityEnabled, big5, speechStyle, background },
+      {
+        enabled: emotionEnabled,
+        baseline: emotionBaseline,
+        decayPerTurn: emotionDecayPerTurn,
+        analysisModel: emotionAnalysisModel,
+      },
       valuePriorities,
     )
 
@@ -387,7 +495,7 @@ export default function HomePage() {
               <section className="modules-panel" aria-label="Modules configuration">
                 <div className="modules-panel-head">
                   <span className="field-label">模块配置</span>
-                  <span className="placeholder-pill">Personality · Values</span>
+                  <span className="placeholder-pill">Personality · Emotion · Values</span>
                 </div>
 
                 <section className="module-card" aria-label="Personality configuration">
@@ -462,6 +570,101 @@ export default function HomePage() {
                   ) : (
                     <p className="module-copy">
                       关闭后会写入 `personality.noop`，聊天时不会注入额外性格段。
+                    </p>
+                  )}
+                </section>
+
+                <section className="module-card" aria-label="Emotion configuration">
+                  <div className="module-card-head">
+                    <div className="module-copy-wrap">
+                      <div className="module-copy-top">
+                        <span className="field-label">情绪</span>
+                        <span className="module-pill">Dimensional</span>
+                      </div>
+                      <p className="module-copy">
+                        维护当前心情、精力、压力基线。实时状态变化在 Observer 里查看。
+                      </p>
+                    </div>
+                    <label
+                      className={`module-toggle ${emotionEnabled ? 'is-active' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={emotionEnabled}
+                        onChange={(e) => setEmotionEnabled(e.target.checked)}
+                      />
+                      <span>{emotionEnabled ? '启用中' : '已关闭'}</span>
+                    </label>
+                  </div>
+
+                  {emotionEnabled ? (
+                    <div className="personality-grid">
+                      <label className="trait-card">
+                        <div className="trait-head">
+                          <span className="trait-label">心情 baseline</span>
+                          <span className="trait-value">{emotionBaseline.mood.toFixed(2)}</span>
+                        </div>
+                        <p className="trait-hint">范围 -1 到 1，越高越偏积极。</p>
+                        <input
+                          className="trait-slider"
+                          type="range"
+                          min="-1"
+                          max="1"
+                          step="0.05"
+                          value={emotionBaseline.mood}
+                          onChange={(e) =>
+                            setEmotionBaseline((current) => ({
+                              ...current,
+                              mood: Number(e.target.value),
+                            }))}
+                        />
+                      </label>
+
+                      <label className="trait-card">
+                        <div className="trait-head">
+                          <span className="trait-label">精力 baseline</span>
+                          <span className="trait-value">{emotionBaseline.energy.toFixed(2)}</span>
+                        </div>
+                        <p className="trait-hint">范围 0 到 1，越高越有劲。</p>
+                        <input
+                          className="trait-slider"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={emotionBaseline.energy}
+                          onChange={(e) =>
+                            setEmotionBaseline((current) => ({
+                              ...current,
+                              energy: Number(e.target.value),
+                            }))}
+                        />
+                      </label>
+
+                      <label className="trait-card">
+                        <div className="trait-head">
+                          <span className="trait-label">压力 baseline</span>
+                          <span className="trait-value">{emotionBaseline.stress.toFixed(2)}</span>
+                        </div>
+                        <p className="trait-hint">范围 0 到 1，越高越紧绷。</p>
+                        <input
+                          className="trait-slider"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={emotionBaseline.stress}
+                          onChange={(e) =>
+                            setEmotionBaseline((current) => ({
+                              ...current,
+                              stress: Number(e.target.value),
+                            }))}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <p className="module-copy">
+                      关闭后会写入 `emotion.noop`，聊天时不会注入当前情绪，也不会记录状态轨迹。
                     </p>
                   )}
                 </section>

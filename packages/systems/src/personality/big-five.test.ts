@@ -28,6 +28,7 @@ test('big-five personality system injects a stable prompt fragment from module c
     input: { raw: '你好', text: '你好', modality: 'text' as const },
     state: {},
     promptFragments: [],
+    messages: [],
   }
 
   await system?.beforeLLM?.(ctx)

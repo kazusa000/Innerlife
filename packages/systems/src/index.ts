@@ -1,10 +1,13 @@
 export type {
   AgentModules,
+  EmotionAnalysisResult,
+  EmotionStateVector,
   AgentSystem,
   CompactionReason,
   ConversationBlock,
   ConversationMessage,
   PendingCompaction,
+  PendingEmotionAnalysis,
   PromptFragment,
   SystemFactory,
   SystemPhase,
@@ -18,6 +21,14 @@ export {
   DEFAULT_MAX_MESSAGES,
   SummaryCompactionSystem,
 } from './compaction'
+export {
+  DEFAULT_BASELINE as DEFAULT_EMOTION_BASELINE,
+  applyDecayAndDelta,
+  buildEmotionFragment,
+  DimensionalEmotionSystem,
+  normalizeEmotionConfig,
+  normalizeEmotionState,
+} from './emotion'
 export { NoopSystem, HelloWorldSystem } from './noop'
 export { ValuesPriorityListSystem } from './values'
 export { createSystems, systemRegistry } from './registry'

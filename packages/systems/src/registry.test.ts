@@ -89,3 +89,8 @@ test('createSystems instantiates summary compaction system from string scheme', 
   assert.equal(system?.name, 'compaction:summary')
   assert.equal(system?.type, 'compaction')
 })
+
+test('createSystems treats noop emotion configs as disabled', () => {
+  assert.deepEqual(createSystems({ emotion: { scheme: 'noop' } }), [])
+  assert.deepEqual(createSystems({ emotion: {} }), [])
+})

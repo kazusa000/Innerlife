@@ -1,16 +1,17 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CompactionView, MessagesView, ResponseView } from '@/lib/call-renderers'
+import { CompactionView, EmotionView, MessagesView, ResponseView } from '@/lib/call-renderers'
 
 interface CallDetail {
   id: string
-  kind: 'turn' | 'compaction'
+  kind: 'turn' | 'compaction' | 'emotion'
   model: string
   systemPrompt: string
   tools: unknown
   messages: unknown
   metadata: unknown
+  latestEmotionState: unknown
   response: unknown
   stopReason: string | null
   inputTokens: number | null
@@ -24,7 +25,7 @@ interface Props {
   callId: string | null
 }
 
-type Tab = 'system' | 'tools' | 'history' | 'compaction' | 'response'
+type Tab = 'system' | 'tools' | 'history' | 'compaction' | 'emotion' | 'response'
 const OUTPUT_TABS: Tab[] = ['response']
 
 export function DetailPane({ callId }: Props) {
@@ -59,9 +60,12 @@ export function DetailPane({ callId }: Props) {
     return <div style={{ flex: 1, padding: 40, color: '#666' }}>Loading…</div>
   }
 
-  const inputTabs: Tab[] = detail.kind === 'compaction'
-    ? ['system', 'tools', 'history', 'compaction']
-    : ['system', 'tools', 'history']
+  const inputTabs: Tab[] =
+    detail.kind === 'compaction'
+      ? ['system', 'tools', 'history', 'compaction']
+      : detail.kind === 'emotion' || detail.latestEmotionState
+        ? ['system', 'tools', 'history', 'emotion']
+        : ['system', 'tools', 'history']
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -134,6 +138,12 @@ export function DetailPane({ callId }: Props) {
         {tab === 'tools' && JSON.stringify(detail.tools, null, 2)}
         {tab === 'history' && <MessagesView messages={detail.messages} />}
         {tab === 'compaction' && <CompactionView metadata={detail.metadata} />}
+        {tab === 'emotion' && (
+          <EmotionView
+            metadata={detail.metadata}
+            latestState={detail.latestEmotionState}
+          />
+        )}
         {tab === 'response' && (
           <ResponseView
             response={detail.response}

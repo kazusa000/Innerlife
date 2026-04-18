@@ -1,7 +1,7 @@
 import type { Message, ToolDefinition, ContentBlock, LLMResponse } from '@mas/core'
 
 export interface LLMCallStartPayload {
-  kind: 'turn' | 'compaction'
+  kind: 'turn' | 'compaction' | 'emotion'
   model: string
   systemPrompt: string
   tools: ToolDefinition[]

@@ -7,7 +7,7 @@ export interface TurnNode {
   calls: Array<{
     id: string
     turnIndex: number
-    kind: 'turn' | 'compaction'
+    kind: 'turn' | 'compaction' | 'emotion'
     stopReason: string | null
     startedAt: number
     finishedAt: number | null
@@ -67,7 +67,7 @@ export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
                   cursor: 'pointer',
                 }}
               >
-                └ {c.kind === 'compaction' ? 'compact' : 'call'} #{c.turnIndex}{' '}
+                └ {c.kind === 'compaction' ? 'compact' : c.kind === 'emotion' ? 'emotion' : 'call'} #{c.turnIndex}{' '}
                 <span style={{ color: '#666' }}>
                   {c.stopReason ?? (c.finishedAt ? '?' : '…')}
                 </span>
