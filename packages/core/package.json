@@ -5,6 +5,8 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
+    "pretypecheck": "node ../../scripts/generate-tool-manifest.mjs",
+    "pretest": "node ../../scripts/generate-tool-manifest.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test src/**/*.test.ts"
   },

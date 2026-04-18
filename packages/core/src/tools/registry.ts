@@ -1,6 +1,11 @@
 import type { Tool, ToolCallOptions, ToolResult } from './types'
 import type { ToolDefinition, ToolUseBlock } from '../types'
 import { isAbortError } from '../utils/abort'
+import { defaultTools } from './generated'
+
+export function getDefaultTools(): Tool[] {
+  return [...defaultTools]
+}
 
 export function toolsToDefinitions(tools: Tool[]): ToolDefinition[] {
   return tools

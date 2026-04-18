@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node ../../scripts/generate-tool-manifest.mjs",
+    "prebuild": "node ../../scripts/generate-tool-manifest.mjs",
+    "prestart": "node ../../scripts/generate-tool-manifest.mjs",
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start"
