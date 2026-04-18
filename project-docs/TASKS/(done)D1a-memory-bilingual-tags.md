@@ -1,6 +1,6 @@
 # D1a — Memory tags 强制中英双语
 
-**状态**: pending
+**状态**: done
 **前置依赖**: D1（已完成）
 **预计规模**: small
 
@@ -41,11 +41,11 @@
 
 ## 完成标准
 
-- [ ] summarize prompt 模板包含"中英文同义词都要给"的明确要求
-- [ ] 单测：mock LLM 返回包含中英 mixed tags 的 JSON，断言能正常解析存入 `memories.tags`
-- [ ] 单测：构造一条 fixture memory（tags 同时含 `["名字", "name"]`），用中文 input "我叫什么名字" 走检索，断言能命中；再用英文 input "what's my name" 也能命中
-- [ ] 不破坏现有 D1 测试 —— `npm test --workspace @mas/systems --workspace @mas/core --workspace @mas/db` 全过
-- [ ] `npm run typecheck --workspace @mas/systems` 通过
+- [x] summarize prompt 模板包含"中英文同义词都要给"的明确要求
+- [x] 单测：mock LLM 返回包含中英 mixed tags 的 JSON，断言能正常解析存入 `memories.tags`
+- [x] 单测：构造一条 fixture memory（tags 同时含 `["名字", "name"]`），用中文 input "我叫什么名字" 走检索，断言能命中；再用英文 input "what's my name" 也能命中
+- [x] 不破坏现有 D1 测试 —— `npm test --workspace @mas/systems --workspace @mas/core --workspace @mas/db` 全过
+- [x] `npm run typecheck --workspace @mas/systems` 通过
 
 ## 备注
 
@@ -53,3 +53,10 @@
 - **不要**做"重写已有 memories 的 tags"——历史 5 条 (Hazel 那批) 留着即可，新 memory 用新 prompt 就行
 - 写完合并后用 Hazel 实测：开新会话告诉她一件事 → 再开新会话用另一种语言问 → 应能记得
 - 如果用户后续报 "tags 列表太长污染 DB" 再开 D1b 加上限（当前 LLM 应该自己控制在合理范围）
+
+## Completion Note
+
+- **Changes**: 把 `memory/sqlite` 的 summarize prompt 改成强制输出至少 6 个 tags，并尽量同时给出中文和英文同义词；补了 mixed bilingual tags 的解析持久化测试，以及中英文输入都能命中的检索测试。
+- **Verified**: `node --import tsx --test src/memory/sqlite.test.ts`（在 `packages/systems`）；`node --import tsx --test src/repository/memories.test.ts`（在 `packages/db`）；`npm test --workspace @mas/systems --workspace @mas/core --workspace @mas/db`；`npm run typecheck --workspace @mas/systems`。
+- **Caveats**: 没做 Hazel 的真实手测；任务备注里的那一步留给合并后带 API key 的环境。为满足 `@mas/systems` typecheck，顺手补了 `packages/systems/src/emotion/dimensional.test.ts` 里缺失的 `turnMetadata` 测试夹具字段，这个问题是基线已有、与 D1a 运行时逻辑无关。
+- **Design deltas**: 无运行时设计偏移；仅把 prompt 约束写得更具体，保持 D1a 要求的“只改 prompt，不改检索逻辑”。
