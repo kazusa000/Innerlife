@@ -4,6 +4,7 @@ import { getDb } from '../client'
 import { llmCalls, messages } from '../schema'
 
 export interface StartCallInput {
+  kind: 'turn' | 'compaction'
   sessionId: string
   userMessageId: string
   turnIndex: number
@@ -14,6 +15,7 @@ export interface StartCallInput {
 }
 
 export interface FinishCallInput {
+  metadataJson?: string
   responseJson?: string
   stopReason?: string
   inputTokens?: number
@@ -70,6 +72,7 @@ export interface TurnNode {
   calls: Array<{
     id: string
     turnIndex: number
+    kind: 'turn' | 'compaction'
     stopReason: string | null
     startedAt: number
     finishedAt: number | null
@@ -108,6 +111,7 @@ export function getSessionTurnTree(sessionId: string): TurnNode[] {
       .map((c) => ({
         id: c.id,
         turnIndex: c.turnIndex,
+        kind: c.kind ?? 'turn',
         stopReason: c.stopReason,
         startedAt: c.startedAt.getTime(),
         finishedAt: c.finishedAt ? c.finishedAt.getTime() : null,

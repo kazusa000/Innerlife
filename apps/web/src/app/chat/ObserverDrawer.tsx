@@ -6,10 +6,12 @@ import { MessagesView, ResponseView } from '@/lib/call-renderers'
 export interface LiveCall {
   callId: string
   turnIndex: number
+  kind?: 'turn' | 'compaction'
   model: string
   systemPrompt: string
   tools: unknown[]
   messages: unknown[]
+  metadata?: unknown
   response?: unknown
   stopReason?: string
   usage?: { inputTokens: number; outputTokens: number }
@@ -102,7 +104,7 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
                 whiteSpace: 'nowrap',
               }}
             >
-              #{c.turnIndex} {c.finished ? '✓' : '…'}
+              {c.kind === 'compaction' ? 'compact' : 'call'} #{c.turnIndex} {c.finished ? '✓' : '…'}
             </button>
           ))}
         </div>

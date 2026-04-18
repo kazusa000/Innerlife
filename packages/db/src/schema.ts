@@ -74,10 +74,14 @@ export const llmCalls = sqliteTable('llm_calls', {
     .notNull()
     .references(() => messages.id),
   turnIndex: integer('turn_index').notNull(),
+  kind: text('kind', { enum: ['turn', 'compaction'] })
+    .notNull()
+    .default('turn'),
   model: text('model').notNull(),
   systemPrompt: text('system_prompt').notNull(),
   toolsJson: text('tools_json').notNull(),
   messagesJson: text('messages_json').notNull(),
+  metadataJson: text('metadata_json'),
   responseJson: text('response_json'),
   stopReason: text('stop_reason'),
   inputTokens: integer('input_tokens'),

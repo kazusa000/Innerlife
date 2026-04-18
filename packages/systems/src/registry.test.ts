@@ -10,6 +10,7 @@ function createTurnContext() {
     input: { raw: 'hi', text: 'hi', modality: 'text' as const },
     state: {},
     promptFragments: [],
+    messages: [],
   }
 }
 
@@ -81,4 +82,10 @@ test('createSystems skips values fragment when priorities are empty', async () =
   await system?.beforeLLM?.(ctx)
 
   assert.deepEqual(ctx.promptFragments, [])
+})
+
+test('createSystems instantiates summary compaction system from string scheme', () => {
+  const [system] = createSystems({ compaction: 'summary' })
+  assert.equal(system?.name, 'compaction:summary')
+  assert.equal(system?.type, 'compaction')
 })

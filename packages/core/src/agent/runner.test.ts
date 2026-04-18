@@ -4,9 +4,8 @@ import { runAgent } from './runner'
 import type { AgentConfig } from './types'
 import type { LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent } from '../provider/types'
 import type { Tool } from '../tools/types'
-import type { ContentBlock } from '../types'
-import { createSystems } from '@mas/systems'
-import type { AgentSystem, TurnContext } from '@mas/systems'
+import type { ContentBlock, Message } from '../types'
+import { createSystems, type AgentSystem, type TurnContext } from '@mas/systems'
 
 class FakeProvider implements LLMProvider {
   name = 'fake'
@@ -41,6 +40,20 @@ function createConfig(tools: Tool[] = []): AgentConfig {
     tools,
     maxTurns: 2,
   }
+}
+
+function createTextMessage(role: Message['role'], text: string): Message {
+  return {
+    role,
+    content: [{ type: 'text', text }],
+  }
+}
+
+function clone<T>(value: T): T {
+  if (value === undefined) {
+    return value
+  }
+  return JSON.parse(JSON.stringify(value))
 }
 
 test('runAgent stops before executing a tool when signal aborts after tool-use response', async () => {
@@ -377,4 +390,134 @@ test('runAgent lets systems share turn state across lifecycle hooks', async () =
     'afterLLM',
     'afterTurn',
   ])
+})
+
+test('runAgent compacts older messages before the main LLM call and records compaction metadata', async () => {
+  const seenRequests: Array<{ systemPrompt: string; messages: Message[] }> = []
+  const observerStarts: Array<{
+    kind?: string
+    systemPrompt: string
+    messages: Message[]
+  }> = []
+  const observerEnds: Array<{
+    metadata?: unknown
+    error?: string
+  }> = []
+
+  const provider = new FakeProvider(async function* (params) {
+    seenRequests.push({
+      systemPrompt: params.systemPrompt,
+      messages: clone(params.messages as Message[]),
+    })
+
+    if (seenRequests.length === 1) {
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [
+            {
+              type: 'text',
+              text: [
+                'Key facts: user is building B5',
+                'User preferences: concise replies',
+                'Unresolved tasks: finish context compaction',
+              ].join('\n'),
+            },
+          ],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 10, outputTokens: 20 },
+        },
+      }
+      return
+    }
+
+    assert.equal(params.messages.length, 20)
+    assert.match(params.systemPrompt, /concise replies/)
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [{ type: 'text', text: 'final answer' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 5, outputTokens: 7 },
+      },
+    }
+  })
+
+  const observer = {
+    onLLMCallStart(payload: {
+      kind?: string
+      systemPrompt: string
+      messages: Message[]
+    }) {
+      observerStarts.push({
+        kind: payload.kind,
+        systemPrompt: payload.systemPrompt,
+        messages: clone(payload.messages),
+      })
+      return `call-${observerStarts.length}`
+    },
+    onLLMCallEnd(
+      _callId: string,
+      payload: {
+        metadata?: unknown
+        error?: string
+      },
+    ) {
+      observerEnds.push({
+        metadata: clone(payload.metadata),
+        error: payload.error,
+      })
+    },
+  }
+
+  const messages = Array.from({ length: 45 }, (_, index) =>
+    createTextMessage(index % 2 === 0 ? 'user' : 'assistant', `message ${index}`),
+  )
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig(),
+    messages,
+    provider,
+    createSystems({ compaction: 'summary' }),
+    observer,
+  )) {
+    events.push(event)
+  }
+
+  assert.equal(events.at(-1)?.type, 'complete')
+  assert.equal(seenRequests.length, 2)
+  assert.equal(observerStarts[0]?.kind, 'compaction')
+  assert.equal(observerStarts[1]?.kind, 'turn')
+  assert.equal(observerStarts[1]?.messages.length, 21)
+  assert.equal(observerStarts[1]?.messages[0]?.role, 'system')
+
+  assert.deepEqual(observerEnds[0]?.metadata, {
+    reason: {
+      type: 'message_count',
+      messageCount: 45,
+    },
+    beforeMessages: Array.from({ length: 45 }, (_, index) =>
+      createTextMessage(index % 2 === 0 ? 'user' : 'assistant', `message ${index}`),
+    ),
+    afterMessages: [
+      {
+        role: 'system',
+        content: [
+          {
+            type: 'text',
+            text: [
+              'Conversation summary:',
+              'Key facts: user is building B5',
+              'User preferences: concise replies',
+              'Unresolved tasks: finish context compaction',
+            ].join('\n'),
+          },
+        ],
+      },
+      ...Array.from({ length: 20 }, (_, index) =>
+        createTextMessage((index + 25) % 2 === 0 ? 'user' : 'assistant', `message ${index + 25}`),
+      ),
+    ],
+  })
 })
