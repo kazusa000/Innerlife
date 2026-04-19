@@ -93,3 +93,23 @@ beforeLLM:
 - **Verified**: `npm test --workspace @mas/systems --workspace @mas/core`；`npm run typecheck --workspace @mas/systems --workspace @mas/core`。新增测试覆盖 LLM 关键词成功路径、provider 抛错回退、非法 JSON / 空 keywords 回退，以及 mixed bilingual tags 在中英文输入下都能命中。
 - **Caveats**: fallback 仍然完全沿用旧 tokenizer，所以像 `我猫叫什么` 这类中文输入会保留 `["猫", "我猫叫什么"]` 这样的组合；这是按任务要求保留原逻辑，不在本 task 内优化。
 - **Design deltas** (if any): 任务正文写的是“runner 用 keywords 跑现有 `findRelevantMemories`”。实现上保持了 D1 既有的“system 产意图 / 闭包携带持久化细节 / runner 只执行”的边界：`PendingMemoryQuery` 暴露 `retrieve(keywords)` 回调，避免让 `@mas/core` 新增对 `@mas/db` 的直接依赖。
+
+## Coordinator Review Feedback (2026-04-19)
+
+**Verdict: FAIL — bounced back**
+
+**问题**：`packages/core/src/agent/runner.ts` 里的 `runPendingMemoryQuery` 函数，`pending.retrieve()` 的调用放在 `try/catch` **外面**。意味着如果 retrieve 抛错（比如 SQL 出问题、DB 断连），错误会直接逃出 `runAgent`，整个 chat 请求 500，而不是像 `runPendingMemoryWrite` 模板那样转成 `yield { type: 'system_error', ... }` 然后继续跑完剩下逻辑。
+
+task 卡明确写了"runner 里 runPendingMemoryQuery 照抄 runPendingMemoryWrite 模板"，这属于没照抄到位。
+
+**改法**：把 `pending.retrieve()` 挪进同一个 `try` 块里，retrieve 抛错走同一个 catch → 回退 fallback 关键词（如果能再跑一遍）或至少 yield `system_error` 不中断 runAgent。参考 `runPendingMemoryWrite` 的完整 catch 分支结构。
+
+**其他 6 条**（PASS，不用改）：
+- beforeTurn 只构造 pendingMemoryQuery ✓
+- LLM + JSON 解析 + 回退 tokenizer ✓
+- Observer 复用 kind: 'memory' + metadata.phase: 'retrieve' ✓
+- 没动 findRelevantMemories / SQL / schema / UI ✓
+- 关闭记忆时不发 retrieve call ✓
+- typecheck / test 全绿 ✓
+
+修完改回 `(done)` 前缀 + 追加 Completion Note 说明挪到 try 里是怎么处理的。
