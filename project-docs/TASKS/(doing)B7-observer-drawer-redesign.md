@@ -1,6 +1,6 @@
 # B7 — Observer 抽屉重构（维度化展示）
 
-**状态**: done
+**状态**: in-review（第一版已完成，需返修；见文末"## 返修要求"章节）
 **前置依赖**: B2（Observer 基座）+ C1/C2/C4 + D1/D1a/D1b/D1c（所有已合并系统）
 **预计规模**: medium
 
@@ -32,18 +32,18 @@
 
 ### 数据层
 
-- [x] `llm_calls.metadata_json` 里带 `fragments: Array<{source, priority, content}>`，主对话 call 能解析出 personality / values / emotion / memory 四类 source 的段落（至少有一个系统启用时可见）
-- [x] `memory.retrieve` 事件的 metadata 里 `hits` 包含命中记忆的 `id / summary / tags / importance`（不仅是 count）
-- [x] `memory.summarize` 事件 metadata 里 `written` 包含本轮写入的 `id / summary / tags / importance`
-- [x] `memory.consolidate` 事件 metadata 里 `report` 包含 `{before, after, kept, rewritten, merged}`
-- [x] `emotion` 事件 metadata 里包含 `before / after / delta / trigger`
-- [x] 既有单测补 / 改以覆盖新 metadata（至少 memory + emotion 各补一条断言）
+- [ ] `llm_calls.metadata_json` 里带 `fragments: Array<{source, priority, content}>`，主对话 call 能解析出 personality / values / emotion / memory 四类 source 的段落（至少有一个系统启用时可见）
+- [ ] `memory.retrieve` 事件的 metadata 里 `hits` 包含命中记忆的 `id / summary / tags / importance`（不仅是 count）
+- [ ] `memory.summarize` 事件 metadata 里 `written` 包含本轮写入的 `id / summary / tags / importance`
+- [ ] `memory.consolidate` 事件 metadata 里 `report` 包含 `{before, after, kept, rewritten, merged}`
+- [ ] `emotion` 事件 metadata 里包含 `before / after / delta / trigger`
+- [ ] 既有单测补 / 改以覆盖新 metadata（至少 memory + emotion 各补一条断言）
 
 ### UI 层（ObserverDrawer）
 
-- [x] 抽屉内容从"左右两栏 Input / Output"改为**纵向 llm_call 列表**，每个 call 一张卡片
-- [x] 每张 call 卡片顶部显示 **call 类型标签**（"主对话" / "memory.retrieve" / "memory.summarize" / "memory.consolidate" / "emotion.delta" / "compaction.summary"），由 `kind + metadata.phase` 推导
-- [x] call 卡片展开后，按顺序显示：
+- [ ] 抽屉内容从"左右两栏 Input / Output"改为**纵向 llm_call 列表**，每个 call 一张卡片
+- [ ] 每张 call 卡片顶部显示 **call 类型标签**（"主对话" / "memory.retrieve" / "memory.summarize" / "memory.consolidate" / "emotion.delta" / "compaction.summary"），由 `kind + metadata.phase` 推导
+- [ ] call 卡片展开后，按顺序显示：
   1. **维度卡区**（4 张，按需显示）：性格 / 价值观 / 情绪 / 记忆。只在**本 call 的 fragments 里有该 source**，或**本 call 的 metadata 属于该维度**时显示
      - 性格 / 价值观卡：展示 fragment 的 content
      - 情绪卡：若是 emotion.delta call，展示 before / after / delta / trigger；若是主对话且有 emotion fragment，展示当前注入的情绪段落
@@ -51,9 +51,9 @@
   2. **Final system prompt**（折叠，默认关）——拼接好的完整 systemPrompt 原文
   3. **Tools schema**（折叠，默认关）
   4. **Messages 时间线**（默认展开）——user / assistant / tool_use / tool_result / 本 call 的 response 按顺序平铺，**compaction 事件作为一张内联卡嵌在对应位置**，显示 "本轮压缩：X 条 → 1 条摘要"
-- [x] 左右不再挤：同一横向只有 1 栏（全宽），messages 块内 code / JSON 可滚动但不再和 response 抢宽度
-- [x] 抽屉实时刷新（保留现有 SSE 逻辑），新 llm_call 出现时追加到底部
-- [x] 手动验证通过：启用性格 + 价值观 + 情绪 + 记忆 四系统的 agent 聊一轮，抽屉里能看到 memory.retrieve call 的命中详情 + 主对话 call 的 4 张维度卡 + emotion.delta call 的 before/after/delta；主对话包含工具调用时能看到多个 call 串联
+- [ ] 左右不再挤：同一横向只有 1 栏（全宽），messages 块内 code / JSON 可滚动但不再和 response 抢宽度
+- [ ] 抽屉实时刷新（保留现有 SSE 逻辑），新 llm_call 出现时追加到底部
+- [ ] 手动验证通过：启用性格 + 价值观 + 情绪 + 记忆 四系统的 agent 聊一轮，抽屉里能看到 memory.retrieve call 的命中详情 + 主对话 call 的 4 张维度卡 + emotion.delta call 的 before/after/delta；主对话包含工具调用时能看到多个 call 串联
 
 ### 非目标（明确不做）
 
@@ -75,9 +75,57 @@
 - **合并冲突风险**：本 task 碰 `runner.ts` + `ObserverDrawer.tsx` 两个 hot file，不要和其他 task 并行派发
 - 完成后手动截图发群（或描述验证路径）——UI task 的完成标准不能只靠 typecheck + 测试
 
-## Completion Note
+---
 
-- **Changes**: 扩展 observer metadata，给 turn/memory/emotion/compaction call 补齐 fragments、hits、written、report、before/after/delta 等维度化信息；聊天页抽屉改成纵向 llm_call 卡片，维度卡、折叠 system/tools 区块与内联 compaction 时间线都收拢进新的 `ObserverDrawer.tsx`，旧的抽屉子组件已删除避免死代码分叉。
-- **Verified**: `npm test --workspace @mas/core -- src/agent/runner.test.ts src/agent/memory-runner.test.ts`；`npm test --workspace @mas/systems -- src/memory/sqlite.test.ts src/emotion/dimensional.test.ts src/compaction/summary.test.ts`；`cd apps/web/src/app/api/agents/[id]/memory/sqlite/consolidate && node --import tsx --test route.test.ts`；`npm run typecheck --workspace @mas/core`；`npm run typecheck --workspace @mas/systems`；`npm run typecheck --workspace @mas/observer`；`npm run typecheck --workspace @mas/web`；`npm run build --workspace @mas/web`；`node --import tsx -e "<ObserverDrawer mock render smoke>"` 返回 `observer-drawer-smoke-ok`。
-- **Caveats**: 没有在真实浏览器里走一轮带 LLM/SSE 的 live chat，只做了编译、测试和 mock render 级别的 UI 验证；另外，B7 任务卡在 `master` 工作树里是未跟踪文件，因此 claim commit 采用了在任务分支上直接新增 `(doing)` 文件的等价流程，而不是纯 `git mv`。
-- **Design deltas** (if any): `memory.consolidate` 的 observer metadata 实际发射点在 `apps/web/src/app/api/agents/[id]/memory/sqlite/consolidate/handler.ts`，因为现有 consolidate 流程不在 `packages/systems/src/memory/sqlite.ts` 内；系统内部 `PromptFragment.source` 保留原有 `personality:big-five` / `memory:sqlite` 等名字，snapshot 到 observer metadata 时再归一化成 `personality` / `values` / `emotion` / `memory`，避免影响现有系统注册与测试。
+## 返修要求（2026-04-19 追加）
+
+### 背景
+
+第一版把所有 llm_call（主对话 + memory.retrieve + memory.summarize + emotion.delta + compaction.summary）全塞到主抽屉时间线里，同时记忆卡展示命中 hits、情绪卡展示 before/after/delta——这条路线有两个问题：
+
+1. **scheme 耦合**：记忆卡 / 情绪卡直接渲染了 sqlite / dimensional scheme 的源数据形状，未来切换 scheme（memory → chromadb、emotion → plutchik-wheel）UI 直接断裂
+2. **范围混乱**：主抽屉同时承担"主对话观测"和"系统内部 call 观测"两件事，容易把用户看懵
+
+新方案划清职责：**主抽屉只观测主对话 call + 按系统来源区分展示 prompt 贡献**；各系统内部 call 归各自模块观测页（B8 起分别单独 task，按 scheme 一套 UI）。
+
+### 抽屉层必须改
+
+1. **只渲染 `kind === 'turn'` 的 llm call**，其他 kind（memory / emotion / compaction）的 call **在抽屉里过滤掉不展示**
+2. **维度卡简化成只展示 `fragment.content` 文本**：
+   - 性格卡 / 价值观卡 / 情绪卡 / 记忆卡：统一按 `fragment.source` 匹配本 call 的 fragments，直接渲染 content 字符串（保留系统名 + accent 色区分）
+   - **删除**所有 scheme-specific 字段展示：
+     - 记忆卡不再渲染 hits 表格 / matchedTerms / importance 数值
+     - 情绪卡不再渲染 before / after / delta / trigger
+     - 不再在抽屉里体现 memory.summarize 的 written / consolidate 的 report
+3. **某系统在本 call 没有 fragment 时，对应维度卡整块不渲染**（不占位、不显示"无数据"提示）
+4. **call 类型标签**可去掉（既然只剩 `turn` 一种 kind）
+5. final system prompt 折叠区、tools schema 折叠区、messages 时间线（含 compaction 内联提示）——**保留**，逻辑不变
+
+### 数据层必须保留不动
+
+- `llm_calls.metadata_json.fragments`（`{source, priority, content}` 数组）保留——主抽屉维度卡的数据源
+- `memory.retrieve` 的 `hits`、`memory.summarize` 的 `written`、`memory.consolidate` 的 `report`、`emotion.delta` 的 before/after/delta/trigger、compaction 的 before/after——**全部保留在 metadata_json 里**
+- 理由：B8 及后续模块观测页（`/observer/memory/sqlite`、`/observer/emotion/dimensional` 等）要消费这些字段
+
+### 非目标
+
+- ❌ 不动 `/observer` 独立页
+- ❌ 不做 `/observer/memory/sqlite` 等模块观测页（B8 单独 task）
+- ❌ 不动数据层 metadata 的形状 / 字段（B8 要用）
+- ❌ 不删除 runner 里 emit 这些 metadata 的逻辑
+
+### 完成标准（返修版）
+
+- [ ] 主抽屉只看到主对话 call（一轮一张卡；有工具调用则本轮内可能多张主对话 call 串联，但没有 memory / emotion / compaction 的 call）
+- [ ] 维度卡只展示 `fragment.content`，一眼能看出"这段 prompt 是哪个系统写的"
+- [ ] 未启用的系统对应的维度卡不渲染
+- [ ] final system prompt 折叠区展开可验证"维度卡里各 fragment 拼接起来 = 完整 system prompt"
+- [ ] 手动验证：开启性格 + 价值观 + 记忆三系统的 agent 发一句话，抽屉看到 3 张维度卡 + final prompt 能对应上
+- [ ] typecheck / 单测通过（单测若以旧结构写的断言需同步调整）
+
+### 备注
+
+- 不要动 `runner.ts` 里往 metadata 塞 fragments / hits / delta 的那套逻辑——全部保留
+- 可以复用第一版做好的维度卡子组件，只是把内部的 hits 表格 / delta 显示段落删掉
+- 抽屉 UI 风格沿用第一版已实现的 Modern Dark Cinema 样式
+- 合并前在本地 dev 跑一轮端到端验证（至少 2 个启用了不同系统组合的 agent，观察 3 张 / 4 张 / 0 张维度卡的渲染都正确）
