@@ -11,6 +11,7 @@ import type {
   EmotionAnalysisResult,
   PendingCompaction,
   PendingEmotionAnalysis,
+  PendingMemoryQuery,
   PendingMemoryWrite,
   SystemPhase,
   TurnContext,
@@ -47,6 +48,17 @@ export async function* runAgent(
   const ctx = createTurnContext(config, messages)
 
   yield* runSystemPhase(systems, 'beforeTurn', ctx)
+  const memoryQuery = await runPendingMemoryQuery(
+    ctx.pendingMemoryQuery,
+    ctx,
+    config,
+    provider,
+    observer,
+    signal,
+  )
+  if (memoryQuery.event) {
+    yield memoryQuery.event
+  }
 
   while (true) {
     try {
@@ -64,6 +76,7 @@ export async function* runAgent(
     const toolDefs = toolsToDefinitions(config.tools)
     ctx.promptFragments = []
     ctx.pendingCompaction = undefined
+    ctx.pendingMemoryQuery = undefined
     ctx.pendingEmotionAnalysis = undefined
     ctx.emotionAnalysis = undefined
     ctx.messages = messages
@@ -462,6 +475,7 @@ async function runPendingMemoryWrite(
         stopReason: response.stopReason,
         usage: response.usage,
         metadata: {
+          phase: 'summarize',
           storedMemory: result,
         },
       })
@@ -488,6 +502,110 @@ async function runPendingMemoryWrite(
         error: err,
       },
     }
+  }
+}
+
+async function runPendingMemoryQuery(
+  pending: PendingMemoryQuery | undefined,
+  ctx: TurnContext,
+  config: AgentConfig,
+  provider: LLMProvider,
+  observer?: RunAgentObserver,
+  signal?: AbortSignal,
+): Promise<{
+  event?: Extract<AgentEvent, { type: 'system_error' }>
+}> {
+  if (!pending) {
+    return {}
+  }
+
+  const messages: Message[] = [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: pending.inputText }],
+    },
+  ]
+  const callId = observer?.onLLMCallStart({
+    kind: 'memory',
+    model: pending.model ?? config.model,
+    systemPrompt: pending.prompt,
+    tools: [],
+    messages: cloneMessages(messages),
+  })
+
+  let response: LLMResponse | undefined
+  let queryError: Error | undefined
+  let retrieveError: Error | undefined
+  let source: 'llm' | 'fallback' = 'llm'
+  let keywords = pending.fallback
+  let memories: NonNullable<TurnContext['state']['memories']> | undefined
+
+  try {
+    response = await provider.sendMessage({
+      model: pending.model ?? config.model,
+      systemPrompt: pending.prompt,
+      messages,
+      signal,
+    })
+    keywords = pending.parse(extractContentText(response.content))
+  } catch (err) {
+    queryError = err instanceof Error ? err : new Error(String(err))
+    source = 'fallback'
+    keywords = pending.fallback
+  }
+
+  ctx.state.memoryRetrievalKeywords = keywords
+
+  try {
+    memories = await pending.retrieve(keywords)
+    ctx.state.memories = memories
+    ctx.turnMetadata.memory = {
+      hitCount: memories.length,
+      keywords,
+      fallbackKeywords: pending.fallback,
+      memoryIds: memories.map((memory) => memory.id),
+    }
+  } catch (err) {
+    retrieveError = err instanceof Error ? err : new Error(String(err))
+  }
+
+  const error =
+    queryError && retrieveError
+      ? new Error(`${queryError.message}; memory retrieve failed: ${retrieveError.message}`)
+      : queryError ?? retrieveError
+  const metadata: Record<string, unknown> = {
+    phase: 'retrieve',
+    source,
+    fallbackKeywords: pending.fallback,
+    keywords,
+  }
+
+  if (memories) {
+    metadata.hitCount = memories.length
+    metadata.memoryIds = memories.map((memory) => memory.id)
+  }
+
+  if (callId !== undefined && observer) {
+    observer.onLLMCallEnd(callId, {
+      response: response?.content ?? [],
+      stopReason: response?.stopReason ?? 'end_turn',
+      usage: response?.usage ?? { inputTokens: 0, outputTokens: 0 },
+      metadata,
+      error: error?.message,
+    })
+  }
+
+  if (!error) {
+    return {}
+  }
+
+  return {
+    event: {
+      type: 'system_error',
+      system: pending.system,
+      phase: 'beforeTurn',
+      error,
+    },
   }
 }
 

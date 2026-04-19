@@ -2,6 +2,7 @@ import { memoryRepo } from '@mas/db'
 import type {
   AgentSystem,
   MemoryRecord,
+  PendingMemoryQuery,
   MemoryWriteResult,
   PendingMemoryWrite,
   TurnContext,
@@ -110,6 +111,19 @@ function buildSummaryPrompt(): string {
     'Every tag list MUST contain both Chinese and English equivalents for each important concept.',
     'Do not output tags in only one language.',
     'Example tags: ["名字", "name", "称呼", "introduction", "宠物", "pet"].',
+    'Do not add markdown or code fences.',
+  ].join('\n')
+}
+
+function buildRetrievePrompt(): string {
+  return [
+    'You expand retrieval keywords for searching persona memories by tag.',
+    'The user input will be provided as the only user message.',
+    'Return strict JSON with exactly this shape:',
+    '{"keywords": string[]}',
+    'List 4-8 short reusable retrieval keywords when possible.',
+    'Include Chinese and English synonyms when relevant.',
+    'Do not just copy the surface words. Expand to paraphrases, related topics, and likely tag variants.',
     'Do not add markdown or code fences.',
   ].join('\n')
 }
@@ -254,6 +268,36 @@ function parseMemoryWriteResponse(responseText: string): MemoryWriteResult {
   }
 }
 
+function parseMemoryQueryResponse(responseText: string): string[] {
+  let parsed: unknown
+
+  try {
+    parsed = extractJson(responseText)
+  } catch {
+    throw new Error('Memory query call returned invalid JSON')
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Memory query call did not return a JSON object')
+  }
+
+  const record = parsed as Record<string, unknown>
+  const keywords = Array.isArray(record.keywords)
+    ? [...new Set(
+        record.keywords
+          .filter((keyword): keyword is string => typeof keyword === 'string')
+          .map(keyword => keyword.trim())
+          .filter(Boolean),
+      )]
+    : []
+
+  if (keywords.length === 0) {
+    throw new Error('Memory query call returned no keywords')
+  }
+
+  return keywords
+}
+
 export class MemorySqliteSystem implements AgentSystem {
   name = 'memory:sqlite'
   type = 'memory'
@@ -270,19 +314,23 @@ export class MemorySqliteSystem implements AgentSystem {
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
-    const terms = tokenizeText(ctx.input.text, this.minTermLength)
-    const memories = memoryRepo.findRelevantMemories({
-      agentId: ctx.agentId,
-      terms,
-      topK: this.retrieveTopK,
-    })
+    const fallback = tokenizeText(ctx.input.text, this.minTermLength)
 
-    ctx.state.memories = memories
-    ctx.turnMetadata.memory = {
-      hitCount: memories.length,
-      terms,
-      memoryIds: memories.map((memory) => memory.id),
+    const pending: PendingMemoryQuery = {
+      kind: 'sqlite',
+      system: this.name,
+      prompt: buildRetrievePrompt(),
+      inputText: ctx.input.text,
+      fallback,
+      parse: parseMemoryQueryResponse,
+      retrieve: async (keywords) => memoryRepo.findRelevantMemories({
+        agentId: ctx.agentId,
+        terms: keywords,
+        topK: this.retrieveTopK,
+      }),
     }
+
+    ctx.pendingMemoryQuery = pending
   }
 
   async beforeLLM(ctx: TurnContext): Promise<void> {

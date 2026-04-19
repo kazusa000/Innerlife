@@ -7,6 +7,7 @@ export type {
   EmotionAnalysisResult,
   EmotionStateVector,
   MemoryRecord,
+  PendingMemoryQuery,
   MemoryWriteResult,
   PendingCompaction,
   PendingEmotionAnalysis,

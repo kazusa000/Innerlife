@@ -1,6 +1,6 @@
 # D1b — Memory 检索 query 扩展（LLM 版）
 
-**状态**: pending
+**状态**: done
 **前置依赖**: D1（已完成）。与 D1a（tags 中英双语）独立，不互相阻塞
 **预计规模**: small
 
@@ -70,15 +70,15 @@ beforeLLM:
 
 ## 完成标准
 
-- [ ] `sqlite.ts` 的 `beforeTurn` 只负责构造 `pendingMemoryQuery`，不再直接喂检索
-- [ ] `runner.ts` 新增 `runPendingMemoryQuery`，签名 / 结构照抄 `runPendingMemoryWrite`
-- [ ] Observer 里能看到这一次 `kind: 'memory'` + `metadata.phase: 'retrieve'` 的 call，含 prompt / response / 解析出的 keywords
-- [ ] 单测：
+- [x] `sqlite.ts` 的 `beforeTurn` 只负责构造 `pendingMemoryQuery`，不再直接喂检索
+- [x] `runner.ts` 新增 `runPendingMemoryQuery`，签名 / 结构照抄 `runPendingMemoryWrite`
+- [x] Observer 里能看到这一次 `kind: 'memory'` + `metadata.phase: 'retrieve'` 的 call，含 prompt / response / 解析出的 keywords
+- [x] 单测：
   - mock LLM 返回 `{"keywords": ["name", "名字"]}` → 断言实际跑的是 LLM 给的 keywords 而非 tokenizer
   - mock LLM 抛错 → 断言回退到 tokenizer 结果、检索照样跑、yield `system_error` 事件（跟 memory summarize 失败同 pattern）
   - mock LLM 返回非法 JSON / 空 keywords → 断言同样回退到 tokenizer
-- [ ] 现有 D1 测试继续过；`npm test --workspace @mas/systems --workspace @mas/core` / `npm run typecheck --workspace @mas/systems --workspace @mas/core` 全过
-- [ ] 关闭记忆（`modules.memory.scheme = "noop"`）时不发 retrieve call，和现在一致
+- [x] 现有 D1 测试继续过；`npm test --workspace @mas/systems --workspace @mas/core` / `npm run typecheck --workspace @mas/systems --workspace @mas/core` 全过
+- [x] 关闭记忆（`modules.memory.scheme = "noop"`）时不发 retrieve call，和现在一致
 
 ## 备注
 
@@ -86,3 +86,37 @@ beforeLLM:
 - Observer 前端已经把 `kind: 'memory'` 渲染得够用，**不用改前端**；phase 字段留给后续想分视图时用
 - **不要**提前做 cache / 短输入跳过 / `kind: 'memory_query'` 新枚举 —— 都明确砍掉
 - **不要**动 `findRelevantMemories` / SQL；这个 task 只换 keywords 来源
+
+## Completion Note
+
+- **Changes**: memory sqlite system 的 `beforeTurn` 改为只产 `PendingMemoryQuery`；runner 新增 retrieve LLM call、失败回退 tokenizer、并把最终 keywords / hitCount / memoryIds 写入 `ctx.state` 与 Observer metadata。memory summarize call 同时补上 `metadata.phase: 'summarize'`。
+- **Verified**: `npm test --workspace @mas/systems --workspace @mas/core`；`npm run typecheck --workspace @mas/systems --workspace @mas/core`。新增测试覆盖 LLM 关键词成功路径、provider 抛错回退、非法 JSON / 空 keywords 回退，以及 mixed bilingual tags 在中英文输入下都能命中。
+- **Caveats**: fallback 仍然完全沿用旧 tokenizer，所以像 `我猫叫什么` 这类中文输入会保留 `["猫", "我猫叫什么"]` 这样的组合；这是按任务要求保留原逻辑，不在本 task 内优化。
+- **Design deltas** (if any): 任务正文写的是“runner 用 keywords 跑现有 `findRelevantMemories`”。实现上保持了 D1 既有的“system 产意图 / 闭包携带持久化细节 / runner 只执行”的边界：`PendingMemoryQuery` 暴露 `retrieve(keywords)` 回调，避免让 `@mas/core` 新增对 `@mas/db` 的直接依赖。
+
+## Coordinator Review Feedback (2026-04-19)
+
+**Verdict: FAIL — bounced back**
+
+**问题**：`packages/core/src/agent/runner.ts` 里的 `runPendingMemoryQuery` 函数，`pending.retrieve()` 的调用放在 `try/catch` **外面**。意味着如果 retrieve 抛错（比如 SQL 出问题、DB 断连），错误会直接逃出 `runAgent`，整个 chat 请求 500，而不是像 `runPendingMemoryWrite` 模板那样转成 `yield { type: 'system_error', ... }` 然后继续跑完剩下逻辑。
+
+task 卡明确写了"runner 里 runPendingMemoryQuery 照抄 runPendingMemoryWrite 模板"，这属于没照抄到位。
+
+**改法**：把 `pending.retrieve()` 挪进同一个 `try` 块里，retrieve 抛错走同一个 catch → 回退 fallback 关键词（如果能再跑一遍）或至少 yield `system_error` 不中断 runAgent。参考 `runPendingMemoryWrite` 的完整 catch 分支结构。
+
+**其他 6 条**（PASS，不用改）：
+- beforeTurn 只构造 pendingMemoryQuery ✓
+- LLM + JSON 解析 + 回退 tokenizer ✓
+- Observer 复用 kind: 'memory' + metadata.phase: 'retrieve' ✓
+- 没动 findRelevantMemories / SQL / schema / UI ✓
+- 关闭记忆时不发 retrieve call ✓
+- typecheck / test 全绿 ✓
+
+修完改回 `(done)` 前缀 + 追加 Completion Note 说明挪到 try 里是怎么处理的。
+
+## Completion Note (Bounce Fix)
+
+- **Changes**: `runPendingMemoryQuery` 现在把 `pending.retrieve()` 也纳入错误处理范围；检索抛错时不再中断 `runAgent`，而是像 summarize 一样产出 `system_error` 后继续主 turn。Observer 仍保留 `phase: 'retrieve'`、尝试过的 `keywords`，只有检索成功时才补 `hitCount` / `memoryIds`。
+- **Verified**: `npm test --workspace @mas/systems --workspace @mas/core`；`npm run typecheck --workspace @mas/systems --workspace @mas/core`。新增回归测试覆盖 `retrieve()` 抛错路径，先失败后转绿。
+- **Caveats**: 如果 query call 和 fallback retrieve 都失败，当前会合并两段错误消息返回单个 `system_error`，方便保留原始 query 失败上下文。
+- **Design deltas** (if any): 无；这次只是把 D1b 原设计里应有的 runner 异常边界补齐。
