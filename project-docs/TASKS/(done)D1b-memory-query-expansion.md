@@ -1,6 +1,6 @@
 # D1b — Memory 检索 query 扩展（LLM 版）
 
-**状态**: pending
+**状态**: done
 **前置依赖**: D1（已完成）。与 D1a（tags 中英双语）独立，不互相阻塞
 **预计规模**: small
 
@@ -70,15 +70,15 @@ beforeLLM:
 
 ## 完成标准
 
-- [ ] `sqlite.ts` 的 `beforeTurn` 只负责构造 `pendingMemoryQuery`，不再直接喂检索
-- [ ] `runner.ts` 新增 `runPendingMemoryQuery`，签名 / 结构照抄 `runPendingMemoryWrite`
-- [ ] Observer 里能看到这一次 `kind: 'memory'` + `metadata.phase: 'retrieve'` 的 call，含 prompt / response / 解析出的 keywords
-- [ ] 单测：
+- [x] `sqlite.ts` 的 `beforeTurn` 只负责构造 `pendingMemoryQuery`，不再直接喂检索
+- [x] `runner.ts` 新增 `runPendingMemoryQuery`，签名 / 结构照抄 `runPendingMemoryWrite`
+- [x] Observer 里能看到这一次 `kind: 'memory'` + `metadata.phase: 'retrieve'` 的 call，含 prompt / response / 解析出的 keywords
+- [x] 单测：
   - mock LLM 返回 `{"keywords": ["name", "名字"]}` → 断言实际跑的是 LLM 给的 keywords 而非 tokenizer
   - mock LLM 抛错 → 断言回退到 tokenizer 结果、检索照样跑、yield `system_error` 事件（跟 memory summarize 失败同 pattern）
   - mock LLM 返回非法 JSON / 空 keywords → 断言同样回退到 tokenizer
-- [ ] 现有 D1 测试继续过；`npm test --workspace @mas/systems --workspace @mas/core` / `npm run typecheck --workspace @mas/systems --workspace @mas/core` 全过
-- [ ] 关闭记忆（`modules.memory.scheme = "noop"`）时不发 retrieve call，和现在一致
+- [x] 现有 D1 测试继续过；`npm test --workspace @mas/systems --workspace @mas/core` / `npm run typecheck --workspace @mas/systems --workspace @mas/core` 全过
+- [x] 关闭记忆（`modules.memory.scheme = "noop"`）时不发 retrieve call，和现在一致
 
 ## 备注
 
@@ -86,3 +86,10 @@ beforeLLM:
 - Observer 前端已经把 `kind: 'memory'` 渲染得够用，**不用改前端**；phase 字段留给后续想分视图时用
 - **不要**提前做 cache / 短输入跳过 / `kind: 'memory_query'` 新枚举 —— 都明确砍掉
 - **不要**动 `findRelevantMemories` / SQL；这个 task 只换 keywords 来源
+
+## Completion Note
+
+- **Changes**: memory sqlite system 的 `beforeTurn` 改为只产 `PendingMemoryQuery`；runner 新增 retrieve LLM call、失败回退 tokenizer、并把最终 keywords / hitCount / memoryIds 写入 `ctx.state` 与 Observer metadata。memory summarize call 同时补上 `metadata.phase: 'summarize'`。
+- **Verified**: `npm test --workspace @mas/systems --workspace @mas/core`；`npm run typecheck --workspace @mas/systems --workspace @mas/core`。新增测试覆盖 LLM 关键词成功路径、provider 抛错回退、非法 JSON / 空 keywords 回退，以及 mixed bilingual tags 在中英文输入下都能命中。
+- **Caveats**: fallback 仍然完全沿用旧 tokenizer，所以像 `我猫叫什么` 这类中文输入会保留 `["猫", "我猫叫什么"]` 这样的组合；这是按任务要求保留原逻辑，不在本 task 内优化。
+- **Design deltas** (if any): 任务正文写的是“runner 用 keywords 跑现有 `findRelevantMemories`”。实现上保持了 D1 既有的“system 产意图 / 闭包携带持久化细节 / runner 只执行”的边界：`PendingMemoryQuery` 暴露 `retrieve(keywords)` 回调，避免让 `@mas/core` 新增对 `@mas/db` 的直接依赖。
