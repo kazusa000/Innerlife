@@ -23,6 +23,7 @@ export function createDbObserver(opts: DbObserverOptions): Observer {
         systemPrompt: payload.systemPrompt,
         toolsJson: JSON.stringify(payload.tools),
         messagesJson: JSON.stringify(payload.messages),
+        metadataJson: payload.metadata ? JSON.stringify(payload.metadata) : undefined,
       })
       opts.onEvent?.({
         type: 'llm_call_start',

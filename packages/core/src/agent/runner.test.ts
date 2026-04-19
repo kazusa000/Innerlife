@@ -206,6 +206,99 @@ test('runAgent composes sorted prompt fragments from systems before calling the 
   assert.equal(seen.systemPrompt, 'test\n\nfirst\n\nsecond\n\nthird')
 })
 
+test('runAgent snapshots normalized prompt fragments into observer metadata', async () => {
+  const observerStarts: Array<{ metadata?: Record<string, unknown> }> = []
+  const observerEnds: Array<{ metadata?: Record<string, unknown> }> = []
+
+  const provider = new FakeProvider(async function* () {
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [{ type: 'text', text: 'done' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      },
+    }
+  })
+
+  const systems: AgentSystem[] = [
+    {
+      name: 'personality:big-five',
+      type: 'personality',
+      async beforeLLM(ctx: TurnContext) {
+        ctx.promptFragments.push({
+          source: 'personality:big-five',
+          priority: 10,
+          content: 'personality fragment',
+        })
+      },
+    },
+    {
+      name: 'values:priority-list',
+      type: 'values',
+      async beforeLLM(ctx: TurnContext) {
+        ctx.promptFragments.push({
+          source: 'values:priority-list',
+          priority: 50,
+          content: 'values fragment',
+        })
+      },
+    },
+  ]
+
+  const observer = {
+    onLLMCallStart(payload: {
+      metadata?: Record<string, unknown>
+    }) {
+      observerStarts.push({ metadata: clone(payload.metadata) })
+      return `call-${observerStarts.length}`
+    },
+    onLLMCallEnd(_callId: string, payload: {
+      metadata?: Record<string, unknown>
+    }) {
+      observerEnds.push({ metadata: clone(payload.metadata) })
+    },
+  }
+
+  for await (const _event of runAgent(
+    createConfig(),
+    [createTextMessage('user', 'hi')],
+    provider,
+    systems,
+    observer,
+  )) {
+  }
+
+  assert.deepEqual(observerStarts[0]?.metadata, {
+    fragments: [
+      {
+        source: 'personality',
+        priority: 10,
+        content: 'personality fragment',
+      },
+      {
+        source: 'values',
+        priority: 50,
+        content: 'values fragment',
+      },
+    ],
+  })
+  assert.deepEqual(observerEnds[0]?.metadata, {
+    fragments: [
+      {
+        source: 'personality',
+        priority: 10,
+        content: 'personality fragment',
+      },
+      {
+        source: 'values',
+        priority: 50,
+        content: 'values fragment',
+      },
+    ],
+  })
+})
+
 test('runAgent includes big-five personality prompts and skips noop personality', async () => {
   async function captureSystemPrompt(systems: AgentSystem[]) {
     let systemPrompt = ''
@@ -497,6 +590,13 @@ test('runAgent compacts older messages before the main LLM call and records comp
       type: 'message_count',
       messageCount: 45,
     },
+    beforeMessageCount: 45,
+    afterMessageCount: 21,
+    summary: [
+      'Key facts: user is building B5',
+      'User preferences: concise replies',
+      'Unresolved tasks: finish context compaction',
+    ].join('\n'),
     beforeMessages: Array.from({ length: 45 }, (_, index) =>
       createTextMessage(index % 2 === 0 ? 'user' : 'assistant', `message ${index}`),
     ),
@@ -651,10 +751,15 @@ test('runAgent executes pending emotion analysis as a separate observer call and
     rawResponse: '{"mood_delta":-0.25,"energy_delta":0.1,"stress_delta":0.2,"trigger":"用户用了责备语气"}',
   })
   assert.deepEqual(observerEnds[1]?.metadata, {
-    currentState: {
+    before: {
       mood: 0.1,
       energy: 0.2,
       stress: 0.3,
+    },
+    after: {
+      mood: -0.165,
+      energy: 0.27,
+      stress: 0.455,
     },
     delta: {
       mood: -0.25,
@@ -662,6 +767,5 @@ test('runAgent executes pending emotion analysis as a separate observer call and
       stress: 0.2,
     },
     trigger: '用户用了责备语气',
-    decayPerTurn: 0.15,
   })
 })

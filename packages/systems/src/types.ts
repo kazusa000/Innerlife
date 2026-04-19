@@ -63,7 +63,7 @@ export interface PendingMemoryWrite {
   prompt: string
   sourceText: string
   parse(responseText: string): MemoryWriteResult
-  persist(result: MemoryWriteResult): Promise<void> | void
+  persist(result: MemoryWriteResult): Promise<MemoryRecord | void> | MemoryRecord | void
 }
 
 export interface PendingMemoryQuery {

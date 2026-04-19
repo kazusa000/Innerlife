@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { ObserverDrawer, LiveCall } from './ObserverDrawer'
+import { ObserverDrawer } from './ObserverDrawer'
+import type { LiveCall } from './observer-types'
 
 const INTERRUPTED_SUFFIX = ' —（中断）'
 
@@ -202,6 +203,7 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
                     systemPrompt: event.payload.systemPrompt,
                     tools: event.payload.tools,
                     messages: event.payload.messages,
+                    metadata: event.payload.metadata ?? null,
                     finished: false,
                   },
                 ])
@@ -216,7 +218,10 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
                           response: event.payload.response,
                           stopReason: event.payload.stopReason,
                           usage: event.payload.usage,
-                          metadata: event.payload.metadata,
+                          metadata: {
+                            ...(c.metadata ?? {}),
+                            ...(event.payload.metadata ?? {}),
+                          },
                           error: event.payload.error,
                           finished: true,
                         }

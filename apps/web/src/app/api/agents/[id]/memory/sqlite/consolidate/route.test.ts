@@ -345,11 +345,13 @@ test('consolidateSqliteMemories returns a report and emits consolidate observer 
     assert.match(starts[0]?.systemPrompt ?? '', /bilingual/i)
     assert.deepEqual(ends[0]?.metadata, {
       phase: 'consolidate',
-      before: 4,
-      after: 3,
-      kept: 1,
-      rewritten: 1,
-      merged: 1,
+      report: {
+        before: 4,
+        after: 3,
+        kept: 1,
+        rewritten: 1,
+        merged: 1,
+      },
     })
     assert.equal(rows.length, 3)
     assert.ok(rows.some((memory) => memory.summary === '用户习惯夜间编码'))

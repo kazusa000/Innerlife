@@ -12,6 +12,7 @@ export interface StartCallInput {
   systemPrompt: string
   toolsJson: string
   messagesJson: string
+  metadataJson?: string
 }
 
 export interface FinishCallInput {

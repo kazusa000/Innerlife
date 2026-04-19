@@ -92,7 +92,7 @@ export async function consolidateSqliteMemories(
         usage: response.usage,
         metadata: {
           ...phaseMetadata,
-          ...report,
+          report,
         },
       })
     }

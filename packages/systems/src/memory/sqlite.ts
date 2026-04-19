@@ -511,7 +511,7 @@ export class MemorySqliteSystem implements AgentSystem {
       prompt: buildSummaryPrompt(),
       sourceText,
       parse: parseMemoryWriteResponse,
-      persist: async (result) => {
+      persist: async (result) => (
         memoryRepo.addMemory({
           agentId: ctx.agentId,
           sessionId: ctx.sessionId,
@@ -520,7 +520,7 @@ export class MemorySqliteSystem implements AgentSystem {
           tags: result.tags,
           importance: result.importance,
         })
-      },
+      ),
     }
 
     ctx.pendingMemoryWrite = pending
