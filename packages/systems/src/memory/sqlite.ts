@@ -107,7 +107,8 @@ function buildSummaryPrompt(): string {
     '{"summary": string, "tags": string[], "importance": number}',
     'importance must be a number between 0 and 1.',
     'tags must include at least 6 short reusable keywords.',
-    'For every important concept, include both Chinese and English synonyms in tags when possible.',
+    'Every tag list MUST contain both Chinese and English equivalents for each important concept.',
+    'Do not output tags in only one language.',
     'Example tags: ["名字", "name", "称呼", "introduction", "宠物", "pet"].',
     'Do not add markdown or code fences.',
   ].join('\n')

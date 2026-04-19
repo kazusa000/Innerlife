@@ -143,7 +143,7 @@ test('memory sqlite system prepares a pending write after turn', async () => {
   assert.equal(ctx.pendingMemoryWrite?.kind, 'sqlite')
   assert.equal(ctx.pendingMemoryWrite?.model, 'memory-model')
   assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /strict JSON/i)
-  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /中英文|Chinese and English/i)
+  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /MUST contain both Chinese and English/i)
   assert.equal(typeof ctx.pendingMemoryWrite?.persist, 'function')
 })
 
@@ -183,6 +183,45 @@ test('memory sqlite system parses and persists mixed bilingual tags from summari
     const stored = memoryRepo.listMemoriesByAgent('agent-1')
     assert.equal(stored.length, 1)
     assert.deepEqual(stored[0]?.tags, ['名字', 'name', '称呼', 'introduction', '王家骏', 'identity'])
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('memory sqlite system retrieves bilingual memory for both Chinese and English inputs', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const memory = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: '用户说自己叫王家骏',
+      summary: '用户叫王家骏',
+      tags: ['名字', 'name', '称呼', 'introduction'],
+      importance: 0.95,
+      createdAt: new Date('2026-04-18T10:00:00.000Z'),
+    })
+
+    const system = new MemorySqliteSystem({
+      retrieveTopK: 5,
+      minTermLength: 2,
+    })
+
+    const chineseCtx = createContext('我叫什么名字')
+    await system.beforeTurn?.(chineseCtx)
+
+    const chineseMemories = chineseCtx.state.memories as Array<{ id: string }>
+    assert.deepEqual(chineseMemories.map((entry) => entry.id), [memory.id])
+
+    const englishCtx = createContext("what's my name")
+    await system.beforeTurn?.(englishCtx)
+
+    const englishMemories = englishCtx.state.memories as Array<{ id: string }>
+    assert.deepEqual(englishMemories.map((entry) => entry.id), [memory.id])
   } finally {
     resetDb()
     rmSync(dir, { recursive: true, force: true })
