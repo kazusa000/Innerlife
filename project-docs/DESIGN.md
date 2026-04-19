@@ -1032,10 +1032,23 @@ Phase 1（已完成）
 
 > 独立模块，建议在 C 之后做（这样性格+记忆可以同时注入 system prompt）。
 
-- [ ] **D1 Memory — sqlite 方案** — 本地关键词搜索记忆
+- [x] **D1 Memory — sqlite 方案** — 本地关键词搜索记忆
   - 实现 AgentSystem 接口，afterTurn 存对话 → beforeTurn 检索相关记忆
-  - memories 表（agentId, content, summary, tags, createdAt）
+  - memories 表（agentId, content, summary, tags, importance, createdAt）
   - 效果：虚拟人能记住聊过的事，简单版
+- [ ] **D1a Memory tags 中英双语** — 修跨语言检索漏命中
+  - summarize prompt 要求 tags 同时给中英同义词
+  - 只动 `packages/systems/src/memory/sqlite.ts` 的 prompt + 单测
+- [ ] **D1b Memory 检索 query 扩展** — LLM 替代简单 tokenizer
+  - 检索前一次轻量 LLM call（走 pending-X pattern，runner 执行），输入用户原文 → 输出 `{"keywords":[...]}` → 喂进现有 SQL
+  - 失败回退现有 tokenizer；Observer 复用 `kind: 'memory'`，`metadata.phase: 'retrieve'` 区分 summarize / retrieve
+  - 每轮多一次 LLM call（不考虑成本），不 cache / 不跳过短输入（第一版）
+- [ ] **D1c Memory 记忆整理** — 手动触发清洗 + 去重 + 重估 importance
+  - **仅针对 sqlite scheme**，URL 显式写死：`POST /api/agents/:id/memory/sqlite/consolidate`
+  - 逻辑全在 `MemorySqliteSystem` 内，不抽跨 scheme 接口；D2 上线时完全独立（自己开 `/memory/chromadb/consolidate` 或不做）
+  - 整理范围：该 agent 全部 memories 一次过，上限默认 100（超了 400 拒绝提示用户手动分批）
+  - 写回语义：单条 rewrite → `UPDATE` 保留 `id` + `createdAt`；多条合并 → `INSERT` 新条目（`createdAt` 取源中最早的）+ `DELETE` 源条目
+  - 不限成本；无 cron / 自动触发；UI 按钮等 D4 再挂
 - [ ] **D2 Memory — chromadb 方案** — 向量语义检索记忆
   - Python + ChromaDB 独立服务，主项目通过 HTTP/MCP 调用
   - 宫殿结构：Wing（人/项目）→ Room（时间/话题）→ Drawer（原文）
