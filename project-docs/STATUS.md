@@ -3,7 +3,7 @@
 > 这个文件用大白话记录系统**目前能做什么**。由 Coordinator 在 TASK 归档到 `TASKS/done/` 之后统一更新。
 > 不写未来计划（路线图见 `DESIGN.md §11`）。
 
-最后更新：2026-04-19（D1c sqlite 记忆整理）
+最后更新：2026-04-19（B7 Observer 抽屉维度化重构）
 
 ---
 
@@ -27,7 +27,7 @@
 - **回复可随时中断**：流式回复途中点"停止"按钮立即取消这一轮，正在跑的 bash / fetch / LLM stream 全链路终止；已流出来的文本保留并尾部标记 `—（中断）`
 - **除 bash 外新增三件套工具**：`file_read`（读文件，超 100KB 自动裁剪）、`file_write`（create / overwrite / append 三种模式，自动建父目录）、`web_fetch`（30s 超时、HTML 去噪转纯文本）
 - **创建/编辑虚拟人表单的"模块配置"分区已上线**：当前包含 **性格** 与 **价值观** 两块；提交时写入 `agents.modules.{personality,values}` JSON
-- **开启 `OBSERVER_ENABLED=1` 后可观测 AI 每轮内部**：聊天页 观测抽屉实时看完整 prompt / 工具 schema / LLM 响应；独立 `/observer` 页事后回放 + 清空
+- **开启 `OBSERVER_ENABLED=1` 后可观测 AI 每轮内部**：聊天页观测抽屉**只列主对话 llm call**（`kind='turn'`），每张 call 卡内置按 `fragment.source` 区分的 4 张维度卡（性格 / 价值观 / 情绪 / 记忆，仅在本 call 的 fragments 含该 source 时渲染，内容就是该系统注入的原文），另有 final system prompt / tools schema 折叠区 + messages 时间线（compaction 事件内联）；系统内部 llm call（memory.retrieve / summarize / consolidate、emotion.delta、compaction.summary）不进抽屉，数据仍写入 `metadata_json` 留给未来的模块观测页（B8 起）。独立 `/observer` 页事后回放 + 清空保留不动
 - **工具自动注册**：`packages/core/src/tools/*.ts` 里导出 `export const XxxTool: Tool = {...}`，启动前（`predev/prebuild/prestart`）扫描生成 `generated.ts`，`registry.getDefaultTools()` 统一供给 chat 路由；加新工具只需加文件，不再改注册数组
 - **模块化 AgentSystem 基座**：`@mas/systems` 包定义 `TurnContext` + `AgentSystem` 接口与四个生命周期钩子（`beforeTurn` / `beforeLLM` / `afterLLM` / `afterTurn`）；runner 按 `priority` 拼接各系统 prompt fragments；系统抛错只 yield `system_error`、不中断主流程
 - **性格系统（personality:big-five）**：5 维 Big Five 滑块 + 说话风格 + 背景故事；`beforeLLM` 以 `priority: 10` 注入 system prompt，关闭（`scheme: noop` 或字段缺失）行为等同 noop
