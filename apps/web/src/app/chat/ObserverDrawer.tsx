@@ -1,23 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { EmotionView, MessagesView, ResponseView } from '@/lib/call-renderers'
-
-export interface LiveCall {
-  callId: string
-  turnIndex: number
-  kind?: 'turn' | 'compaction' | 'memory' | 'emotion'
-  model: string
-  systemPrompt: string
-  tools: unknown[]
-  messages: unknown[]
-  metadata?: unknown
-  response?: unknown
-  stopReason?: string
-  usage?: { inputTokens: number; outputTokens: number }
-  error?: string
-  finished: boolean
-}
+import { useEffect, useRef } from 'react'
+import { ObserverCallCard } from './ObserverCallCard'
+import type { LiveCall } from './observer-types'
 
 interface Props {
   calls: LiveCall[]
@@ -25,156 +10,100 @@ interface Props {
   setActiveCallId: (id: string | null) => void
 }
 
-type Tab = 'system' | 'tools' | 'history' | 'metadata' | 'emotion' | 'response'
-
-const OUTPUT_TABS: Tab[] = ['response']
-
-function describeCallKind(kind?: LiveCall['kind']) {
-  if (kind === 'compaction') {
-    return 'compact'
-  }
-  if (kind === 'memory') {
-    return 'memory'
-  }
-  return 'call'
-}
-
-function tabButton(t: Tab, active: Tab, setTab: (t: Tab) => void) {
-  return (
-    <button
-      key={t}
-      onClick={() => setTab(t)}
-      style={{
-        padding: '4px 10px',
-        borderRadius: 4,
-        border: 'none',
-        background: active === t ? '#1a1a2e' : 'transparent',
-        color: active === t ? '#ededed' : '#888',
-        cursor: 'pointer',
-        fontSize: 12,
-      }}
-    >
-      {t}
-    </button>
-  )
-}
-
 export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) {
-  const [tab, setTab] = useState<Tab>('history')
+  const previousLastCallIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!activeCallId && calls.length > 0) {
-      setActiveCallId(calls[calls.length - 1].callId)
+    if (calls.length === 0) {
+      previousLastCallIdRef.current = null
+      if (activeCallId) {
+        setActiveCallId(null)
+      }
+      return
     }
-  }, [calls, activeCallId])
 
-  const active = calls.find((c) => c.callId === activeCallId) ?? calls[calls.length - 1]
-  const baseTabs: Tab[] = ['system', 'tools', 'history']
-  const inputTabs: Tab[] = active?.kind === 'emotion'
-    ? [...baseTabs, 'emotion']
-    : active?.metadata !== undefined
-      ? [...baseTabs, 'metadata']
-      : baseTabs
+    const latestCallId = calls[calls.length - 1]!.callId
+    const activeStillExists = activeCallId
+      ? calls.some((call) => call.callId === activeCallId)
+      : false
+
+    if (
+      !activeCallId
+      || !activeStillExists
+      || activeCallId === previousLastCallIdRef.current
+    ) {
+      setActiveCallId(latestCallId)
+    }
+
+    previousLastCallIdRef.current = latestCallId
+  }, [calls, activeCallId, setActiveCallId])
 
   return (
     <div
       style={{
-        width: 420,
-        borderLeft: '1px solid #222',
+        width: 460,
+        borderLeft: '1px solid var(--border-subtle)',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
-        background: '#0b0b12',
+        background: 'rgba(10, 10, 15, 0.88)',
+        backdropFilter: 'blur(18px) saturate(140%)',
+        WebkitBackdropFilter: 'blur(18px) saturate(140%)',
       }}
     >
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid #222', fontSize: 13 }}>
-        <strong style={{ color: '#ededed' }}>Observer</strong>{' '}
-        <span style={{ color: '#666' }}>
+      <div
+        style={{
+          padding: '16px 18px',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+        }}
+      >
+        <strong style={{ color: 'var(--fg)', fontSize: 14 }}>Observer</strong>
+        <span style={{ color: 'var(--fg-muted)', fontSize: 13 }}>
           {calls.length === 0 ? 'waiting for next turn…' : `${calls.length} LLM call(s)`}
         </span>
       </div>
 
-      {calls.length > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            gap: 4,
-            padding: '8px 10px',
-            borderBottom: '1px solid #222',
-            overflowX: 'auto',
-          }}
-        >
-          {calls.map((c) => (
-            <button
-              key={c.callId}
-              onClick={() => setActiveCallId(c.callId)}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 4,
-                border: '1px solid #333',
-                background: c.callId === activeCallId ? '#1a1a2e' : 'transparent',
-                color: c.finished ? '#ededed' : '#f0883e',
-                fontSize: 12,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {describeCallKind(c.kind)} #{c.turnIndex} {c.finished ? '✓' : '…'}
-            </button>
-          ))}
-        </div>
-      )}
+      <div
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: 14,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        {calls.length === 0 && (
+          <div
+            style={{
+              padding: '18px',
+              borderRadius: 'var(--radius-lg)',
+              border: '1px dashed var(--border)',
+              color: 'var(--fg-subtle)',
+              fontSize: 13,
+            }}
+          >
+            Observer is idle. Start a turn to see memory retrieval, compaction, emotion, and main dialogue calls appear here.
+          </div>
+        )}
 
-      {active && (
-        <>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              padding: '6px 10px',
-              borderBottom: '1px solid #222',
-              fontSize: 12,
-            }}
-          >
-            <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
-              input
-            </span>
-            {inputTabs.map((t) => tabButton(t, tab, setTab))}
-            <span style={{ flex: 1 }} />
-            <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
-              output
-            </span>
-            {OUTPUT_TABS.map((t) => tabButton(t, tab, setTab))}
-          </div>
-          <div
-            style={{
-              flex: 1,
-              overflow: 'auto',
-              padding: 12,
-              fontSize: 12,
-              fontFamily: 'ui-monospace, monospace',
-              whiteSpace: 'pre-wrap',
-              color: '#cdd9e5',
-            }}
-          >
-            {tab === 'system' && active.systemPrompt}
-            {tab === 'tools' && JSON.stringify(active.tools, null, 2)}
-            {tab === 'history' && <MessagesView messages={active.messages} />}
-            {tab === 'metadata' && JSON.stringify(active.metadata ?? null, null, 2)}
-            {tab === 'emotion' && <EmotionView metadata={active.metadata} latestState={null} />}
-            {tab === 'response' && (
-              <ResponseView
-                response={active.response}
-                stopReason={active.stopReason}
-                inputTokens={active.usage?.inputTokens ?? null}
-                outputTokens={active.usage?.outputTokens ?? null}
-                error={active.error}
-              />
-            )}
-          </div>
-        </>
-      )}
+        {calls.map((call, index) => (
+          <ObserverCallCard
+            key={call.callId}
+            call={call}
+            compactionCall={
+              call.kind === 'turn' && index > 0 && calls[index - 1]?.kind === 'compaction'
+                ? calls[index - 1]
+                : undefined
+            }
+            open={call.callId === activeCallId}
+            onToggle={() => setActiveCallId(call.callId === activeCallId ? null : call.callId)}
+          />
+        ))}
+      </div>
     </div>
   )
 }

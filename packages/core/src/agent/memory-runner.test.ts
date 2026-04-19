@@ -209,16 +209,33 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
       keywords: ['猫', '我猫叫什么'],
       hitCount: 1,
       memoryIds: ['existing-memory'],
+      hits: [
+        {
+          id: 'existing-memory',
+          summary: '用户养了一只叫橘子的猫',
+          tags: ['猫', '橘子', '宠物'],
+          importance: 0.9,
+          matchedTerms: ['猫'],
+        },
+      ],
     })
     assert.equal(
       ((observerEnds[1]?.metadata as { memory?: { hitCount: number } })?.memory?.hitCount ?? 0),
       1,
     )
-
     const rows = getRawSqlite()
-      .prepare('SELECT summary, tags, importance FROM memories WHERE agent_id = ? ORDER BY rowid')
-      .all('agent-1') as Array<{ summary: string; tags: string; importance: number }>
+      .prepare('SELECT id, summary, tags, importance FROM memories WHERE agent_id = ? ORDER BY rowid')
+      .all('agent-1') as Array<{ id: string; summary: string; tags: string; importance: number }>
     assert.equal(rows.length, 2)
+    assert.deepEqual(observerEnds[2]?.metadata, {
+      phase: 'summarize',
+      written: {
+        id: rows[1]!.id,
+        summary: '用户养了一只叫橘子的猫',
+        tags: ['猫', '橘子', '宠物'],
+        importance: 0.9,
+      },
+    })
     assert.deepEqual(JSON.parse(rows[1]!.tags), ['猫', '橘子', '宠物'])
     assert.equal(rows[1]!.summary, '用户养了一只叫橘子的猫')
     assert.equal(rows[1]!.importance, 0.9)
@@ -332,6 +349,15 @@ test('runAgent uses LLM-expanded memory keywords instead of tokenizer results', 
       keywords: ['name', '名字'],
       hitCount: 1,
       memoryIds: ['name-memory'],
+      hits: [
+        {
+          id: 'name-memory',
+          summary: '用户名字叫王家骏',
+          tags: ['名字', 'name'],
+          importance: 0.9,
+          matchedTerms: ['name', '名字'],
+        },
+      ],
     })
     assert.equal(
       ((observerEnds[1]?.metadata as { memory?: { keywords?: string[] } })?.memory?.keywords ?? [])[0],
@@ -446,6 +472,15 @@ test('runAgent falls back to tokenizer keywords and emits system_error when memo
       keywords: ['猫', '我猫叫什么'],
       hitCount: 1,
       memoryIds: ['fallback-memory'],
+      hits: [
+        {
+          id: 'fallback-memory',
+          summary: '用户养了一只叫橘子的猫',
+          tags: ['猫', 'pet'],
+          importance: 0.9,
+          matchedTerms: ['猫'],
+        },
+      ],
     })
     assert.equal(observerEnds[0]?.error, 'memory query failed')
   } finally {
@@ -663,6 +698,15 @@ test('runAgent falls back to tokenizer keywords when memory query returns invali
       keywords: ['猫', '我猫叫什么'],
       hitCount: 1,
       memoryIds: ['invalid-memory'],
+      hits: [
+        {
+          id: 'invalid-memory',
+          summary: '用户养了一只叫橘子的猫',
+          tags: ['猫', 'pet'],
+          importance: 0.9,
+          matchedTerms: ['猫'],
+        },
+      ],
     })
     assert.equal((observerEnds[3]?.metadata as { phase?: string })?.phase, 'retrieve')
     assert.equal((observerEnds[3]?.metadata as { source?: string })?.source, 'fallback')

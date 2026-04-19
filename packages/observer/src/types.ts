@@ -6,6 +6,7 @@ export interface LLMCallStartPayload {
   systemPrompt: string
   tools: ToolDefinition[]
   messages: Message[]
+  metadata?: Record<string, unknown>
 }
 
 export interface LLMCallEndPayload {

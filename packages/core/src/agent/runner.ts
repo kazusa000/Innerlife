@@ -3,7 +3,7 @@ import type { LLMProvider, LLMResponse } from '../provider/types'
 import type { Message, ContentBlock, TextBlock, ToolDefinition, ToolUseBlock } from '../types'
 import { toolsToDefinitions, executeTool } from '../tools/registry'
 import { isAbortError, throwIfAborted } from '../utils/abort'
-import { COMPACTION_SUMMARY_PREFIX } from '@mas/systems'
+import { COMPACTION_SUMMARY_PREFIX, applyDecayAndDelta } from '@mas/systems'
 import type {
   AgentSystem,
   ConversationBlock,
@@ -24,6 +24,7 @@ export interface RunAgentObserver {
     systemPrompt: string
     tools: ToolDefinition[]
     messages: Message[]
+    metadata?: Record<string, unknown>
   }): string
 
   onLLMCallEnd(callId: string, payload: {
@@ -82,6 +83,7 @@ export async function* runAgent(
     ctx.messages = messages
     yield* runSystemPhase(systems, 'beforeLLM', ctx)
     const baseSystemPrompt = composeSystemPrompt(config.systemPrompt, ctx.promptFragments)
+    const promptFragmentMetadata = buildPromptFragmentMetadata(ctx.promptFragments)
 
     const compaction = await runPendingCompaction(
       ctx.pendingCompaction,
@@ -109,6 +111,7 @@ export async function* runAgent(
       systemPrompt: llmInput.systemPrompt,
       tools: toolDefs,
       messages: [...messages],
+      metadata: promptFragmentMetadata,
     })
 
     let response: LLMResponse | undefined
@@ -176,7 +179,10 @@ export async function* runAgent(
         response: response.content,
         stopReason: response.stopReason,
         usage: response.usage,
-        metadata: Object.keys(ctx.turnMetadata).length > 0 ? ctx.turnMetadata : undefined,
+        metadata: mergeObserverMetadata(
+          promptFragmentMetadata,
+          Object.keys(ctx.turnMetadata).length > 0 ? ctx.turnMetadata : undefined,
+        ),
       })
     }
 
@@ -305,6 +311,45 @@ function composeSystemPrompt(basePrompt: string, fragments: TurnContext['promptF
   return [basePrompt, ...ordered.map((fragment) => fragment.content)].join('\n\n')
 }
 
+function normalizePromptFragmentSource(source: string): string {
+  const [prefix] = source.split(':')
+  return ['personality', 'values', 'emotion', 'memory'].includes(prefix)
+    ? prefix
+    : source
+}
+
+function serializePromptFragments(fragments: TurnContext['promptFragments']) {
+  return [...fragments]
+    .sort((a, b) => a.priority - b.priority)
+    .map((fragment) => ({
+      source: normalizePromptFragmentSource(fragment.source),
+      priority: fragment.priority,
+      content: fragment.content,
+    }))
+}
+
+function buildPromptFragmentMetadata(
+  fragments: TurnContext['promptFragments'],
+): Record<string, unknown> | undefined {
+  const serialized = serializePromptFragments(fragments)
+  return serialized.length > 0
+    ? { fragments: serialized }
+    : undefined
+}
+
+function mergeObserverMetadata(
+  ...records: Array<Record<string, unknown> | undefined>
+): Record<string, unknown> | undefined {
+  const merged = records.reduce<Record<string, unknown>>((result, record) => {
+    if (record) {
+      Object.assign(result, record)
+    }
+    return result
+  }, {})
+
+  return Object.keys(merged).length > 0 ? merged : undefined
+}
+
 function prepareLLMInput(basePrompt: string, messages: Message[]) {
   const systemMessages = messages.filter((message) => message.role === 'system')
   const systemPromptParts = [
@@ -402,6 +447,9 @@ async function runPendingCompaction(
         usage: response.usage,
         metadata: {
           reason: pending.reason,
+          beforeMessageCount: beforeMessages.length,
+          afterMessageCount: nextMessages.length,
+          summary: summaryText,
           beforeMessages,
           afterMessages: cloneMessages(nextMessages),
         },
@@ -467,7 +515,7 @@ async function runPendingMemoryWrite(
       signal,
     })
     const result = pending.parse(extractContentText(response.content))
-    await pending.persist(result)
+    const written = await pending.persist(result)
 
     if (callId !== undefined && observer) {
       observer.onLLMCallEnd(callId, {
@@ -476,7 +524,18 @@ async function runPendingMemoryWrite(
         usage: response.usage,
         metadata: {
           phase: 'summarize',
-          storedMemory: result,
+          written: written
+            ? {
+                id: written.id,
+                summary: written.summary,
+                tags: [...written.tags],
+                importance: written.importance,
+              }
+            : {
+                summary: result.summary,
+                tags: [...result.tags],
+                importance: result.importance,
+              },
         },
       })
     }
@@ -537,7 +596,7 @@ async function runPendingMemoryQuery(
   let queryError: Error | undefined
   let retrieveError: Error | undefined
   let source: 'llm' | 'fallback' = 'llm'
-  let keywords = pending.fallback
+  let keywords = [...pending.fallback]
   let memories: NonNullable<TurnContext['state']['memories']> | undefined
 
   try {
@@ -547,11 +606,11 @@ async function runPendingMemoryQuery(
       messages,
       signal,
     })
-    keywords = pending.parse(extractContentText(response.content))
+    keywords = [...pending.parse(extractContentText(response.content))]
   } catch (err) {
     queryError = err instanceof Error ? err : new Error(String(err))
     source = 'fallback'
-    keywords = pending.fallback
+    keywords = [...pending.fallback]
   }
 
   ctx.state.memoryRetrievalKeywords = keywords
@@ -559,11 +618,13 @@ async function runPendingMemoryQuery(
   try {
     memories = await pending.retrieve(keywords)
     ctx.state.memories = memories
+    const hits = memories.map((memory) => serializeMemoryHit(memory, keywords))
     ctx.turnMetadata.memory = {
       hitCount: memories.length,
-      keywords,
-      fallbackKeywords: pending.fallback,
+      keywords: [...keywords],
+      fallbackKeywords: [...pending.fallback],
       memoryIds: memories.map((memory) => memory.id),
+      hits,
     }
   } catch (err) {
     retrieveError = err instanceof Error ? err : new Error(String(err))
@@ -576,13 +637,15 @@ async function runPendingMemoryQuery(
   const metadata: Record<string, unknown> = {
     phase: 'retrieve',
     source,
-    fallbackKeywords: pending.fallback,
-    keywords,
+    fallbackKeywords: [...pending.fallback],
+    keywords: [...keywords],
   }
 
   if (memories) {
+    const hits = memories.map((memory) => serializeMemoryHit(memory, keywords))
     metadata.hitCount = memories.length
     metadata.memoryIds = memories.map((memory) => memory.id)
+    metadata.hits = hits
   }
 
   if (callId !== undefined && observer) {
@@ -646,6 +709,37 @@ function parseEmotionAnalysis(rawResponse: string): EmotionAnalysisResult {
   }
 }
 
+function serializeEmotionState(state: PendingEmotionAnalysis['currentState']) {
+  const round = (value: number) => Number(value.toFixed(3))
+
+  return {
+    mood: round(state.mood),
+    energy: round(state.energy),
+    stress: round(state.stress),
+  }
+}
+
+function serializeMemoryHit(
+  memory: NonNullable<TurnContext['state']['memories']>[number],
+  keywords: string[],
+) {
+  const normalizedTags = memory.tags.map((tag) => tag.toLowerCase())
+  const matchedTerms = [...new Set(
+    keywords.filter((keyword) => {
+      const normalizedKeyword = keyword.toLowerCase()
+      return normalizedTags.some((tag) => tag.includes(normalizedKeyword))
+    }),
+  )]
+
+  return {
+    id: memory.id,
+    summary: memory.summary,
+    tags: [...memory.tags],
+    importance: memory.importance,
+    ...(matchedTerms.length > 0 ? { matchedTerms } : {}),
+  }
+}
+
 async function runPendingEmotionAnalysis(
   pending: PendingEmotionAnalysis | undefined,
   config: AgentConfig,
@@ -678,6 +772,12 @@ async function runPendingEmotionAnalysis(
     })
 
     const analysis = parseEmotionAnalysis(extractContentText(response.content))
+    const afterState = applyDecayAndDelta(
+      pending.currentState,
+      pending.baseline,
+      pending.decayPerTurn,
+      analysis.delta,
+    )
 
     if (callId !== undefined && observer) {
       observer.onLLMCallEnd(callId, {
@@ -685,10 +785,10 @@ async function runPendingEmotionAnalysis(
         stopReason: response.stopReason,
         usage: response.usage,
         metadata: {
-          currentState: pending.currentState,
-          delta: analysis.delta,
+          before: serializeEmotionState(pending.currentState),
+          after: serializeEmotionState(afterState),
+          delta: serializeEmotionState(analysis.delta),
           trigger: analysis.trigger,
-          decayPerTurn: pending.decayPerTurn,
         },
       })
     }
