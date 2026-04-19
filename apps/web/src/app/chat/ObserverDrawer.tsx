@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import React, { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import type { LiveCall } from './observer-types'
 
 interface Props {
@@ -13,27 +13,6 @@ interface PromptFragment {
   source: string
   priority: number
   content: string
-}
-
-interface MemoryHit {
-  id: string
-  summary: string
-  tags: string[]
-  importance: number
-  matchedTerms?: string[]
-}
-
-interface MemoryWritten {
-  id?: string
-  summary: string
-  tags: string[]
-  importance: number
-}
-
-interface EmotionVector {
-  mood: number
-  energy: number
-  stress: number
 }
 
 interface ConversationBlock {
@@ -75,67 +54,19 @@ function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return value
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
 function formatJson(value: unknown): string {
   return JSON.stringify(value ?? null, null, 2)
-}
-
-function formatMetric(value: number, digits = 2): string {
-  return value.toFixed(digits)
-}
-
-function formatImportance(value: number): string {
-  return Number.isFinite(value) ? value.toFixed(2) : '?'
 }
 
 function getMetadata(call: LiveCall): MetadataRecord | null {
   return isRecord(call.metadata) ? call.metadata : null
 }
 
-function getPhase(call: LiveCall): string | null {
-  const phase = getMetadata(call)?.phase
-  return typeof phase === 'string' ? phase : null
+function getCallLabel(): string {
+  return '主对话'
 }
 
-function getCallLabel(call: LiveCall): string {
-  const phase = getPhase(call)
-
-  if (call.kind === 'turn') {
-    return '主对话'
-  }
-
-  if (call.kind === 'memory') {
-    if (phase === 'retrieve') return 'memory.retrieve'
-    if (phase === 'summarize') return 'memory.summarize'
-    if (phase === 'consolidate') return 'memory.consolidate'
-    return 'memory'
-  }
-
-  if (call.kind === 'emotion') {
-    return 'emotion.delta'
-  }
-
-  if (call.kind === 'compaction') {
-    return 'compaction.summary'
-  }
-
-  return 'call'
-}
-
-function getCallTone(call: LiveCall) {
-  if (call.kind === 'memory') return CALL_ACCENTS.memory
-  if (call.kind === 'emotion') return CALL_ACCENTS.emotion
-  if (call.kind === 'compaction') return CALL_ACCENTS.compaction
+function getCallTone() {
   return CALL_ACCENTS.turn
 }
 
@@ -163,72 +94,6 @@ function getPromptFragments(call: LiveCall): PromptFragment[] {
 
 function getPromptFragment(call: LiveCall, source: string): PromptFragment | null {
   return getPromptFragments(call).find((fragment) => fragment.source === source) ?? null
-}
-
-function getEmotionVector(value: unknown): EmotionVector | null {
-  if (!isRecord(value)) {
-    return null
-  }
-
-  const mood = readNumber(value.mood)
-  const energy = readNumber(value.energy)
-  const stress = readNumber(value.stress)
-  if (mood === null || energy === null || stress === null) {
-    return null
-  }
-
-  return { mood, energy, stress }
-}
-
-function getMemoryHits(call: LiveCall): MemoryHit[] {
-  const hits = getMetadata(call)?.hits
-  if (!Array.isArray(hits)) {
-    return []
-  }
-
-  return hits.flatMap((hit) => {
-    if (!isRecord(hit)) {
-      return []
-    }
-
-    const id = readString(hit.id)
-    const summary = readString(hit.summary)
-    const importance = readNumber(hit.importance)
-    if (!id || !summary || importance === null) {
-      return []
-    }
-
-    const tags = readStringArray(hit.tags)
-    const matchedTerms = readStringArray(hit.matchedTerms)
-
-    return [{
-      id,
-      summary,
-      tags,
-      importance,
-      ...(matchedTerms.length > 0 ? { matchedTerms } : {}),
-    }]
-  })
-}
-
-function getMemoryWritten(call: LiveCall): MemoryWritten | null {
-  const written = getMetadata(call)?.written
-  if (!isRecord(written)) {
-    return null
-  }
-
-  const summary = readString(written.summary)
-  const importance = readNumber(written.importance)
-  if (!summary || importance === null) {
-    return null
-  }
-
-  return {
-    id: readString(written.id) ?? undefined,
-    summary,
-    tags: readStringArray(written.tags),
-    importance,
-  }
 }
 
 function getCompactionInfo(call: LiveCall) {
@@ -436,57 +301,6 @@ function Pill({
       <span style={{ color: 'var(--fg-subtle)' }}>{label}</span>
       <span>{value}</span>
     </span>
-  )
-}
-
-function TagPills({
-  values,
-  accent,
-}: {
-  values: string[]
-  accent: string
-}) {
-  if (values.length === 0) {
-    return <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>无</span>
-  }
-
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-      {values.map((value) => (
-        <span
-          key={value}
-          style={{
-            padding: '4px 9px',
-            borderRadius: 999,
-            border: `1px solid ${accent}`,
-            background: 'rgba(255, 255, 255, 0.04)',
-            color: 'var(--fg)',
-            fontSize: 11,
-          }}
-        >
-          {value}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-function DetailList({
-  rows,
-}: {
-  rows: Array<{ label: string; value: ReactNode }>
-}) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {rows.map((row) => (
-        <div key={row.label} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ color: 'var(--fg-subtle)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.04 * 16 }}>
-            {row.label}
-          </span>
-          <div style={{ color: 'var(--fg)', fontSize: 13 }}>{row.value}</div>
-        </div>
-      ))}
-    </div>
   )
 }
 
@@ -758,161 +572,24 @@ function DimensionCard({
   )
 }
 
-function EmotionStateView({
-  label,
-  vector,
-}: {
-  label: string
-  vector: EmotionVector
-}) {
-  return (
-    <DetailList
-      rows={[
-        { label: `${label} mood`, value: formatMetric(vector.mood) },
-        { label: `${label} energy`, value: formatMetric(vector.energy) },
-        { label: `${label} stress`, value: formatMetric(vector.stress) },
-      ]}
-    />
-  )
-}
-
 function DimensionCards({ call }: { call: LiveCall }) {
-  const metadata = getMetadata(call)
-  const personality = getPromptFragment(call, 'personality')
-  const values = getPromptFragment(call, 'values')
-  const emotion = getPromptFragment(call, 'emotion')
-  const memory = getPromptFragment(call, 'memory')
-  const emotionBefore = metadata ? getEmotionVector(metadata.before) : null
-  const emotionAfter = metadata ? getEmotionVector(metadata.after) : null
-  const emotionDelta = metadata ? getEmotionVector(metadata.delta) : null
-  const emotionTrigger = metadata ? readString(metadata.trigger) : null
-  const memoryKeywords = metadata ? readStringArray(metadata.keywords) : []
-  const memoryFallbackKeywords = metadata ? readStringArray(metadata.fallbackKeywords) : []
-  const memoryHits = getMemoryHits(call)
-  const memoryWritten = getMemoryWritten(call)
-  const memoryReport = isRecord(metadata?.report) ? metadata?.report : null
-  const turnMemoryMetadata = metadata?.memory
+  const cards = [
+    { key: 'personality', title: '性格', accent: CALL_ACCENTS.personality },
+    { key: 'values', title: '价值观', accent: CALL_ACCENTS.values },
+    { key: 'emotion', title: '情绪', accent: CALL_ACCENTS.emotion },
+    { key: 'memory', title: '记忆', accent: CALL_ACCENTS.memory },
+  ].flatMap(({ key, title, accent }) => {
+    const fragment = getPromptFragment(call, key)
+    if (!fragment) {
+      return []
+    }
 
-  const cards: ReactNode[] = []
-
-  if (personality) {
-    cards.push(
-      <DimensionCard key="personality" title="性格" accent={CALL_ACCENTS.personality}>
-        <CodeBlock value={personality.content} />
-      </DimensionCard>,
+    return (
+      <DimensionCard key={key} title={title} accent={accent}>
+        <CodeBlock value={fragment.content} />
+      </DimensionCard>
     )
-  }
-
-  if (values) {
-    cards.push(
-      <DimensionCard key="values" title="价值观" accent={CALL_ACCENTS.values}>
-        <CodeBlock value={values.content} />
-      </DimensionCard>,
-    )
-  }
-
-  if (emotionBefore && emotionAfter && emotionDelta) {
-    cards.push(
-      <DimensionCard key="emotion-delta" title="情绪" accent={CALL_ACCENTS.emotion}>
-        <div style={{ display: 'grid', gap: 14 }}>
-          <EmotionStateView label="before" vector={emotionBefore} />
-          <EmotionStateView label="after" vector={emotionAfter} />
-          <EmotionStateView label="delta" vector={emotionDelta} />
-          <DetailList rows={[{ label: 'trigger', value: emotionTrigger ?? '无' }]} />
-        </div>
-      </DimensionCard>,
-    )
-  } else if (emotion) {
-    cards.push(
-      <DimensionCard key="emotion-fragment" title="情绪" accent={CALL_ACCENTS.emotion}>
-        <CodeBlock value={emotion.content} />
-      </DimensionCard>,
-    )
-  }
-
-  if (getPhase(call) === 'retrieve') {
-    cards.push(
-      <DimensionCard key="memory-retrieve" title="记忆" accent={CALL_ACCENTS.memory}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <DetailList
-            rows={[
-              { label: 'keywords', value: <TagPills values={memoryKeywords} accent={CALL_ACCENTS.memory.color} /> },
-              { label: 'fallback keywords', value: <TagPills values={memoryFallbackKeywords} accent={CALL_ACCENTS.memory.color} /> },
-            ]}
-          />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <span style={{ color: 'var(--fg-subtle)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.04 * 16 }}>
-              Hits
-            </span>
-            {memoryHits.length === 0 ? (
-              <span style={{ color: 'var(--fg-subtle)', fontSize: 13 }}>无命中</span>
-            ) : (
-              memoryHits.map((hit) => (
-                <div
-                  key={hit.id}
-                  style={{
-                    border: '1px solid rgba(52, 211, 153, 0.22)',
-                    borderRadius: 14,
-                    background: 'rgba(0, 0, 0, 0.2)',
-                    padding: 12,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 10,
-                  }}
-                >
-                  <DetailList
-                    rows={[
-                      { label: 'memory id', value: hit.id },
-                      { label: 'summary', value: hit.summary },
-                      { label: 'importance', value: formatImportance(hit.importance) },
-                      { label: 'matched terms', value: <TagPills values={hit.matchedTerms ?? []} accent={CALL_ACCENTS.memory.color} /> },
-                      { label: 'tags', value: <TagPills values={hit.tags} accent={CALL_ACCENTS.memory.color} /> },
-                    ]}
-                  />
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </DimensionCard>,
-    )
-  } else if (getPhase(call) === 'summarize' && memoryWritten) {
-    cards.push(
-      <DimensionCard key="memory-written" title="记忆" accent={CALL_ACCENTS.memory}>
-        <DetailList
-          rows={[
-            ...(memoryWritten.id ? [{ label: 'written id', value: memoryWritten.id }] : []),
-            { label: 'summary', value: memoryWritten.summary },
-            { label: 'importance', value: formatImportance(memoryWritten.importance) },
-            { label: 'tags', value: <TagPills values={memoryWritten.tags} accent={CALL_ACCENTS.memory.color} /> },
-          ]}
-        />
-      </DimensionCard>,
-    )
-  } else if (getPhase(call) === 'consolidate' && memoryReport) {
-    const rows = [
-      { label: 'before', value: String(readNumber(memoryReport.before) ?? '?') },
-      { label: 'after', value: String(readNumber(memoryReport.after) ?? '?') },
-      { label: 'kept', value: String(readNumber(memoryReport.kept) ?? '?') },
-      { label: 'rewritten', value: String(readNumber(memoryReport.rewritten) ?? '?') },
-      { label: 'merged', value: String(readNumber(memoryReport.merged) ?? '?') },
-    ]
-
-    cards.push(
-      <DimensionCard key="memory-consolidate" title="记忆" accent={CALL_ACCENTS.memory}>
-        <DetailList rows={rows} />
-      </DimensionCard>,
-    )
-  } else if (memory) {
-    cards.push(
-      <DimensionCard key="memory-fragment" title="记忆" accent={CALL_ACCENTS.memory}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <CodeBlock value={memory.content} />
-          {turnMemoryMetadata !== undefined && <CodeBlock value={formatJson(turnMemoryMetadata)} />}
-        </div>
-      </DimensionCard>,
-    )
-  }
+  })
 
   if (cards.length === 0) {
     return null
@@ -936,8 +613,8 @@ function ObserverCallCard({
   onToggle: () => void
   inlineCompactionCall: LiveCall | null
 }) {
-  const tone = getCallTone(call)
-  const label = getCallLabel(call)
+  const tone = getCallTone()
+  const label = getCallLabel()
   const toolsCount = Array.isArray(call.tools) ? call.tools.length : 0
   const fragmentsCount = getPromptFragments(call).length
   const headerStyle: CSSProperties = {
@@ -1024,16 +701,18 @@ function ObserverCallCard({
 }
 
 export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) {
+  const turnCalls = calls.filter((call) => call.kind === 'turn')
+
   useEffect(() => {
-    if (!activeCallId && calls.length > 0) {
-      setActiveCallId(calls[calls.length - 1].callId)
+    if (!activeCallId && turnCalls.length > 0) {
+      setActiveCallId(turnCalls[turnCalls.length - 1].callId)
       return
     }
 
-    if (activeCallId && calls.every((call) => call.callId !== activeCallId)) {
-      setActiveCallId(calls[calls.length - 1]?.callId ?? null)
+    if (activeCallId && turnCalls.every((call) => call.callId !== activeCallId)) {
+      setActiveCallId(turnCalls[turnCalls.length - 1]?.callId ?? null)
     }
-  }, [calls, activeCallId, setActiveCallId])
+  }, [turnCalls, activeCallId, setActiveCallId])
 
   return (
     <aside
@@ -1059,7 +738,7 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
       >
         <strong style={{ color: 'var(--fg)', fontSize: 14 }}>Observer</strong>
         <span style={{ color: 'var(--fg-muted)', fontSize: 12 }}>
-          {calls.length === 0 ? 'waiting for next turn…' : `${calls.length} LLM call(s)`}
+          {turnCalls.length === 0 ? 'waiting for next turn…' : `${turnCalls.length} visible call(s)`}
         </span>
       </div>
 
@@ -1073,7 +752,7 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
           gap: 14,
         }}
       >
-        {calls.length === 0 ? (
+        {turnCalls.length === 0 ? (
           <div
             style={{
               border: '1px solid var(--border)',
@@ -1085,18 +764,23 @@ export function ObserverDrawer({ calls, activeCallId, setActiveCallId }: Props) 
               lineHeight: 1.6,
             }}
           >
-            等待下一次 LLM 调用。新的 call 会按时间顺序追加在这里。
+            等待下一次主对话调用。新的 turn call 会按时间顺序追加在这里。
           </div>
         ) : (
-          calls.map((call, index) => (
-            <ObserverCallCard
-              key={call.callId}
-              call={call}
-              expanded={call.callId === activeCallId}
-              onToggle={() => setActiveCallId(call.callId === activeCallId ? null : call.callId)}
-              inlineCompactionCall={calls[index - 1]?.kind === 'compaction' ? calls[index - 1] : null}
-            />
-          ))
+          turnCalls.map((call) => {
+            const callIndex = calls.findIndex((candidate) => candidate.callId === call.callId)
+            const previousCall = callIndex > 0 ? calls[callIndex - 1] : null
+
+            return (
+              <ObserverCallCard
+                key={call.callId}
+                call={call}
+                expanded={call.callId === activeCallId}
+                onToggle={() => setActiveCallId(call.callId === activeCallId ? null : call.callId)}
+                inlineCompactionCall={previousCall?.kind === 'compaction' ? previousCall : null}
+              />
+            )
+          })
         )}
       </div>
     </aside>
