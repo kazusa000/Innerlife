@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { ObserverCallCard } from './ObserverCallCard'
 import type { LiveCall } from './observer-types'
 

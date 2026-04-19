@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import React, { useState, type CSSProperties, type ReactNode } from 'react'
 import { MessagesTimeline } from './MessagesTimeline'
 import type { LiveCall } from './observer-types'
 
