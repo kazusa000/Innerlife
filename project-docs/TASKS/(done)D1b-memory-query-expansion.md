@@ -113,3 +113,10 @@ task 卡明确写了"runner 里 runPendingMemoryQuery 照抄 runPendingMemoryWri
 - typecheck / test 全绿 ✓
 
 修完改回 `(done)` 前缀 + 追加 Completion Note 说明挪到 try 里是怎么处理的。
+
+## Completion Note (Bounce Fix)
+
+- **Changes**: `runPendingMemoryQuery` 现在把 `pending.retrieve()` 也纳入错误处理范围；检索抛错时不再中断 `runAgent`，而是像 summarize 一样产出 `system_error` 后继续主 turn。Observer 仍保留 `phase: 'retrieve'`、尝试过的 `keywords`，只有检索成功时才补 `hitCount` / `memoryIds`。
+- **Verified**: `npm test --workspace @mas/systems --workspace @mas/core`；`npm run typecheck --workspace @mas/systems --workspace @mas/core`。新增回归测试覆盖 `retrieve()` 抛错路径，先失败后转绿。
+- **Caveats**: 如果 query call 和 fallback retrieve 都失败，当前会合并两段错误消息返回单个 `system_error`，方便保留原始 query 失败上下文。
+- **Design deltas** (if any): 无；这次只是把 D1b 原设计里应有的 runner 异常边界补齐。
