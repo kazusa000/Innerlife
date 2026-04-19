@@ -60,3 +60,50 @@
 - **Verified**: `node --import tsx --test src/memory/sqlite.test.ts`（在 `packages/systems`）；`node --import tsx --test src/repository/memories.test.ts`（在 `packages/db`）；`npm test --workspace @mas/systems --workspace @mas/core --workspace @mas/db`；`npm run typecheck --workspace @mas/systems`。
 - **Caveats**: 没做 Hazel 的真实手测；任务备注里的那一步留给合并后带 API key 的环境。为满足 `@mas/systems` typecheck，顺手补了 `packages/systems/src/emotion/dimensional.test.ts` 里缺失的 `turnMetadata` 测试夹具字段，这个问题是基线已有、与 D1a 运行时逻辑无关。
 - **Design deltas**: 无运行时设计偏移；仅把 prompt 约束写得更具体，保持 D1a 要求的“只改 prompt，不改检索逻辑”。
+
+## Coordinator Review Feedback (2026-04-19)
+
+**Verdict: FAIL — bounced back**
+
+两条完成标准未达标：
+
+### 1. prompt 强度不够
+
+现状：`packages/systems/src/memory/sqlite.ts:110` 写的是 `include both Chinese and English synonyms in tags when possible.`
+
+`when possible` 是软约束，LLM 可以合理解释为"不一定都要给，尽量就行"。task 要求是"**都要给**"（强约束），修完要能把 bug 真压住。
+
+**改法**：
+- 把 prompt 改成明确强制性措辞，比如 `Every tag list MUST contain both Chinese and English equivalents for each concept (e.g. both "名字" and "name", both "用户偏好" and "user preference"). Do not output tags in only one language.`
+- 单测 `sqlite.test.ts:146` 里 `assert.match(...)` 断言要锁"强制"文案，比如 `/MUST contain both Chinese and English/i` 或等价中文强制表述，避免后续 prompt 回退被当成 PASS
+
+### 2. 缺端到端跨语言命中测试
+
+现状：`memories.test.ts:106` 直接调 `findRelevantMemories({ terms: ['名字'] })` 跳过 tokenize。
+
+task 原文要求"**用中文 input `我叫什么名字` 走检索**，断言能命中；再用英文 input `what's my name` 也能命中"——这是 task 卡特意指定的端到端验证，目的是证明 **input → tokenize → retrieve** 整条链路跨语言通。
+
+**改法**（加一条新单测，不是改现有的）：
+```ts
+test('bilingual memory is retrieved for both Chinese and English inputs', async () => {
+  // seed 一条 memory，tags: ['名字', 'name', '称呼', 'introduction']
+  // 走 MemorySqliteSystem.beforeTurn 或等价 path，传完整 input 字符串
+  ctx1.input.text = '我叫什么名字'
+  await system.beforeTurn(ctx1)
+  assert.ok(ctx1.state.memories.length > 0, 'chinese input should hit bilingual memory')
+
+  ctx2.input.text = "what's my name"
+  await system.beforeTurn(ctx2)
+  assert.ok(ctx2.state.memories.length > 0, 'english input should hit bilingual memory')
+})
+```
+
+走 `beforeTurn` 就会跑 `tokenizeText` + `findRelevantMemories`，真正覆盖 "input 文本 → keywords → tags LIKE 命中" 全链路。
+
+### 其他部分（确认正确，不用改）
+
+- tags 解析入库（完成标准 2）PASS
+- 检索逻辑 / SQL / schema / UI 没动（完成标准 4）PASS
+- 现有测试没挂（完成标准 5）PASS，@mas/systems 19/19、@mas/core 12/12、@mas/db 3/3
+
+修完这两条继续自报（改回 `(done)` 前缀 + 追加新的 Completion Note 段说明这两处改了什么），继续走 review。
