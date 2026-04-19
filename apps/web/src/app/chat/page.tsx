@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { ChatArea } from './ChatArea'
+import type { AgentModules } from './observer-types'
 
 interface Session {
   id: string
@@ -16,6 +17,7 @@ interface Agent {
   id: string
   name: string
   model: string
+  modules: AgentModules | null
 }
 
 export default function ChatPage() {
@@ -114,7 +116,12 @@ function ChatPageInner() {
         onBack={() => router.push('/')}
       />
       {loaded && currentId ? (
-        <ChatArea key={currentId} sessionId={currentId} onFirstMessage={loadSessions} />
+        <ChatArea
+          key={currentId}
+          sessionId={currentId}
+          agentModules={agent?.modules ?? null}
+          onFirstMessage={loadSessions}
+        />
       ) : (
         <div style={{ flex: 1 }} />
       )}

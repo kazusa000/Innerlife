@@ -3,150 +3,220 @@ import test from 'node:test'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ObserverDrawer } from './ObserverDrawer'
-import type { LiveCall } from './observer-types'
+import type { AgentModules, LiveCall, ObserverTab, ObserverTurnState } from './observer-types'
 
-function renderDrawer(calls: LiveCall[], activeCallId: string | null) {
+function renderDrawer({
+  turn,
+  activeTab,
+  expandedMainCallIds = [],
+  agentModules = null,
+}: {
+  turn: ObserverTurnState
+  activeTab: ObserverTab
+  expandedMainCallIds?: string[]
+  agentModules?: AgentModules | null
+}) {
   return renderToStaticMarkup(
     React.createElement(ObserverDrawer, {
-      calls,
-      activeCallId,
-      setActiveCallId: () => {},
+      turn,
+      activeTab,
+      agentModules,
+      expandedMainCallIds,
+      setActiveTab: () => {},
+      setExpandedMainCallIds: () => {},
     }),
   )
 }
 
-test('observer drawer only renders turn calls and keeps compaction inline hint', () => {
-  const calls: LiveCall[] = [
-    {
-      callId: 'compaction-1',
-      turnIndex: 0,
-      kind: 'compaction',
-      model: 'fake-model',
-      systemPrompt: 'compaction prompt',
-      tools: [],
-      messages: [],
-      metadata: {
-        beforeMessageCount: 45,
-        afterMessageCount: 21,
-        summary: 'summary text',
-      },
-      response: [{ type: 'text', text: 'summary text' }],
-      stopReason: 'end_turn',
-      usage: { inputTokens: 1, outputTokens: 1 },
-      finished: true,
-    },
-    {
-      callId: 'turn-1',
-      turnIndex: 1,
-      kind: 'turn',
-      model: 'fake-model',
-      systemPrompt: 'base prompt',
-      tools: [],
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
-      metadata: {
-        fragments: [
-          { source: 'personality', priority: 10, content: 'personality fragment' },
-        ],
-      },
-      response: [{ type: 'text', text: 'ok' }],
-      stopReason: 'end_turn',
-      usage: { inputTokens: 10, outputTokens: 5 },
-      finished: true,
-    },
-    {
-      callId: 'memory-1',
-      turnIndex: 2,
-      kind: 'memory',
-      model: 'fake-model',
-      systemPrompt: 'memory prompt',
-      tools: [],
-      messages: [],
-      metadata: {
-        phase: 'retrieve',
-        hits: [{ id: 'm1', summary: 'should be hidden', tags: ['x'], importance: 0.9 }],
-      },
-      response: [{ type: 'text', text: '{}' }],
-      stopReason: 'end_turn',
-      usage: { inputTokens: 1, outputTokens: 1 },
-      finished: true,
-    },
-    {
-      callId: 'emotion-1',
-      turnIndex: 3,
-      kind: 'emotion',
-      model: 'fake-model',
-      systemPrompt: 'emotion prompt',
-      tools: [],
-      messages: [],
-      metadata: {
-        before: { mood: 0.1, energy: 0.2, stress: 0.3 },
-        after: { mood: 0.2, energy: 0.3, stress: 0.2 },
-        delta: { mood: 0.1, energy: 0.1, stress: -0.1 },
-      },
-      response: [{ type: 'text', text: '{}' }],
-      stopReason: 'end_turn',
-      usage: { inputTokens: 1, outputTokens: 1 },
-      finished: true,
-    },
-  ]
+const baseTurnCall: LiveCall = {
+  callId: 'turn-1',
+  turnIndex: 1,
+  kind: 'turn',
+  model: 'fake-model',
+  systemPrompt: 'base prompt',
+  tools: [{ name: 'bash' }],
+  messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+  metadata: {
+    fragments: [
+      { source: 'personality', priority: 10, content: 'personality fragment' },
+      { source: 'memory', priority: 30, content: 'memory fragment' },
+    ],
+    hits: [{ id: 'm1', summary: 'should stay out of main tab', tags: ['x'], importance: 0.9 }],
+  },
+  response: [{ type: 'text', text: 'ok' }],
+  stopReason: 'end_turn',
+  usage: { inputTokens: 10, outputTokens: 5 },
+  finished: true,
+}
 
-  const html = renderDrawer(calls, 'turn-1')
-
-  assert.equal((html.match(/主对话/g) ?? []).length, 1)
-  assert.equal(html.includes('memory.retrieve'), false)
-  assert.equal(html.includes('memory.summarize'), false)
-  assert.equal(html.includes('memory.consolidate'), false)
-  assert.equal(html.includes('emotion.delta'), false)
-  assert.equal(html.includes('本轮压缩：25 条 → 1 条摘要'), true)
-})
-
-test('observer drawer dimension cards render only fragment content and skip absent systems', () => {
-  const call: LiveCall = {
-    callId: 'turn-1',
-    turnIndex: 0,
-    kind: 'turn',
-    model: 'fake-model',
-    systemPrompt: 'base prompt\n\npersonality fragment\n\nmemory fragment',
-    tools: [],
-    messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
-    metadata: {
-      fragments: [
-        { source: 'personality', priority: 10, content: 'personality fragment' },
-        { source: 'memory', priority: 30, content: 'memory fragment' },
-      ],
-      memory: {
-        hitCount: 2,
-      },
-      hits: [
-        {
-          id: 'memory-1',
-          summary: 'sqlite hit summary should stay hidden',
-          tags: ['pet'],
-          importance: 0.9,
-          matchedTerms: ['cat'],
+test('main tab renders turn cards with fragment anchors and inline compaction only', () => {
+  const turn: ObserverTurnState = {
+    status: 'complete',
+    calls: [
+      {
+        callId: 'compaction-1',
+        turnIndex: 0,
+        kind: 'compaction',
+        model: 'fake-model',
+        systemPrompt: 'compaction prompt',
+        tools: [],
+        messages: [],
+        metadata: {
+          beforeMessageCount: 45,
+          afterMessageCount: 21,
+          summary: 'summary text',
         },
-      ],
-      before: { mood: 0.1, energy: 0.2, stress: 0.3 },
-      after: { mood: 0.2, energy: 0.2, stress: 0.1 },
-      delta: { mood: 0.1, energy: 0, stress: -0.2 },
-      trigger: 'trigger should stay hidden',
-    },
-    response: [{ type: 'text', text: 'ok' }],
-    stopReason: 'end_turn',
-    usage: { inputTokens: 10, outputTokens: 5 },
-    finished: true,
+        response: [{ type: 'text', text: 'summary text' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+        finished: true,
+      },
+      baseTurnCall,
+      {
+        callId: 'memory-1',
+        turnIndex: 2,
+        kind: 'memory',
+        model: 'fake-model',
+        systemPrompt: 'memory prompt',
+        tools: [],
+        messages: [],
+        metadata: {
+          phase: 'retrieve',
+          keywords: ['cat'],
+          hits: [{ id: 'm2', summary: 'sqlite hit summary', tags: ['pet'], importance: 0.8 }],
+        },
+        response: [{ type: 'text', text: '{}' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+        finished: true,
+      },
+    ],
   }
 
-  const html = renderDrawer([call], 'turn-1')
+  const html = renderDrawer({
+    turn,
+    activeTab: 'main',
+    expandedMainCallIds: ['turn-1'],
+  })
 
+  assert.equal(html.includes('主对话'), true)
+  assert.equal(html.includes('记忆'), true)
+  assert.equal(html.includes('情绪'), true)
   assert.equal(html.includes('personality fragment'), true)
   assert.equal(html.includes('memory fragment'), true)
-  assert.equal(html.includes('sqlite hit summary should stay hidden'), false)
-  assert.equal(html.includes('trigger should stay hidden'), false)
-  assert.equal(html.includes('matched terms'), false)
-  assert.equal(html.includes('importance'), false)
-  assert.equal(html.includes('性格'), true)
+  assert.equal(html.includes('should stay out of main tab'), false)
+  assert.equal(html.includes('本轮压缩：25 条 → 1 条摘要'), true)
+  assert.equal(html.includes('Messages'), true)
+  assert.equal(html.includes('Tools'), true)
+  assert.equal(html.includes('Final prompt'), true)
+})
+
+test('memory tab renders sqlite retrieve and summarize details', () => {
+  const turn: ObserverTurnState = {
+    status: 'complete',
+    calls: [
+      {
+        callId: 'memory-retrieve',
+        turnIndex: 0,
+        kind: 'memory',
+        model: 'fake-model',
+        systemPrompt: 'memory retrieve prompt',
+        tools: [],
+        messages: [],
+        metadata: {
+          phase: 'retrieve',
+          keywords: ['cat'],
+          fallbackKeywords: ['pet'],
+          hits: [
+            {
+              id: 'memory-1',
+              summary: 'cat memory',
+              tags: ['pet'],
+              importance: 0.9,
+              matchedTerms: ['cat'],
+            },
+          ],
+        },
+        response: [{ type: 'text', text: '{}' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+        finished: true,
+      },
+      {
+        callId: 'memory-summarize',
+        turnIndex: 1,
+        kind: 'memory',
+        model: 'fake-model',
+        systemPrompt: 'memory summarize prompt',
+        tools: [],
+        messages: [],
+        metadata: {
+          phase: 'summarize',
+          written: {
+            id: 'memory-2',
+            summary: 'new summary',
+            tags: ['tag-a'],
+            importance: 0.7,
+          },
+        },
+        response: [{ type: 'text', text: '{}' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+        finished: true,
+      },
+    ],
+  }
+
+  const html = renderDrawer({
+    turn,
+    activeTab: 'memory',
+    agentModules: { memory: { scheme: 'sqlite' } },
+  })
+
+  assert.equal(html.includes('memory.retrieve'), true)
+  assert.equal(html.includes('memory.summarize'), true)
+  assert.equal(html.includes('cat memory'), true)
+  assert.equal(html.includes('tag-a'), true)
+  assert.equal(html.includes('memory-2'), true)
+  assert.equal(html.includes('原 prompt'), true)
+})
+
+test('emotion tab renders dimensional delta details and empty tabs remain visible', () => {
+  const turn: ObserverTurnState = {
+    status: 'complete',
+    calls: [
+      {
+        callId: 'emotion-1',
+        turnIndex: 0,
+        kind: 'emotion',
+        model: 'fake-model',
+        systemPrompt: 'emotion prompt',
+        tools: [],
+        messages: [],
+        metadata: {
+          before: { mood: 0.1, energy: 0.2, stress: 0.3 },
+          after: { mood: 0.2, energy: 0.4, stress: 0.1 },
+          delta: { mood: 0.1, energy: 0.2, stress: -0.2 },
+          trigger: 'user was relieved',
+        },
+        response: [{ type: 'text', text: '{}' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+        finished: true,
+      },
+    ],
+  }
+
+  const html = renderDrawer({
+    turn,
+    activeTab: 'emotion',
+    agentModules: { emotion: { scheme: 'dimensional' } },
+  })
+
+  assert.equal(html.includes('主对话'), true)
   assert.equal(html.includes('记忆'), true)
-  assert.equal(html.includes('价值观'), false)
-  assert.equal(html.includes('情绪'), false)
+  assert.equal(html.includes('情绪'), true)
+  assert.equal(html.includes('emotion.delta'), true)
+  assert.equal(html.includes('user was relieved'), true)
+  assert.equal(html.includes('delta stress'), true)
 })

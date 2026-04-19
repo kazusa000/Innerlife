@@ -61,6 +61,7 @@ export async function POST(request: Request) {
     async start(controller) {
       let closed = false
       let assistantText = ''
+      let turnStatus: 'complete' | 'aborted' | 'error' = 'complete'
 
       const push = (payload: unknown) => {
         if (closed) return
@@ -97,6 +98,13 @@ export async function POST(request: Request) {
           : createNoopObserver()
 
       try {
+        push({
+          type: 'turn_start',
+          payload: {
+            sessionId,
+          },
+        })
+
         for await (const event of runAgent(
           config,
           messages,
@@ -134,20 +142,36 @@ export async function POST(request: Request) {
               tokenCount: event.response.usage.outputTokens,
             })
             assistantText = ''
+            turnStatus = 'complete'
           }
 
           if (event.type === 'aborted') {
             persistInterruptedMessage()
+            turnStatus = 'aborted'
+          }
+
+          if (event.type === 'error') {
+            turnStatus = 'error'
           }
         }
       } catch (err) {
         if (!request.signal.aborted) {
+          turnStatus = 'error'
           push({
             type: 'error',
             error: err instanceof Error ? err.message : String(err),
           })
+        } else {
+          turnStatus = 'aborted'
         }
       } finally {
+        push({
+          type: 'turn_end',
+          payload: {
+            sessionId,
+            status: turnStatus,
+          },
+        })
         close()
       }
     },

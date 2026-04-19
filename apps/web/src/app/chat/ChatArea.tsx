@@ -2,7 +2,13 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { ObserverDrawer } from './ObserverDrawer'
-import type { LiveCall } from './observer-types'
+import type {
+  AgentModules,
+  LiveCall,
+  ObserverTab,
+  ObserverTurnState,
+  ObserverTurnSummary,
+} from './observer-types'
 
 const INTERRUPTED_SUFFIX = ' —（中断）'
 
@@ -39,6 +45,7 @@ function renderDbMessage(m: DbMessage): ChatMessage | null {
 
 interface Props {
   sessionId: string
+  agentModules: AgentModules | null
   onFirstMessage?: () => void
 }
 
@@ -51,14 +58,85 @@ function isAbortError(error: unknown): boolean {
   )
 }
 
-export function ChatArea({ sessionId, onFirstMessage }: Props) {
+function normalizeCallDetail(call: Record<string, unknown>): LiveCall | null {
+  const id = typeof call.id === 'string' ? call.id : null
+  const turnIndex = typeof call.turnIndex === 'number' ? call.turnIndex : null
+  const kind = call.kind
+  const model = typeof call.model === 'string' ? call.model : null
+  const systemPrompt = typeof call.systemPrompt === 'string' ? call.systemPrompt : null
+  const tools = Array.isArray(call.tools) ? call.tools : null
+  const messages = Array.isArray(call.messages) ? call.messages : null
+
+  if (!id || turnIndex === null || !model || !systemPrompt || !tools || !messages) {
+    return null
+  }
+
+  return {
+    callId: id,
+    turnIndex,
+    kind: kind === 'memory' || kind === 'emotion' || kind === 'compaction' ? kind : 'turn',
+    model,
+    systemPrompt,
+    tools,
+    messages,
+    metadata: typeof call.metadata === 'object' && call.metadata !== null
+      ? call.metadata as Record<string, unknown>
+      : null,
+    response: call.response,
+    stopReason: typeof call.stopReason === 'string' ? call.stopReason : null,
+    usage:
+      typeof call.inputTokens === 'number' && typeof call.outputTokens === 'number'
+        ? { inputTokens: call.inputTokens, outputTokens: call.outputTokens }
+        : null,
+    error: typeof call.error === 'string' ? call.error : null,
+    finished: true,
+  }
+}
+
+async function loadLatestObserverTurn(sessionId: string): Promise<LiveCall[]> {
+  const turnsRes = await fetch(`/api/observer/sessions/${sessionId}`)
+  if (!turnsRes.ok) {
+    return []
+  }
+
+  const turnsData = await turnsRes.json() as { turns?: ObserverTurnSummary[] }
+  const turns = turnsData.turns ?? []
+  const latestTurn = [...turns].reverse().find((turn) => turn.calls.length > 0 && turn.calls.every((call) => call.finishedAt !== null))
+    ?? [...turns].reverse().find((turn) => turn.calls.length > 0)
+  if (!latestTurn) {
+    return []
+  }
+
+  const detailResults = await Promise.all(
+    latestTurn.calls.map(async (summaryCall) => {
+      const response = await fetch(`/api/observer/calls/${summaryCall.id}`)
+      if (!response.ok) {
+        return null
+      }
+
+      const detail = await response.json() as Record<string, unknown>
+      return {
+        startedAt: summaryCall.startedAt,
+        call: normalizeCallDetail(detail),
+      }
+    }),
+  )
+
+  return detailResults
+    .filter((item): item is { startedAt: number; call: LiveCall } => item !== null && item.call !== null)
+    .sort((a, b) => a.startedAt - b.startedAt)
+    .map((item) => item.call)
+}
+
+export function ChatArea({ sessionId, agentModules, onFirstMessage }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentTools, setCurrentTools] = useState<ToolExecution[]>([])
   const [observerOpen, setObserverOpen] = useState(false)
-  const [liveCalls, setLiveCalls] = useState<LiveCall[]>([])
-  const [activeCallId, setActiveCallId] = useState<string | null>(null)
+  const [observerTurn, setObserverTurn] = useState<ObserverTurnState>({ calls: [], status: 'loading' })
+  const [activeObserverTab, setActiveObserverTab] = useState<ObserverTab>('main')
+  const [expandedMainCallIds, setExpandedMainCallIds] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -69,6 +147,9 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
     setIsStreaming(false)
     setMessages([])
     setCurrentTools([])
+    setObserverTurn({ calls: [], status: 'loading' })
+    setExpandedMainCallIds([])
+
     fetch(`/api/sessions/${sessionId}/messages`)
       .then((r) => r.json())
       .then((data: { messages: DbMessage[] }) => {
@@ -79,6 +160,20 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
         setMessages(rendered)
       })
       .catch(() => {})
+
+    loadLatestObserverTurn(sessionId)
+      .then((calls) => {
+        if (cancelled) return
+        setObserverTurn({
+          calls,
+          status: calls.length > 0 ? 'complete' : 'idle',
+        })
+      })
+      .catch(() => {
+        if (cancelled) return
+        setObserverTurn({ calls: [], status: 'idle' })
+      })
+
     return () => {
       cancelled = true
     }
@@ -129,8 +224,6 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
     setIsStreaming(true)
     setCurrentTools([])
-    setLiveCalls([])
-    setActiveCallId(null)
 
     let assistantText = ''
     let abortedHandled = false
@@ -170,6 +263,22 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
             const event = JSON.parse(data)
 
             switch (event.type) {
+              case 'turn_start':
+                setObserverTurn({ calls: [], status: 'running' })
+                setExpandedMainCallIds([])
+                break
+
+              case 'turn_end':
+                setObserverTurn((prev) => ({
+                  ...prev,
+                  status: event.payload?.status === 'error'
+                    ? 'error'
+                    : event.payload?.status === 'aborted'
+                      ? 'complete'
+                      : 'complete',
+                }))
+                break
+
               case 'text_delta':
                 assistantText += event.text
                 setAssistantText(assistantText)
@@ -193,25 +302,29 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
                 break
 
               case 'llm_call_start':
-                setLiveCalls((prev) => [
-                  ...prev,
-                  {
-                    callId: event.callId,
-                    turnIndex: event.turnIndex,
-                    kind: event.payload.kind,
-                    model: event.payload.model,
-                    systemPrompt: event.payload.systemPrompt,
-                    tools: event.payload.tools,
-                    messages: event.payload.messages,
-                    metadata: event.payload.metadata ?? null,
-                    finished: false,
-                  },
-                ])
+                setObserverTurn((prev) => ({
+                  status: 'running',
+                  calls: [
+                    ...prev.calls,
+                    {
+                      callId: event.callId,
+                      turnIndex: event.turnIndex,
+                      kind: event.payload.kind,
+                      model: event.payload.model,
+                      systemPrompt: event.payload.systemPrompt,
+                      tools: event.payload.tools,
+                      messages: event.payload.messages,
+                      metadata: event.payload.metadata ?? null,
+                      finished: false,
+                    },
+                  ],
+                }))
                 break
 
               case 'llm_call_end':
-                setLiveCalls((prev) =>
-                  prev.map((c) =>
+                setObserverTurn((prev) => ({
+                  ...prev,
+                  calls: prev.calls.map((c) =>
                     c.callId === event.callId
                       ? {
                           ...c,
@@ -227,7 +340,7 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
                         }
                       : c,
                   ),
-                )
+                }))
                 break
 
               case 'complete':
@@ -258,6 +371,7 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
           markInterrupted(assistantText)
         }
       } else {
+        setObserverTurn((prev) => ({ ...prev, status: 'error' }))
         setMessages((prev) => [
           ...prev,
           { role: 'assistant', content: `Connection error: ${err}` },
@@ -362,7 +476,14 @@ export function ChatArea({ sessionId, onFirstMessage }: Props) {
       </div>
 
       {observerOpen && (
-        <ObserverDrawer calls={liveCalls} activeCallId={activeCallId} setActiveCallId={setActiveCallId} />
+        <ObserverDrawer
+          turn={observerTurn}
+          agentModules={agentModules}
+          activeTab={activeObserverTab}
+          setActiveTab={setActiveObserverTab}
+          expandedMainCallIds={expandedMainCallIds}
+          setExpandedMainCallIds={setExpandedMainCallIds}
+        />
       )}
 
       <style jsx>{`
