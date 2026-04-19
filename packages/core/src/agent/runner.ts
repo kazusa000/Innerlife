@@ -534,9 +534,11 @@ async function runPendingMemoryQuery(
   })
 
   let response: LLMResponse | undefined
-  let error: Error | undefined
+  let queryError: Error | undefined
+  let retrieveError: Error | undefined
   let source: 'llm' | 'fallback' = 'llm'
   let keywords = pending.fallback
+  let memories: NonNullable<TurnContext['state']['memories']> | undefined
 
   try {
     response = await provider.sendMessage({
@@ -547,19 +549,40 @@ async function runPendingMemoryQuery(
     })
     keywords = pending.parse(extractContentText(response.content))
   } catch (err) {
-    error = err instanceof Error ? err : new Error(String(err))
+    queryError = err instanceof Error ? err : new Error(String(err))
     source = 'fallback'
     keywords = pending.fallback
   }
 
-  const memories = await pending.retrieve(keywords)
   ctx.state.memoryRetrievalKeywords = keywords
-  ctx.state.memories = memories
-  ctx.turnMetadata.memory = {
-    hitCount: memories.length,
-    keywords,
+
+  try {
+    memories = await pending.retrieve(keywords)
+    ctx.state.memories = memories
+    ctx.turnMetadata.memory = {
+      hitCount: memories.length,
+      keywords,
+      fallbackKeywords: pending.fallback,
+      memoryIds: memories.map((memory) => memory.id),
+    }
+  } catch (err) {
+    retrieveError = err instanceof Error ? err : new Error(String(err))
+  }
+
+  const error =
+    queryError && retrieveError
+      ? new Error(`${queryError.message}; memory retrieve failed: ${retrieveError.message}`)
+      : queryError ?? retrieveError
+  const metadata: Record<string, unknown> = {
+    phase: 'retrieve',
+    source,
     fallbackKeywords: pending.fallback,
-    memoryIds: memories.map((memory) => memory.id),
+    keywords,
+  }
+
+  if (memories) {
+    metadata.hitCount = memories.length
+    metadata.memoryIds = memories.map((memory) => memory.id)
   }
 
   if (callId !== undefined && observer) {
@@ -567,14 +590,7 @@ async function runPendingMemoryQuery(
       response: response?.content ?? [],
       stopReason: response?.stopReason ?? 'end_turn',
       usage: response?.usage ?? { inputTokens: 0, outputTokens: 0 },
-      metadata: {
-        phase: 'retrieve',
-        source,
-        fallbackKeywords: pending.fallback,
-        keywords,
-        hitCount: memories.length,
-        memoryIds: memories.map((memory) => memory.id),
-      },
+      metadata,
       error: error?.message,
     })
   }

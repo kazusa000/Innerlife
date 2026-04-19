@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { getDb, getRawSqlite, resetDb } from '@mas/db'
-import { createSystems } from '@mas/systems'
+import { createSystems, type AgentSystem } from '@mas/systems'
 import { runAgent, type RunAgentObserver } from './runner'
 import type { AgentConfig } from './types'
 import type { LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent } from '../provider/types'
@@ -452,6 +452,92 @@ test('runAgent falls back to tokenizer keywords and emits system_error when memo
     resetDb()
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('runAgent emits system_error and continues when memory retrieval throws', async () => {
+  const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
+  const observer: RunAgentObserver = {
+    onLLMCallStart() {
+      return `call-${observerEnds.length + 1}`
+    },
+    onLLMCallEnd(_callId, payload) {
+      observerEnds.push({ metadata: payload.metadata, error: payload.error })
+    },
+  }
+  const systems: AgentSystem[] = [
+    {
+      name: 'memory:sqlite',
+      type: 'memory',
+      async beforeTurn(ctx) {
+        ctx.pendingMemoryQuery = {
+          kind: 'sqlite',
+          system: 'memory:sqlite',
+          prompt: 'memory retrieval keywords',
+          inputText: ctx.input.text,
+          fallback: ['cat'],
+          parse() {
+            return ['cat']
+          },
+          retrieve() {
+            throw new Error('memory retrieve failed')
+          },
+        }
+      },
+    },
+  ]
+  const provider = new FakeProvider(async function* (params) {
+    if (params.systemPrompt === 'memory retrieval keywords') {
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: JSON.stringify({ keywords: ['cat'] }) }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 4, outputTokens: 4 },
+        },
+      }
+      return
+    }
+
+    assert.equal(params.systemPrompt, 'test')
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [{ type: 'text', text: 'still completes' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 6, outputTokens: 2 },
+      },
+    }
+  })
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig(),
+    [createTextMessage('user', 'what did I say about my cat?')],
+    provider,
+    systems,
+    observer,
+  )) {
+    events.push(
+      event.type === 'system_error'
+        ? { type: 'system_error', system: event.system, phase: event.phase, error: event.error.message }
+        : event,
+    )
+  }
+
+  assert.deepEqual(events[0], {
+    type: 'system_error',
+    system: 'memory:sqlite',
+    phase: 'beforeTurn',
+    error: 'memory retrieve failed',
+  })
+  assert.equal(events.at(-1)?.type, 'complete')
+  assert.deepEqual(observerEnds[0]?.metadata, {
+    phase: 'retrieve',
+    source: 'llm',
+    fallbackKeywords: ['cat'],
+    keywords: ['cat'],
+  })
+  assert.equal(observerEnds[0]?.error, 'memory retrieve failed')
 })
 
 test('runAgent falls back to tokenizer keywords when memory query returns invalid JSON or empty keywords', async () => {
