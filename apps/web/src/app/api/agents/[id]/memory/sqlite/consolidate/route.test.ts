@@ -219,6 +219,8 @@ test('consolidateSqliteMemories returns 500 and leaves memories unchanged when t
       importance: 0.5,
       createdAt: '2026-04-17T11:00:00.000Z',
     })
+    const starts: Array<{ kind: string }> = []
+    const ends: Array<{ metadata?: Record<string, unknown> }> = []
 
     const before = memoryRepo.listMemoriesByAgent('agent-1').map((memory) => ({
       summary: memory.summary,
@@ -227,6 +229,17 @@ test('consolidateSqliteMemories returns 500 and leaves memories unchanged when t
     }))
     const response = await consolidateSqliteMemories('agent-1', {
       provider: createProvider('not valid json'),
+      resolveObserver() {
+        return {
+          onLLMCallStart(payload) {
+            starts.push({ kind: payload.kind })
+            return 'call-1'
+          },
+          onLLMCallEnd(_callId, payload) {
+            ends.push({ metadata: payload.metadata })
+          },
+        }
+      },
     })
     const after = memoryRepo.listMemoriesByAgent('agent-1').map((memory) => ({
       summary: memory.summary,
@@ -236,6 +249,10 @@ test('consolidateSqliteMemories returns 500 and leaves memories unchanged when t
 
     assert.equal(response.status, 500)
     assert.match((await response.json()).error, /JSON|consolidate/i)
+    assert.equal(starts[0]?.kind, 'memory')
+    assert.deepEqual(ends[0]?.metadata, {
+      phase: 'consolidate',
+    })
     assert.deepEqual(after, before)
   } finally {
     resetDb()

@@ -45,6 +45,7 @@ export async function consolidateSqliteMemories(
   const provider = deps.provider ?? new AnthropicProvider()
   const model = resolveMemorySqliteConfig(memoryConfig).summarizeModel ?? agent.model
   const systemPrompt = buildMemoryConsolidationPrompt()
+  const phaseMetadata = { phase: 'consolidate' as const }
   const messages: Message[] = [
     {
       role: 'user',
@@ -90,7 +91,7 @@ export async function consolidateSqliteMemories(
         stopReason: response.stopReason,
         usage: response.usage,
         metadata: {
-          phase: 'consolidate',
+          ...phaseMetadata,
           ...report,
         },
       })
@@ -105,6 +106,7 @@ export async function consolidateSqliteMemories(
         response: [],
         stopReason: 'end_turn',
         usage: { inputTokens: 0, outputTokens: 0 },
+        metadata: phaseMetadata,
         error: err.message,
       })
     }
