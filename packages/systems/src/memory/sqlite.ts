@@ -73,6 +73,38 @@ interface MemoryModuleConfig {
   minTermLength: number
 }
 
+export interface MemoryConsolidationKeepAction {
+  op: 'keep'
+  id: string
+}
+
+export interface MemoryConsolidationRewriteAction {
+  op: 'rewrite'
+  id: string
+  summary: string
+  tags: string[]
+  importance: number
+}
+
+export interface MemoryConsolidationMergeAction {
+  op: 'merge'
+  sourceIds: string[]
+  summary: string
+  tags: string[]
+  importance: number
+}
+
+export type MemoryConsolidationAction =
+  | MemoryConsolidationKeepAction
+  | MemoryConsolidationRewriteAction
+  | MemoryConsolidationMergeAction
+
+const BILINGUAL_TAG_GUIDANCE = [
+  'tags should be short reusable keywords.',
+  'Provide bilingual Chinese and English tags for the same fact whenever possible, for example ["名字", "name"].',
+  'Include at least 6 tags when the memory has enough detail to support them.',
+].join('\n')
+
 function readConfig(config: unknown): MemoryModuleConfig {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     return {
@@ -99,6 +131,17 @@ function readConfig(config: unknown): MemoryModuleConfig {
   }
 }
 
+export function resolveMemorySqliteConfig(config: unknown): MemoryModuleConfig {
+  return readConfig(config)
+}
+
+export function isSqliteMemoryConfig(config: unknown): boolean {
+  return !!config
+    && typeof config === 'object'
+    && !Array.isArray(config)
+    && (config as Record<string, unknown>).scheme === 'sqlite'
+}
+
 function buildSummaryPrompt(): string {
   return [
     'You summarize one completed conversation turn into a durable memory for future turns.',
@@ -106,7 +149,7 @@ function buildSummaryPrompt(): string {
     'Return strict JSON with exactly these keys:',
     '{"summary": string, "tags": string[], "importance": number}',
     'importance must be a number between 0 and 1.',
-    'tags should be short reusable keywords.',
+    BILINGUAL_TAG_GUIDANCE,
     'Do not add markdown or code fences.',
   ].join('\n')
 }
@@ -217,6 +260,24 @@ function extractJson(text: string): unknown {
   return JSON.parse(candidate)
 }
 
+function normalizeTags(tags: unknown): string[] {
+  if (!Array.isArray(tags)) {
+    return []
+  }
+
+  return [...new Set(
+    tags
+      .filter((tag): tag is string => typeof tag === 'string')
+      .map(tag => tag.trim())
+      .filter(Boolean),
+  )]
+}
+
+function normalizeImportance(value: unknown): number {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : 0.5
+}
+
 function parseMemoryWriteResponse(responseText: string): MemoryWriteResult {
   const parsed = extractJson(responseText)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -229,26 +290,117 @@ function parseMemoryWriteResponse(responseText: string): MemoryWriteResult {
     throw new Error('Memory summarize call returned an empty summary')
   }
 
-  const tags = Array.isArray(record.tags)
-    ? [...new Set(
-        record.tags
-          .filter((tag): tag is string => typeof tag === 'string')
-          .map(tag => tag.trim())
-          .filter(Boolean),
-      )]
-    : []
-  const numericImportance = typeof record.importance === 'number'
-    ? record.importance
-    : Number(record.importance)
-  const importance = Number.isFinite(numericImportance)
-    ? Math.min(1, Math.max(0, numericImportance))
-    : 0.5
+  const tags = normalizeTags(record.tags)
+  const importance = normalizeImportance(record.importance)
 
   return {
     summary,
     tags,
     importance,
   }
+}
+
+export function buildMemoryConsolidationPrompt(): string {
+  return [
+    'You consolidate stored sqlite memories for one agent.',
+    'Use only the provided memory list.',
+    'Return strict JSON with exactly this shape:',
+    '{"actions": Array<keep|rewrite|merge>}',
+    'keep action: {"op":"keep","id":"memory-id"}',
+    'rewrite action: {"op":"rewrite","id":"memory-id","summary":string,"tags":string[],"importance":number}',
+    'merge action: {"op":"merge","sourceIds":string[],"summary":string,"tags":string[],"importance":number}',
+    'Keep facts unless they are duplicated or can be rewritten more clearly.',
+    'A memory id may appear at most once across all actions.',
+    'sourceIds must contain at least 2 ids when merging.',
+    'importance must be a number between 0 and 1.',
+    BILINGUAL_TAG_GUIDANCE,
+    'Do not add markdown or code fences.',
+  ].join('\n')
+}
+
+export function buildMemoryConsolidationSourceText(memories: MemoryRecord[]): string {
+  return [
+    'Memories to consolidate (oldest first):',
+    JSON.stringify(
+      memories.map((memory) => ({
+        id: memory.id,
+        summary: memory.summary,
+        tags: memory.tags,
+        importance: memory.importance,
+        createdAt: memory.createdAt.toISOString(),
+      })),
+      null,
+      2,
+    ),
+  ].join('\n')
+}
+
+export function parseMemoryConsolidationResponse(responseText: string): MemoryConsolidationAction[] {
+  const parsed = extractJson(responseText)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Memory consolidate call did not return a JSON object')
+  }
+
+  const actions = (parsed as { actions?: unknown }).actions
+  if (!Array.isArray(actions)) {
+    throw new Error('Memory consolidate call did not return an actions array')
+  }
+
+  return actions.map((action, index) => {
+    if (!action || typeof action !== 'object' || Array.isArray(action)) {
+      throw new Error(`Memory consolidate action ${index} is not an object`)
+    }
+
+    const record = action as Record<string, unknown>
+    const op = record.op
+
+    if (op === 'keep') {
+      const id = typeof record.id === 'string' ? record.id.trim() : ''
+      if (!id) {
+        throw new Error(`Memory consolidate keep action ${index} is missing id`)
+      }
+      return { op, id }
+    }
+
+    if (op === 'rewrite') {
+      const id = typeof record.id === 'string' ? record.id.trim() : ''
+      const summary = typeof record.summary === 'string' ? record.summary.trim() : ''
+      if (!id || !summary) {
+        throw new Error(`Memory consolidate rewrite action ${index} is missing fields`)
+      }
+      return {
+        op,
+        id,
+        summary,
+        tags: normalizeTags(record.tags),
+        importance: normalizeImportance(record.importance),
+      }
+    }
+
+    if (op === 'merge') {
+      const sourceIds = Array.isArray(record.sourceIds)
+        ? [...new Set(
+            record.sourceIds
+              .filter((id): id is string => typeof id === 'string')
+              .map(id => id.trim())
+              .filter(Boolean),
+          )]
+        : []
+      const summary = typeof record.summary === 'string' ? record.summary.trim() : ''
+      if (sourceIds.length < 2 || !summary) {
+        throw new Error(`Memory consolidate merge action ${index} is missing fields`)
+      }
+      return {
+        op,
+        sourceIds,
+        summary,
+        tags: normalizeTags(record.tags),
+        importance: normalizeImportance(record.importance),
+      }
+    }
+
+    throw new Error(`Memory consolidate action ${index} has unknown op`)
+  })
 }
 
 export class MemorySqliteSystem implements AgentSystem {

@@ -4,7 +4,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { getDb, getRawSqlite, resetDb } from '../client'
-import { addMemory, findRelevantMemories } from './memories'
+import {
+  addMemory,
+  applyConsolidationPlan,
+  findRelevantMemories,
+  listMemoriesByAgentOldestFirst,
+} from './memories'
 
 function bootstrapDb(dbPath: string) {
   resetDb()
@@ -97,6 +102,160 @@ test('findRelevantMemories scopes by agent and orders by importance then recency
     assert.deepEqual(results.map((memory) => memory.id), [olderHigh.id, newerMedium.id])
     assert.deepEqual(results[0]?.tags, ['cat', 'orange', 'pet'])
     assert.equal(results[1]?.summary, '用户喜欢晚上聊天')
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('applyConsolidationPlan keeps, rewrites, and merges memories in one transaction', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const keepMemory = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: 'User said their cat is named Orange.',
+      summary: '用户养了一只叫橘子的猫',
+      tags: ['猫', 'cat', '橘子', 'orange'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-17T10:00:00.000Z'),
+    })
+    const rewriteMemory = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: 'User said they prefer late-night chats.',
+      summary: '用户喜欢晚上聊天',
+      tags: ['晚上', 'night'],
+      importance: 0.4,
+      createdAt: new Date('2026-04-17T11:00:00.000Z'),
+    })
+    const mergeSourceA = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: 'User said they live in Brussels.',
+      summary: '用户住在布鲁塞尔',
+      tags: ['布鲁塞尔', 'brussels'],
+      importance: 0.5,
+      createdAt: new Date('2026-04-17T12:00:00.000Z'),
+    })
+    const mergeSourceB = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-2',
+      content: 'User said they are based in Belgium.',
+      summary: '用户住在比利时布鲁塞尔',
+      tags: ['比利时', 'belgium', '布鲁塞尔', 'brussels'],
+      importance: 0.6,
+      createdAt: new Date('2026-04-17T13:00:00.000Z'),
+    })
+
+    const report = applyConsolidationPlan({
+      agentId: 'agent-1',
+      actions: [
+        { op: 'keep', id: keepMemory.id },
+        {
+          op: 'rewrite',
+          id: rewriteMemory.id,
+          summary: '用户偏好夜间聊天',
+          tags: ['夜间', 'night', '聊天', 'chat'],
+          importance: 0.65,
+        },
+        {
+          op: 'merge',
+          sourceIds: [mergeSourceA.id, mergeSourceB.id],
+          summary: '用户住在比利时布鲁塞尔',
+          tags: ['布鲁塞尔', 'brussels', '比利时', 'belgium', '住处', 'location'],
+          importance: 0.8,
+        },
+      ],
+    })
+
+    const rows = listMemoriesByAgentOldestFirst('agent-1')
+    const rewritten = rows.find((memory) => memory.id === rewriteMemory.id)
+    const merged = rows.find((memory) =>
+      ![keepMemory.id, rewriteMemory.id, mergeSourceA.id, mergeSourceB.id].includes(memory.id),
+    )
+
+    assert.deepEqual(report, {
+      before: 4,
+      after: 3,
+      kept: 1,
+      rewritten: 1,
+      merged: 1,
+    })
+    assert.equal(rows.length, 3)
+    assert.equal(rewritten?.summary, '用户偏好夜间聊天')
+    assert.deepEqual(rewritten?.tags, ['夜间', 'night', '聊天', 'chat'])
+    assert.equal(rewritten?.importance, 0.65)
+    assert.equal(rewritten?.createdAt.toISOString(), '2026-04-17T11:00:00.000Z')
+    assert.ok(merged)
+    assert.equal(merged?.sessionId, 'session-1')
+    assert.equal(merged?.createdAt.toISOString(), '2026-04-17T12:00:00.000Z')
+    assert.equal(merged?.summary, '用户住在比利时布鲁塞尔')
+    assert.deepEqual(merged?.tags, ['布鲁塞尔', 'brussels', '比利时', 'belgium', '住处', 'location'])
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('applyConsolidationPlan rolls back earlier writes when a later action is invalid', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const first = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: 'User likes tea.',
+      summary: '用户喜欢喝茶',
+      tags: ['茶', 'tea'],
+      importance: 0.3,
+      createdAt: new Date('2026-04-17T10:00:00.000Z'),
+    })
+    const second = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: 'User likes coffee.',
+      summary: '用户也喜欢咖啡',
+      tags: ['咖啡', 'coffee'],
+      importance: 0.4,
+      createdAt: new Date('2026-04-17T11:00:00.000Z'),
+    })
+
+    assert.throws(() => {
+      applyConsolidationPlan({
+        agentId: 'agent-1',
+        actions: [
+          {
+            op: 'rewrite',
+            id: first.id,
+            summary: '用户喜欢热茶',
+            tags: ['热茶', 'tea'],
+            importance: 0.7,
+          },
+          {
+            op: 'merge',
+            sourceIds: [second.id, 'missing-memory'],
+            summary: '用户喜欢热饮',
+            tags: ['热饮', 'drink'],
+            importance: 0.8,
+          },
+        ],
+      })
+    }, /missing-memory/)
+
+    const rows = listMemoriesByAgentOldestFirst('agent-1')
+    assert.equal(rows.length, 2)
+    assert.equal(rows[0]?.summary, '用户喜欢喝茶')
+    assert.deepEqual(rows[0]?.tags, ['茶', 'tea'])
+    assert.equal(rows[1]?.summary, '用户也喜欢咖啡')
+    assert.deepEqual(rows[1]?.tags, ['咖啡', 'coffee'])
   } finally {
     resetDb()
     rmSync(dir, { recursive: true, force: true })
