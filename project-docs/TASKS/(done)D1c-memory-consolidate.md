@@ -1,6 +1,6 @@
 # D1c — Memory 记忆整理（sqlite 专属）
 
-**状态**: pending
+**状态**: done
 **前置依赖**: D1（已完成）。与 D1a / D1b 独立，可以并行
 **预计规模**: medium
 
@@ -93,18 +93,18 @@ POST /api/agents/:id/memory/sqlite/consolidate
 
 ## 完成标准
 
-- [ ] API route 存在、对 `scheme !== 'sqlite'` 返回 400、对 >100 条返回 400、对 404 agent 正确响应
-- [ ] 三种 op 都正确执行：keep 不动、rewrite 保留 id+createdAt、merge 新 id + 最早 createdAt + 删源
-- [ ] 整个写回在**一个事务内**（失败回滚，不能写一半）
-- [ ] Observer 能看到 consolidate 这次 LLM call（`kind: 'memory'`, `metadata.phase: 'consolidate'`）
-- [ ] 单测：
+- [x] API route 存在、对 `scheme !== 'sqlite'` 返回 400、对 >100 条返回 400、对 404 agent 正确响应
+- [x] 三种 op 都正确执行：keep 不动、rewrite 保留 id+createdAt、merge 新 id + 最早 createdAt + 删源
+- [x] 整个写回在**一个事务内**（失败回滚，不能写一半）
+- [x] Observer 能看到 consolidate 这次 LLM call（`kind: 'memory'`, `metadata.phase: 'consolidate'`）
+- [x] 单测：
   - 给 fixture 3 条 memory + mock LLM 返回"把第 1、2 条 merge，第 3 条 rewrite" → 断言表里剩 2 条（1 新 merged + 1 rewritten）、新 merged 条的 createdAt 等于原 1 或 2 的最早
   - agent 不存在 → 404
   - scheme != sqlite → 400
   - 超过 100 条 → 400
   - LLM 返回非法 JSON → 事务回滚，表未变
-- [ ] typecheck / test 全过
-- [ ] 关闭记忆（`scheme: "noop"`）时调这个 API → 400（因为 scheme 不是 sqlite）
+- [x] typecheck / test 全过
+- [x] 关闭记忆（`scheme: "noop"`）时调这个 API → 400（因为 scheme 不是 sqlite）
 
 ## 备注
 
@@ -114,3 +114,10 @@ POST /api/agents/:id/memory/sqlite/consolidate
 - **Consolidate prompt 产出的 tags 应该符合 D1a 的中英双语约定**（即使 D1a 还没合并也这么做，两个 task 独立推进）
 - **先读** `packages/systems/src/memory/sqlite.ts` 和 `packages/db/src/repository/memories.ts` 看现有 pattern
 - **先读** `apps/web/src/app/api/agents/[id]/route.ts` 看现有 route handler 怎么写
+
+## Completion Note
+
+- **Changes**: 增加了 `POST /api/agents/:id/memory/sqlite/consolidate`，把 consolidate prompt / JSON 解析放进 `memory/sqlite` helper，并在 `memoryRepo` 里实现了 keep/rewrite/merge 的单事务写回。补了 repo 和 route 两层测试，覆盖成功路径、404、scheme 非 sqlite、>100、非法 JSON 回滚和 observer metadata。
+- **Verified**: `npm test --workspace @mas/db`；`npm test --workspace @mas/systems`；`node --import tsx --test route.test.ts`（在 `apps/web/src/app/api/agents/[id]/memory/sqlite/consolidate` 下）；`npm run typecheck --workspace @mas/db`；`npm run typecheck --workspace @mas/systems`；`npm run typecheck --workspace @mas/web`；`npm run build --workspace @mas/web`
+- **Caveats**: 无额外 caveat。
+- **Design deltas**: 为了让手动 consolidate 也能落进现有 observer / `llm_calls` 结构，route 会把这次调用挂到最新 memory 所在 session；如果该 session 没有可复用的 user message，会补一条 synthetic `[memory consolidate]` user message 作为外键锚点。
