@@ -121,3 +121,21 @@ POST /api/agents/:id/memory/sqlite/consolidate
 - **Verified**: `npm test --workspace @mas/db`；`npm test --workspace @mas/systems`；`node --import tsx --test route.test.ts`（在 `apps/web/src/app/api/agents/[id]/memory/sqlite/consolidate` 下）；`npm run typecheck --workspace @mas/db`；`npm run typecheck --workspace @mas/systems`；`npm run typecheck --workspace @mas/web`；`npm run build --workspace @mas/web`
 - **Caveats**: 无额外 caveat。
 - **Design deltas**: 为了让手动 consolidate 也能落进现有 observer / `llm_calls` 结构，route 会把这次调用挂到最新 memory 所在 session；如果该 session 没有可复用的 user message，会补一条 synthetic `[memory consolidate]` user message 作为外键锚点。
+
+## Coordinator Review Feedback (2026-04-19)
+
+**Verdict: FAIL — bounced back**
+
+**问题**：consolidate route 的 LLM call，**只在成功分支写了** `metadata.phase: 'consolidate'`；一旦 LLM 返回非法 JSON 或其他错误走 catch 分支，`onLLMCallEnd` 落库的 metadata 没带 `phase`，Observer 里就无法区分"这次是一次失败的 consolidate call"和普通 memory error。task 第 5 条标准是"Observer 能看到 consolidate 这次 LLM call（kind: 'memory'，metadata.phase: 'consolidate'）"，含错误分支也要一致。
+
+**改法**：把 `phase: 'consolidate'` 提到 metadata 顶层常量或在 `onLLMCallEnd` 两个分支（成功 + catch）都带上。参考 `runPendingMemoryWrite` / `runPendingEmotionAnalysis` 如果有类似 phase 逻辑看怎么统一；或者在 try 外面先 `const metadata = { phase: 'consolidate' }`，两个分支都用同一个对象（catch 分支再 merge 错误信息）。
+
+**其他 6 条全 PASS**（不用改）：
+- URL 写死 `/api/agents/:id/memory/sqlite/consolidate` ✓
+- 三种 op（keep / rewrite / merge）正确，merge 取源最早 createdAt + DELETE 源 ✓
+- 事务回滚 + 非法 JSON 不写脏数据 ✓
+- scheme != sqlite / 404 / >100 条的错误码正确 ✓
+- 没抽跨 scheme 接口，没动 UI ✓
+- typecheck / test / web build 全绿 ✓
+
+修完改回 `(done)` 前缀 + Completion Note 追加一段说明 metadata.phase 在两个分支都加了。
