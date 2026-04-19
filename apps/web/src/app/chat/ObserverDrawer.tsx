@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import React, { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { EmotionCallCardDimensional } from './EmotionCallCard.dimensional'
 import { MemoryCallCardSqlite } from './MemoryCallCard.sqlite'
 import type { AgentModules, LiveCall, ObserverTab, ObserverTurnState } from './observer-types'
 import { CALL_ACCENTS, CodeBlock, CollapsibleSection, EmptyState, MessagesTimeline, Pill } from './observer-ui'
+import type { AccentTone } from './observer-ui'
 import { getPromptFragment, getPromptFragments } from './observer-utils'
 
 interface Props {
@@ -12,8 +13,88 @@ interface Props {
   agentModules: AgentModules | null
   activeTab: ObserverTab
   setActiveTab: (tab: ObserverTab) => void
-  expandedMainCallIds: string[]
-  setExpandedMainCallIds: (ids: string[]) => void
+}
+
+function callSubtabLabel(call: LiveCall): string {
+  if (call.kind === 'turn') return `#${call.turnIndex}`
+  if (call.kind === 'memory') {
+    const phase = typeof call.metadata?.phase === 'string' ? call.metadata.phase : 'call'
+    return phase
+  }
+  if (call.kind === 'emotion') return 'delta'
+  return call.callId
+}
+
+function CallSubtabs({
+  calls,
+  activeId,
+  onSelect,
+  accent,
+}: {
+  calls: LiveCall[]
+  activeId: string | null
+  onSelect: (id: string) => void
+  accent: string
+}) {
+  if (calls.length <= 1) return null
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 8,
+        overflowX: 'auto',
+        padding: '10px 18px',
+        scrollbarWidth: 'thin',
+        borderBottom: '1px solid var(--border-subtle)',
+        marginLeft: -16,
+        marginRight: -16,
+        marginTop: -16,
+        marginBottom: 4,
+        position: 'sticky',
+        top: 0,
+        zIndex: 3,
+        background: 'rgba(8, 8, 13, 0.92)',
+        backdropFilter: 'blur(14px)',
+        WebkitBackdropFilter: 'blur(14px)',
+      }}
+    >
+      {calls.map((call) => {
+        const active = call.callId === activeId
+        return (
+          <button
+            key={call.callId}
+            type="button"
+            onClick={() => onSelect(call.callId)}
+            style={{
+              border: `1px solid ${active ? accent : 'var(--border-subtle)'}`,
+              borderRadius: 999,
+              background: active ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+              color: active ? 'var(--fg)' : 'var(--fg-muted)',
+              padding: '6px 12px',
+              fontSize: 11,
+              cursor: 'pointer',
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span>{callSubtabLabel(call)}</span>
+            <span
+              style={{
+                color: call.finished ? 'var(--fg-subtle)' : 'var(--orange)',
+                fontSize: 10,
+              }}
+            >
+              {call.finished ? '✓' : '…'}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 function formatTurnStatus(status: ObserverTurnState['status']): string {
@@ -27,50 +108,26 @@ function formatTurnStatus(status: ObserverTurnState['status']): string {
 function DimensionPanel({
   title,
   accent,
+  defaultOpen = true,
   children,
 }: {
   title: string
-  accent: { color: string; soft: string }
+  accent: AccentTone
+  defaultOpen?: boolean
   children: ReactNode
 }) {
   return (
-    <section
-      style={{
-        border: `1px solid ${accent.color}`,
-        background: accent.soft,
-        borderRadius: 18,
-        padding: 14,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: 999,
-            background: accent.color,
-            boxShadow: `0 0 18px ${accent.color}`,
-          }}
-        />
-        <strong style={{ color: 'var(--fg)', fontSize: 14 }}>{title}</strong>
-      </div>
-      {children}
-    </section>
+    <CollapsibleSection title={title} accent={accent.color} defaultOpen={defaultOpen}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div>
+    </CollapsibleSection>
   )
 }
 
 function MainTurnCallCard({
   call,
-  expanded,
-  onToggle,
   inlineCompactionCall,
 }: {
   call: LiveCall
-  expanded: boolean
-  onToggle: () => void
   inlineCompactionCall: LiveCall | null
 }) {
   const toolsCount = Array.isArray(call.tools) ? call.tools.length : 0
@@ -93,7 +150,7 @@ function MainTurnCallCard({
       label,
       node: (
         <DimensionPanel key={key} title={label} accent={accent}>
-          <CodeBlock value={fragment.content} maxHeight={240} />
+          <CodeBlock value={fragment.content} />
         </DimensionPanel>
       ),
     }]
@@ -121,164 +178,143 @@ function MainTurnCallCard({
   return (
     <article
       style={{
-        border: `1px solid ${expanded ? CALL_ACCENTS.turn.color : 'var(--border)'}`,
+        border: `1px solid ${CALL_ACCENTS.turn.color}`,
         borderRadius: 22,
-        background: expanded ? CALL_ACCENTS.turn.soft : 'rgba(255, 255, 255, 0.03)',
-        boxShadow: expanded ? 'var(--shadow-lift)' : 'none',
+        background: CALL_ACCENTS.turn.soft,
+        boxShadow: 'var(--shadow-lift)',
         overflow: 'hidden',
       }}
     >
-      <button
-        type="button"
-        onClick={onToggle}
+      <div
         style={{
-          width: '100%',
           display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: 16,
-          padding: expanded ? '16px 16px 12px' : '16px',
-          border: 'none',
-          background: 'transparent',
+          flexDirection: 'column',
+          gap: 10,
+          padding: '16px 16px 12px',
           color: 'var(--fg)',
-          cursor: 'pointer',
-          textAlign: 'left',
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '5px 10px',
-                borderRadius: 999,
-                background: 'rgba(0, 0, 0, 0.22)',
-                color: CALL_ACCENTS.turn.color,
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: 0.06 * 16,
-                textTransform: 'uppercase',
-              }}
-            >
-              主对话
-            </span>
-            <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>#{call.turnIndex}</span>
-            <span style={{ color: call.finished ? 'var(--fg-muted)' : 'var(--orange)', fontSize: 12 }}>
-              {call.finished ? 'finished' : 'running'}
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Pill label="model" value={call.model} />
-            <Pill label="tools" value={String(toolsCount)} />
-            <Pill label="fragments" value={String(fragmentsCount)} />
-            <Pill label="stop" value={call.stopReason ?? (call.finished ? 'end_turn' : 'pending')} accent={CALL_ACCENTS.turn.color} />
-            <Pill label="in" value={String(call.usage?.inputTokens ?? '?')} />
-            <Pill label="out" value={String(call.usage?.outputTokens ?? '?')} />
-          </div>
-        </div>
-        <span style={{ color: 'var(--fg-subtle)', fontSize: 12, flexShrink: 0 }}>{expanded ? '收起' : '展开'}</span>
-      </button>
-
-      {expanded && (
-        <div style={{ padding: '0 16px 16px' }}>
-          <div
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span
             style={{
-              maxHeight: 'min(58vh, 640px)',
-              overflowY: 'auto',
-              paddingRight: 4,
-              scrollBehavior: 'smooth',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '5px 10px',
+              borderRadius: 999,
+              background: 'rgba(0, 0, 0, 0.22)',
+              color: CALL_ACCENTS.turn.color,
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 0.06 * 16,
+              textTransform: 'uppercase',
             }}
           >
-            <div
-              style={{
-                position: 'sticky',
-                top: 0,
-                zIndex: 3,
-                display: 'flex',
-                gap: 8,
-                flexWrap: 'wrap',
-                padding: '10px 0 12px',
-                background: 'linear-gradient(180deg, rgba(9, 9, 14, 0.98), rgba(9, 9, 14, 0.88))',
-                backdropFilter: 'blur(14px)',
-                WebkitBackdropFilter: 'blur(14px)',
-              }}
-            >
-              {anchors.map((anchor) => (
-                <button
-                  key={anchor.id}
-                  type="button"
-                  onClick={() => scrollToSection(anchor.id)}
-                  style={{
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 999,
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    color: 'var(--fg)',
-                    padding: '6px 10px',
-                    fontSize: 11,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {anchor.label}
-                </button>
-              ))}
-            </div>
+            主对话
+          </span>
+          <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>#{call.turnIndex}</span>
+          <span style={{ color: call.finished ? 'var(--fg-muted)' : 'var(--orange)', fontSize: 12 }}>
+            {call.finished ? 'finished' : 'running'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Pill label="model" value={call.model} />
+          <Pill label="tools" value={String(toolsCount)} />
+          <Pill label="fragments" value={String(fragmentsCount)} />
+          <Pill label="stop" value={call.stopReason ?? (call.finished ? 'end_turn' : 'pending')} accent={CALL_ACCENTS.turn.color} />
+          <Pill label="in" value={String(call.usage?.inputTokens ?? '?')} />
+          <Pill label="out" value={String(call.usage?.outputTokens ?? '?')} />
+        </div>
+      </div>
 
-            {fragmentSections.map((section) => (
-              <div
-                key={section.id}
-                ref={(node) => {
-                  sectionRefs.current[section.id] = node
+      <div
+        style={{
+          padding: '0 16px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              overflowX: 'auto',
+              padding: '4px 0 8px',
+              scrollbarWidth: 'thin',
+            }}
+          >
+            {anchors.map((anchor) => (
+              <button
+                key={anchor.id}
+                type="button"
+                onClick={() => scrollToSection(anchor.id)}
+                style={{
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 999,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'var(--fg)',
+                  padding: '6px 10px',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
                 }}
-                style={{ scrollMarginTop: 56 }}
               >
-                {section.node}
-              </div>
+                {anchor.label}
+              </button>
             ))}
+          </div>
 
+          {fragmentSections.map((section) => (
+            <div
+              key={section.id}
+              ref={(node) => {
+                sectionRefs.current[section.id] = node
+              }}
+              style={{ scrollMarginTop: 12 }}
+            >
+              {section.node}
+            </div>
+          ))}
+
+          <div
+            ref={(node) => {
+              sectionRefs.current.messages = node
+            }}
+            style={{ scrollMarginTop: 12 }}
+          >
+            <DimensionPanel title="Messages" accent={CALL_ACCENTS.turn} defaultOpen>
+              <MessagesTimeline call={call} inlineCompactionCall={inlineCompactionCall} />
+            </DimensionPanel>
+          </div>
+
+          {toolsCount > 0 && (
             <div
               ref={(node) => {
-                sectionRefs.current.messages = node
+                sectionRefs.current.tools = node
               }}
-              style={{ scrollMarginTop: 56 }}
+              style={{ scrollMarginTop: 12 }}
             >
-              <DimensionPanel title="Messages" accent={CALL_ACCENTS.turn}>
-                <MessagesTimeline call={call} inlineCompactionCall={inlineCompactionCall} />
-              </DimensionPanel>
+              <CollapsibleSection title="Tools schema" accent={CALL_ACCENTS.turn.color} badge={String(toolsCount)}>
+                <CodeBlock value={JSON.stringify(call.tools ?? null, null, 2)} />
+              </CollapsibleSection>
             </div>
+          )}
 
-            {toolsCount > 0 && (
-              <div
-                ref={(node) => {
-                  sectionRefs.current.tools = node
-                }}
-                style={{ scrollMarginTop: 56 }}
-              >
-                <CollapsibleSection title="Tools schema" accent={CALL_ACCENTS.turn.color} badge={String(toolsCount)}>
-                  <CodeBlock value={JSON.stringify(call.tools ?? null, null, 2)} maxHeight={280} />
-                </CollapsibleSection>
-              </div>
-            )}
-
-            {call.systemPrompt && (
-              <div
-                ref={(node) => {
-                  sectionRefs.current['final-prompt'] = node
-                }}
-                style={{ scrollMarginTop: 56 }}
-              >
-                <CollapsibleSection title="Final system prompt" accent={CALL_ACCENTS.turn.color}>
-                  <CodeBlock value={call.systemPrompt} maxHeight={320} />
-                </CollapsibleSection>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+          {call.systemPrompt && (
+            <div
+              ref={(node) => {
+                sectionRefs.current['final-prompt'] = node
+              }}
+              style={{ scrollMarginTop: 12 }}
+            >
+              <CollapsibleSection title="Final system prompt" accent={CALL_ACCENTS.turn.color}>
+                <CodeBlock value={call.systemPrompt} />
+              </CollapsibleSection>
+            </div>
+          )}
+      </div>
     </article>
   )
 }
@@ -298,29 +334,37 @@ function UnknownSchemeCard({
   )
 }
 
+function pickActiveCallId(calls: LiveCall[], previousId: string | null): string | null {
+  if (calls.length === 0) return null
+  if (previousId && calls.some((call) => call.callId === previousId)) return previousId
+  return calls[calls.length - 1].callId
+}
+
 export function ObserverDrawer({
   turn,
   agentModules,
   activeTab,
   setActiveTab,
-  expandedMainCallIds,
-  setExpandedMainCallIds,
 }: Props) {
   const mainCalls = useMemo(() => turn.calls.filter((call) => call.kind === 'turn'), [turn.calls])
   const memoryCalls = useMemo(() => turn.calls.filter((call) => call.kind === 'memory'), [turn.calls])
   const emotionCalls = useMemo(() => turn.calls.filter((call) => call.kind === 'emotion'), [turn.calls])
 
-  useEffect(() => {
-    const validIds = expandedMainCallIds.filter((callId) => mainCalls.some((call) => call.callId === callId))
-    if (validIds.length !== expandedMainCallIds.length) {
-      setExpandedMainCallIds(validIds)
-      return
-    }
+  const [activeMainCallId, setActiveMainCallId] = useState<string | null>(null)
+  const [activeMemoryCallId, setActiveMemoryCallId] = useState<string | null>(null)
+  const [activeEmotionCallId, setActiveEmotionCallId] = useState<string | null>(null)
 
-    if (mainCalls.length > 0 && validIds.length === 0) {
-      setExpandedMainCallIds([mainCalls[mainCalls.length - 1].callId])
-    }
-  }, [expandedMainCallIds, mainCalls, setExpandedMainCallIds])
+  useEffect(() => {
+    setActiveMainCallId((prev) => pickActiveCallId(mainCalls, prev))
+  }, [mainCalls])
+
+  useEffect(() => {
+    setActiveMemoryCallId((prev) => pickActiveCallId(memoryCalls, prev))
+  }, [memoryCalls])
+
+  useEffect(() => {
+    setActiveEmotionCallId((prev) => pickActiveCallId(emotionCalls, prev))
+  }, [emotionCalls])
 
   const memoryScheme = typeof agentModules?.memory?.scheme === 'string' ? agentModules.memory.scheme : null
   const emotionScheme = typeof agentModules?.emotion?.scheme === 'string' ? agentModules.emotion.scheme : null
@@ -335,26 +379,20 @@ export function ObserverDrawer({
       )
     }
 
-    return mainCalls.map((call) => {
-      const callIndex = turn.calls.findIndex((candidate) => candidate.callId === call.callId)
-      const previousCall = callIndex > 0 ? turn.calls[callIndex - 1] : null
+    const activeCall = mainCalls.find((call) => call.callId === activeMainCallId) ?? mainCalls[mainCalls.length - 1]
+    const callIndex = turn.calls.findIndex((candidate) => candidate.callId === activeCall.callId)
+    const previousCall = callIndex > 0 ? turn.calls[callIndex - 1] : null
 
-      return (
+    return (
+      <>
+        <CallSubtabs calls={mainCalls} activeId={activeCall.callId} onSelect={setActiveMainCallId} accent={CALL_ACCENTS.turn.color} />
         <MainTurnCallCard
-          key={call.callId}
-          call={call}
-          expanded={expandedMainCallIds.includes(call.callId)}
-          onToggle={() =>
-            setExpandedMainCallIds(
-              expandedMainCallIds.includes(call.callId)
-                ? expandedMainCallIds.filter((id) => id !== call.callId)
-                : [...expandedMainCallIds, call.callId],
-            )
-          }
+          key={activeCall.callId}
+          call={activeCall}
           inlineCompactionCall={previousCall?.kind === 'compaction' ? previousCall : null}
         />
-      )
-    })
+      </>
+    )
   }
 
   const renderMemoryTab = () => {
@@ -366,7 +404,14 @@ export function ObserverDrawer({
       return <UnknownSchemeCard title="记忆组件未命中" scheme={memoryScheme} />
     }
 
-    return memoryCalls.map((call) => <MemoryCallCardSqlite key={call.callId} call={call} />)
+    const activeCall = memoryCalls.find((call) => call.callId === activeMemoryCallId) ?? memoryCalls[memoryCalls.length - 1]
+
+    return (
+      <>
+        <CallSubtabs calls={memoryCalls} activeId={activeCall.callId} onSelect={setActiveMemoryCallId} accent={CALL_ACCENTS.memory.color} />
+        <MemoryCallCardSqlite key={activeCall.callId} call={activeCall} />
+      </>
+    )
   }
 
   const renderEmotionTab = () => {
@@ -378,7 +423,14 @@ export function ObserverDrawer({
       return <UnknownSchemeCard title="情绪组件未命中" scheme={emotionScheme} />
     }
 
-    return emotionCalls.map((call) => <EmotionCallCardDimensional key={call.callId} call={call} />)
+    const activeCall = emotionCalls.find((call) => call.callId === activeEmotionCallId) ?? emotionCalls[emotionCalls.length - 1]
+
+    return (
+      <>
+        <CallSubtabs calls={emotionCalls} activeId={activeCall.callId} onSelect={setActiveEmotionCallId} accent={CALL_ACCENTS.emotion.color} />
+        <EmotionCallCardDimensional key={activeCall.callId} call={activeCall} />
+      </>
+    )
   }
 
   return (
@@ -393,6 +445,8 @@ export function ObserverDrawer({
         backdropFilter: 'blur(18px) saturate(140%)',
         WebkitBackdropFilter: 'blur(18px) saturate(140%)',
         minWidth: 0,
+        height: '100%',
+        overflow: 'hidden',
       }}
     >
       <div
@@ -411,15 +465,14 @@ export function ObserverDrawer({
 
       <div
         style={{
-          padding: 14,
+          padding: '12px 14px',
           borderBottom: '1px solid var(--border-subtle)',
           display: 'flex',
           gap: 10,
           flexShrink: 0,
           background: 'rgba(8, 8, 13, 0.92)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 5,
+          overflowX: 'auto',
+          scrollbarWidth: 'thin',
         }}
       >
         {[
@@ -436,12 +489,14 @@ export function ObserverDrawer({
               borderRadius: 999,
               background: activeTab === tab.id ? 'rgba(129, 140, 248, 0.16)' : 'rgba(255, 255, 255, 0.04)',
               color: activeTab === tab.id ? 'var(--fg)' : 'var(--fg-muted)',
-              padding: '7px 12px',
+              padding: '8px 14px',
               fontSize: 12,
               display: 'inline-flex',
               alignItems: 'center',
               gap: 8,
               cursor: 'pointer',
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
             }}
           >
             <span>{tab.label}</span>
@@ -464,16 +519,21 @@ export function ObserverDrawer({
         style={{
           flex: 1,
           overflowY: 'auto',
-          padding: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 14,
           minHeight: 0,
         }}
       >
-        {activeTab === 'main' && renderMainTab()}
-        {activeTab === 'memory' && renderMemoryTab()}
-        {activeTab === 'emotion' && renderEmotionTab()}
+        <div
+          style={{
+            padding: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+          }}
+        >
+          {activeTab === 'main' && renderMainTab()}
+          {activeTab === 'memory' && renderMemoryTab()}
+          {activeTab === 'emotion' && renderEmotionTab()}
+        </div>
       </div>
     </aside>
   )

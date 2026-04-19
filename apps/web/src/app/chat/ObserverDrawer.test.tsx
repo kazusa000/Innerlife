@@ -8,12 +8,10 @@ import type { AgentModules, LiveCall, ObserverTab, ObserverTurnState } from './o
 function renderDrawer({
   turn,
   activeTab,
-  expandedMainCallIds = [],
   agentModules = null,
 }: {
   turn: ObserverTurnState
   activeTab: ObserverTab
-  expandedMainCallIds?: string[]
   agentModules?: AgentModules | null
 }) {
   return renderToStaticMarkup(
@@ -21,9 +19,7 @@ function renderDrawer({
       turn,
       activeTab,
       agentModules,
-      expandedMainCallIds,
       setActiveTab: () => {},
-      setExpandedMainCallIds: () => {},
     }),
   )
 }
@@ -96,7 +92,6 @@ test('main tab renders turn cards with fragment anchors and inline compaction on
   const html = renderDrawer({
     turn,
     activeTab: 'main',
-    expandedMainCallIds: ['turn-1'],
   })
 
   assert.equal(html.includes('主对话'), true)
@@ -173,12 +168,12 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
     agentModules: { memory: { scheme: 'sqlite' } },
   })
 
-  assert.equal(html.includes('memory.retrieve'), true)
   assert.equal(html.includes('memory.summarize'), true)
-  assert.equal(html.includes('cat memory'), true)
   assert.equal(html.includes('tag-a'), true)
   assert.equal(html.includes('memory-2'), true)
   assert.equal(html.includes('原 prompt'), true)
+  assert.equal(html.includes('retrieve'), true)
+  assert.equal(html.includes('summarize'), true)
 })
 
 test('emotion tab renders dimensional delta details and empty tabs remain visible', () => {
@@ -218,5 +213,8 @@ test('emotion tab renders dimensional delta details and empty tabs remain visibl
   assert.equal(html.includes('情绪'), true)
   assert.equal(html.includes('emotion.delta'), true)
   assert.equal(html.includes('user was relieved'), true)
-  assert.equal(html.includes('delta stress'), true)
+  assert.equal(html.includes('Before'), true)
+  assert.equal(html.includes('After'), true)
+  assert.equal(html.includes('Delta'), true)
+  assert.equal(html.includes('stress'), true)
 })

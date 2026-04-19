@@ -136,7 +136,6 @@ export function ChatArea({ sessionId, agentModules, onFirstMessage }: Props) {
   const [observerOpen, setObserverOpen] = useState(false)
   const [observerTurn, setObserverTurn] = useState<ObserverTurnState>({ calls: [], status: 'loading' })
   const [activeObserverTab, setActiveObserverTab] = useState<ObserverTab>('main')
-  const [expandedMainCallIds, setExpandedMainCallIds] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -148,7 +147,6 @@ export function ChatArea({ sessionId, agentModules, onFirstMessage }: Props) {
     setMessages([])
     setCurrentTools([])
     setObserverTurn({ calls: [], status: 'loading' })
-    setExpandedMainCallIds([])
 
     fetch(`/api/sessions/${sessionId}/messages`)
       .then((r) => r.json())
@@ -265,7 +263,6 @@ export function ChatArea({ sessionId, agentModules, onFirstMessage }: Props) {
             switch (event.type) {
               case 'turn_start':
                 setObserverTurn({ calls: [], status: 'running' })
-                setExpandedMainCallIds([])
                 break
 
               case 'turn_end':
@@ -481,8 +478,6 @@ export function ChatArea({ sessionId, agentModules, onFirstMessage }: Props) {
           agentModules={agentModules}
           activeTab={activeObserverTab}
           setActiveTab={setActiveObserverTab}
-          expandedMainCallIds={expandedMainCallIds}
-          setExpandedMainCallIds={setExpandedMainCallIds}
         />
       )}
 
