@@ -33,7 +33,14 @@ export {
   normalizeEmotionConfig,
   normalizeEmotionState,
 } from './emotion'
-export { MemorySqliteSystem } from './memory'
+export {
+  buildMemoryConsolidationPrompt,
+  buildMemoryConsolidationSourceText,
+  isSqliteMemoryConfig,
+  MemorySqliteSystem,
+  parseMemoryConsolidationResponse,
+  resolveMemorySqliteConfig,
+} from './memory'
 export { NoopSystem, HelloWorldSystem } from './noop'
 export { ValuesPriorityListSystem } from './values'
 export { createSystems, systemRegistry } from './registry'
