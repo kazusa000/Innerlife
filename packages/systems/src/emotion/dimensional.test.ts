@@ -72,6 +72,7 @@ function createContext(agentId: string, sessionId: string, userText = '你今天
       modality: 'text',
     },
     state: {},
+    turnMetadata: {},
     promptFragments: [],
     messages: [
       { role: 'user', content: [{ type: 'text', text: userText }] },

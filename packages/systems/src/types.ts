@@ -66,6 +66,17 @@ export interface PendingMemoryWrite {
   persist(result: MemoryWriteResult): Promise<void> | void
 }
 
+export interface PendingMemoryQuery {
+  kind: 'sqlite'
+  system: string
+  model?: string | null
+  prompt: string
+  inputText: string
+  fallback: string[]
+  parse(responseText: string): string[]
+  retrieve(keywords: string[]): Promise<MemoryRecord[]> | MemoryRecord[]
+}
+
 export interface EmotionStateVector {
   mood: number
   energy: number
@@ -106,6 +117,7 @@ export interface TurnContext {
   promptFragments: PromptFragment[]
   messages: ConversationMessage[]
   pendingCompaction?: PendingCompaction
+  pendingMemoryQuery?: PendingMemoryQuery
   pendingMemoryWrite?: PendingMemoryWrite
   pendingEmotionAnalysis?: PendingEmotionAnalysis
   emotionAnalysis?: EmotionAnalysisResult

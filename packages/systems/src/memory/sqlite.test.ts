@@ -71,7 +71,7 @@ function createContext(text: string): TurnContext {
   }
 }
 
-test('memory sqlite system retrieves cross-session memories and injects prompt fragments', async () => {
+test('memory sqlite system prepares a pending retrieval query in beforeTurn and injects prompt fragments after retrieval', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
   const dbPath = join(dir, 'test.db')
 
@@ -113,11 +113,17 @@ test('memory sqlite system retrieves cross-session memories and injects prompt f
     const ctx = createContext('我猫叫什么')
 
     await system.beforeTurn?.(ctx)
+    assert.equal(ctx.pendingMemoryQuery?.kind, 'sqlite')
+    assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /JSON/i)
+    assert.deepEqual(ctx.state.memories, undefined)
+
+    const retrieved = await ctx.pendingMemoryQuery?.retrieve(['猫'])
+    ctx.state.memories = retrieved ?? []
+    ctx.state.memoryRetrievalKeywords = ['猫']
     await system.beforeLLM?.(ctx)
 
-    const retrieved = ctx.state.memories as Array<{ id: string; summary: string }>
-    assert.deepEqual(retrieved.map((memory) => memory.id), [catMemory.id])
-    assert.equal((ctx.turnMetadata.memory as { hitCount: number }).hitCount, 1)
+    const loaded = ctx.state.memories as Array<{ id: string; summary: string }>
+    assert.deepEqual(loaded.map((memory) => memory.id), [catMemory.id])
     assert.equal(ctx.promptFragments[0]?.priority, 30)
     assert.match(ctx.promptFragments[0]?.content ?? '', /Relevant memories/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /橘子的猫/)
@@ -144,4 +150,45 @@ test('memory sqlite system prepares a pending write after turn', async () => {
   assert.equal(ctx.pendingMemoryWrite?.model, 'memory-model')
   assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /strict JSON/i)
   assert.equal(typeof ctx.pendingMemoryWrite?.persist, 'function')
+})
+
+test('memory sqlite retrieval hits mixed bilingual tags for both Chinese and English inputs', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-bilingual-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const memory = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: '用户告诉过我他的名字是王家骏',
+      summary: '用户名字叫王家骏',
+      tags: ['名字', 'name'],
+      importance: 0.95,
+      createdAt: new Date('2026-04-18T10:00:00.000Z'),
+    })
+
+    const system = new MemorySqliteSystem({
+      retrieveTopK: 5,
+      minTermLength: 2,
+    })
+
+    const chineseCtx = createContext('我叫什么名字')
+    await system.beforeTurn?.(chineseCtx)
+    const chineseHits = await chineseCtx.pendingMemoryQuery?.retrieve(
+      chineseCtx.pendingMemoryQuery?.fallback ?? [],
+    )
+    assert.deepEqual(chineseHits?.map((item) => item.id), [memory.id])
+
+    const englishCtx = createContext(`what's my name`)
+    await system.beforeTurn?.(englishCtx)
+    const englishHits = await englishCtx.pendingMemoryQuery?.retrieve(
+      englishCtx.pendingMemoryQuery?.fallback ?? [],
+    )
+    assert.deepEqual(englishHits?.map((item) => item.id), [memory.id])
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
