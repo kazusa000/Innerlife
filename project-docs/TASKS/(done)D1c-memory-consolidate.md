@@ -119,7 +119,7 @@ POST /api/agents/:id/memory/sqlite/consolidate
 
 - **Changes**: 增加了 `POST /api/agents/:id/memory/sqlite/consolidate`，把 consolidate prompt / JSON 解析放进 `memory/sqlite` helper，并在 `memoryRepo` 里实现了 keep/rewrite/merge 的单事务写回。补了 repo 和 route 两层测试，覆盖成功路径、404、scheme 非 sqlite、>100、非法 JSON 回滚和 observer metadata。
 - **Verified**: `npm test --workspace @mas/db`；`npm test --workspace @mas/systems`；`node --import tsx --test route.test.ts`（在 `apps/web/src/app/api/agents/[id]/memory/sqlite/consolidate` 下）；`npm run typecheck --workspace @mas/db`；`npm run typecheck --workspace @mas/systems`；`npm run typecheck --workspace @mas/web`；`npm run build --workspace @mas/web`
-- **Caveats**: 无额外 caveat。
+- **Caveats**: Bounce 修复后，`metadata.phase = 'consolidate'` 已在成功和 catch 两个 observer 分支都保留，并补了 invalid JSON 回归测试覆盖失败分支。
 - **Design deltas**: 为了让手动 consolidate 也能落进现有 observer / `llm_calls` 结构，route 会把这次调用挂到最新 memory 所在 session；如果该 session 没有可复用的 user message，会补一条 synthetic `[memory consolidate]` user message 作为外键锚点。
 
 ## Coordinator Review Feedback (2026-04-19)
