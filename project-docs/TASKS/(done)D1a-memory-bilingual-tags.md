@@ -107,3 +107,10 @@ test('bilingual memory is retrieved for both Chinese and English inputs', async 
 - 现有测试没挂（完成标准 5）PASS，@mas/systems 19/19、@mas/core 12/12、@mas/db 3/3
 
 修完这两条继续自报（改回 `(done)` 前缀 + 追加新的 Completion Note 段说明这两处改了什么），继续走 review。
+
+## Completion Note
+
+- **Changes**: 把 summarize prompt 改成硬约束：每个重要概念的 tags 都必须同时包含中文和英文等价词，且禁止只输出单语 tags；在 `sqlite.test.ts` 新增通过 `beforeTurn` 走完整 `input -> tokenize -> retrieve` 链路的中英双输入命中测试。
+- **Verified**: `node --import tsx --test src/memory/sqlite.test.ts`（在 `packages/systems`）；`npm test --workspace @mas/systems --workspace @mas/core --workspace @mas/db`；`npm run typecheck --workspace @mas/systems`。
+- **Caveats**: 没做 Hazel 的真实手测；检索逻辑、SQL、schema、UI 保持不变，本轮只补强 prompt 和测试覆盖。
+- **Design deltas**: 无。
