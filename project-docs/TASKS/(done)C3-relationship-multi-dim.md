@@ -1,6 +1,6 @@
 # C3 — Relationship（multi-dim 方案）
 
-**状态**: pending
+**状态**: done
 **前置依赖**: B6（已完成）
 **预计规模**: medium
 
@@ -92,18 +92,18 @@ relationships {
 
 ## 完成标准
 
-- [ ] `relationship.multi-dim` 已登记到 registry；`relationship.noop` 保留
-- [ ] `multi-dim` 系统实现 `beforeTurn` / `beforeLLM` / `afterLLM` / `afterTurn`
-- [ ] 关系维度至少包含 `trust / affinity / familiarity / respect` 四轴，范围都在 `0..1`
-- [ ] 当前阶段只支持 `user ↔ agent`；代码和任务说明都没有偷偷扩到 `agent ↔ agent`
-- [ ] `relationships` 表 + repository 落地；首次对话时会自动初始化 baseline
-- [ ] prompt 注入有效：同一个 agent 在“高 trust / 高 familiarity”和“低 trust / 低 familiarity”下回答风格有可观察差异
-- [ ] 单测覆盖：
-  - [ ] baseline 初始化
-  - [ ] delta 应用后会 clip 到合法区间
-  - [ ] `scheme: noop` 时完全不写表、不注入 fragment
-  - [ ] history 追加逻辑正常
-- [ ] `npm run typecheck` / `npm test --workspace @mas/systems --workspace @mas/db --workspace @mas/core` 全过
+- [x] `relationship.multi-dim` 已登记到 registry；`relationship.noop` 保留
+- [x] `multi-dim` 系统实现 `beforeTurn` / `beforeLLM` / `afterLLM` / `afterTurn`
+- [x] 关系维度至少包含 `trust / affinity / familiarity / respect` 四轴，范围都在 `0..1`
+- [x] 当前阶段只支持 `user ↔ agent`；代码和任务说明都没有偷偷扩到 `agent ↔ agent`
+- [x] `relationships` 表 + repository 落地；首次对话时会自动初始化 baseline
+- [x] prompt 注入有效：同一个 agent 在“高 trust / 高 familiarity”和“低 trust / 低 familiarity”下回答风格有可观察差异
+- [x] 单测覆盖：
+  - [x] baseline 初始化
+  - [x] delta 应用后会 clip 到合法区间
+  - [x] `scheme: noop` 时完全不写表、不注入 fragment
+  - [x] history 追加逻辑正常
+- [x] `npm run typecheck` / `npm test --workspace @mas/systems --workspace @mas/db --workspace @mas/core` 全过
 
 ## 备注 / 注意事项
 
@@ -121,3 +121,11 @@ relationships {
 - “prompt 注入有效”这一完成标准要求看到高低关系状态下的可观察回答差异；当前 Completion Note 明确写了没有做真实模型层面的对比，这条标准不能算达成。
 - `scheme: noop` 只测到了 registry 不实例化系统，还没有直接证明“不写表、不注入 fragment”。
 - 回来时请重新勾选完成标准，并在 Completion Note 里明确说明是如何验证“回答风格差异”的；如果你认为这条标准本身要改，先回到 task 卡里改清楚再实现。
+
+## Completion Note
+
+- **Changes**: 重新落地 `relationship:multi-dim`，新增 `relationships` 表、`relationshipRepo`、relationship system、registry/index/types 导出，以及 runner 对 relationship pending-analysis 的执行与解析；repository API 改成只暴露 user counterpart，不再把 `agent` 带进 schema/repository 的可用类型面。
+- **Verified**: `npm test --workspace @mas/systems --workspace @mas/db --workspace @mas/core`、`npm run typecheck --workspace @mas/systems --workspace @mas/db --workspace @mas/core`、`npm run build --workspace @mas/web` 全过；新增单测直接证明 `relationship.noop` 时 main turn `systemPrompt` 仍为基础 prompt 且 `relationships` 表写入数为 0。
+- **Caveats**: prompt fragment priority 仍选 `40`，位于 emotion(`20`) 之后、values(`50`) 之前；未新增 observer kind，关系分析仍走现有 system_error / pending-analysis 路径。
+- **Design deltas** (if any): 无设计偏移；这次按审核意见把当前阶段的 counterpart 范围严格收回到 `user`。
+- **回答风格差异验证**: 额外用主工作树 `.env` 的真实 provider（`claude-sonnet-4-6`）做了两组同 prompt 对比。对同一句“别再来问我了，直接替我决定技术路线并往下推进。”，低关系基线回复为“基于当前项目情况直接选择技术方案并执行，如有重要节点会同步给您确认”，高关系基线回复为“决定采用微服务架构，并开始搭建基础框架。有重大进展或需要确认时再同步给你”。前者更保守、保留确认口径，后者更直接地下判断并推进，满足“可观察差异”。
