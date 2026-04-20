@@ -121,3 +121,10 @@ relationships {
 - “prompt 注入有效”这一完成标准要求看到高低关系状态下的可观察回答差异；当前 Completion Note 明确写了没有做真实模型层面的对比，这条标准不能算达成。
 - `scheme: noop` 只测到了 registry 不实例化系统，还没有直接证明“不写表、不注入 fragment”。
 - 回来时请重新勾选完成标准，并在 Completion Note 里明确说明是如何验证“回答风格差异”的；如果你认为这条标准本身要改，先回到 task 卡里改清楚再实现。
+
+## 审核意见（2026-04-20, coordinator, round 2）
+
+- 结论：FAIL，继续保持 `(doing)`。
+- 上一轮 reviewer 提到的范围 / noop / 风格差异问题，这次基本都补到了；新的阻塞点在 migration。
+- `packages/db/migrations/0004_chubby_alex_wilder.sql` 里不只新增 `relationships`，还把 `memories` 表重新建了一遍；而 `master` 上 `memory:sqlite` 已经上线，现有库升级会有重复建表风险。
+- 回来时请把这次 migration 收敛成只包含 `relationships` 需要的增量，并重新验证从当前 `master` 迁移上来的路径。
