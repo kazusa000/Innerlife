@@ -1,6 +1,6 @@
 # B10 — Observer 补全 relationship 可视化
 
-**状态**: pending
+**状态**: done
 **前置依赖**: C3
 **预计规模**: medium
 
@@ -74,3 +74,9 @@
 - **Verified**: `npm test --workspace @mas/core`；`node --import tsx --test apps/web/src/app/chat/ObserverDrawer.test.tsx`；`npm run typecheck --workspace @mas/core --workspace @mas/db --workspace @mas/observer --workspace @mas/systems --workspace @mas/web`。
 - **Caveats**: 当前环境无法完成真实浏览器手验，任务卡里两条手动场景仍未勾选。`npm run build --workspace @mas/web` 在既有 `next/font` 远程拉取 Google Fonts 时超时失败，和本 task 改动无直接关系。
 - **Design deltas**: 为了让历史回放也能稳定识别关系分析，这次一并放宽了 `@mas/db`、`@mas/observer` 以及 `/observer` 页面的 kind 联合类型，仍未改动独立 `/observer` 的布局结构。
+
+## Coordinator Review (2026-04-20)
+
+- **Code review**: 通过。task 分支已补齐与当前 `master` 的基线同步，避免把后续 memory/tools 改动回退到旧状态。
+- **Re-verified**: `npm test --workspace @mas/core --workspace @mas/db --workspace @mas/systems`；`node --import tsx --test apps/web/src/app/chat/ObserverDrawer.test.tsx apps/web/src/lib/call-renderers.test.tsx`；`npm --ignore-scripts run typecheck --workspace @mas/core --workspace @mas/db --workspace @mas/observer --workspace @mas/systems --workspace @mas/web`。
+- **Blocking**: 任务卡要求的两条浏览器手动验证仍未完成，因此暂不归档，不更新 `STATUS.md`。
