@@ -13,6 +13,8 @@ import type {
   PendingEmotionAnalysis,
   PendingMemoryQuery,
   PendingMemoryWrite,
+  PendingRelationshipAnalysis,
+  RelationshipAnalysisResult,
   SystemPhase,
   TurnContext,
 } from '@mas/systems'
@@ -79,7 +81,9 @@ export async function* runAgent(
     ctx.pendingCompaction = undefined
     ctx.pendingMemoryQuery = undefined
     ctx.pendingEmotionAnalysis = undefined
+    ctx.pendingRelationshipAnalysis = undefined
     ctx.emotionAnalysis = undefined
+    ctx.relationshipAnalysis = undefined
     ctx.messages = messages
     yield* runSystemPhase(systems, 'beforeLLM', ctx)
     const baseSystemPrompt = composeSystemPrompt(config.systemPrompt, ctx.promptFragments)
@@ -213,6 +217,21 @@ export async function* runAgent(
         ctx.emotionAnalysis = emotion.analysis
       }
 
+      const relationship = await runPendingRelationshipAnalysis(
+        ctx.pendingRelationshipAnalysis,
+        config,
+        provider,
+        signal,
+      )
+
+      if (relationship.event) {
+        yield relationship.event
+      }
+
+      if (relationship.analysis) {
+        ctx.relationshipAnalysis = relationship.analysis
+      }
+
       yield* runSystemPhase(systems, 'afterTurn', ctx)
       const memoryWrite = await runPendingMemoryWrite(
         ctx.pendingMemoryWrite,
@@ -313,7 +332,7 @@ function composeSystemPrompt(basePrompt: string, fragments: TurnContext['promptF
 
 function normalizePromptFragmentSource(source: string): string {
   const [prefix] = source.split(':')
-  return ['personality', 'values', 'emotion', 'memory'].includes(prefix)
+  return ['personality', 'values', 'emotion', 'memory', 'relationship'].includes(prefix)
     ? prefix
     : source
 }
@@ -709,6 +728,37 @@ function parseEmotionAnalysis(rawResponse: string): EmotionAnalysisResult {
   }
 }
 
+function parseRelationshipAnalysis(rawResponse: string): RelationshipAnalysisResult {
+  const trimmed = rawResponse.trim()
+  const withoutFence = trimmed.startsWith('```')
+    ? trimmed
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim()
+    : trimmed
+  const record = JSON.parse(withoutFence) as {
+    trust_delta?: unknown
+    affinity_delta?: unknown
+    familiarity_delta?: unknown
+    respect_delta?: unknown
+    trigger?: unknown
+  }
+
+  return {
+    delta: {
+      trust: clampSigned(record.trust_delta),
+      affinity: clampSigned(record.affinity_delta),
+      familiarity: clampSigned(record.familiarity_delta),
+      respect: clampSigned(record.respect_delta),
+    },
+    trigger:
+      typeof record.trigger === 'string' && record.trigger.trim()
+        ? record.trigger.trim()
+        : null,
+    rawResponse: withoutFence,
+  }
+}
+
 function serializeEmotionState(state: PendingEmotionAnalysis['currentState']) {
   const round = (value: number) => Number(value.toFixed(3))
 
@@ -810,6 +860,44 @@ async function runPendingEmotionAnalysis(
       event: {
         type: 'system_error',
         system: 'emotion:dimensional',
+        phase: 'afterLLM',
+        error: err,
+      },
+    }
+  }
+}
+
+async function runPendingRelationshipAnalysis(
+  pending: PendingRelationshipAnalysis | undefined,
+  config: AgentConfig,
+  provider: LLMProvider,
+  signal?: AbortSignal,
+): Promise<{
+  analysis?: RelationshipAnalysisResult
+  event?: Extract<AgentEvent, { type: 'system_error' }>
+}> {
+  if (!pending) {
+    return {}
+  }
+
+  try {
+    const response = await provider.sendMessage({
+      model: pending.model ?? config.model,
+      systemPrompt: pending.systemPrompt,
+      messages: pending.messages as Message[],
+      signal,
+    })
+
+    return {
+      analysis: parseRelationshipAnalysis(extractContentText(response.content)),
+    }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+
+    return {
+      event: {
+        type: 'system_error',
+        system: 'relationship:multi-dim',
         phase: 'afterLLM',
         error: err,
       },
