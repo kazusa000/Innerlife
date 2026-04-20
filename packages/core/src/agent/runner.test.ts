@@ -517,9 +517,9 @@ test('runAgent compacts older messages before the main LLM call and records comp
             {
               type: 'text',
               text: [
-                'Key facts: user is building B5',
-                'User preferences: concise replies',
-                'Unresolved tasks: finish context compaction',
+                '关键事实：用户正在做 B5',
+                '用户偏好：回答简洁',
+                '未完成事项：完成上下文压缩',
               ].join('\n'),
             },
           ],
@@ -531,7 +531,7 @@ test('runAgent compacts older messages before the main LLM call and records comp
     }
 
     assert.equal(params.messages.length, 20)
-    assert.match(params.systemPrompt, /concise replies/)
+    assert.match(params.systemPrompt, /回答简洁/)
     yield {
       type: 'message_complete',
       response: {
@@ -599,9 +599,9 @@ test('runAgent compacts older messages before the main LLM call and records comp
     beforeMessageCount: 45,
     afterMessageCount: 21,
     summary: [
-      'Key facts: user is building B5',
-      'User preferences: concise replies',
-      'Unresolved tasks: finish context compaction',
+      '关键事实：用户正在做 B5',
+      '用户偏好：回答简洁',
+      '未完成事项：完成上下文压缩',
     ].join('\n'),
     beforeMessages: Array.from({ length: 45 }, (_, index) =>
       createTextMessage(index % 2 === 0 ? 'user' : 'assistant', `message ${index}`),
@@ -613,10 +613,10 @@ test('runAgent compacts older messages before the main LLM call and records comp
           {
             type: 'text',
             text: [
-              'Conversation summary:',
-              'Key facts: user is building B5',
-              'User preferences: concise replies',
-              'Unresolved tasks: finish context compaction',
+              '对话摘要：',
+              '关键事实：用户正在做 B5',
+              '用户偏好：回答简洁',
+              '未完成事项：完成上下文压缩',
             ].join('\n'),
           },
         ],
@@ -674,9 +674,9 @@ test('runAgent executes pending emotion analysis as a separate observer call and
         ctx.pendingEmotionAnalysis = {
           kind: 'dimensional',
           model: 'claude-haiku-4-5-20251001',
-          systemPrompt: 'Return JSON for emotion deltas only.',
+          systemPrompt: '你负责分析单轮对话对情绪状态的影响，只输出 JSON。',
           messages: [
-            createTextMessage('user', 'User said: 你怎么这么慢\nAssistant said: answer'),
+            createTextMessage('user', '用户说：你怎么这么慢\n助手回复：answer'),
           ],
           currentState: {
             mood: 0.1,
@@ -745,7 +745,7 @@ test('runAgent executes pending emotion analysis as a separate observer call and
     },
   ])
   assert.equal(seen.emotionRequest?.model, 'claude-haiku-4-5-20251001')
-  assert.equal(seen.emotionRequest?.systemPrompt, 'Return JSON for emotion deltas only.')
+  assert.equal(seen.emotionRequest?.systemPrompt, '你负责分析单轮对话对情绪状态的影响，只输出 JSON。')
   assert.deepEqual(seen.emotionRequest?.reasoning, { effort: 'none' })
   assert.deepEqual(observerStarts.map((item) => item.kind), ['turn', 'emotion'])
   assert.deepEqual(seen.analysis, {
@@ -824,9 +824,9 @@ test('runAgent executes pending relationship analysis as a separate observer cal
         ctx.pendingRelationshipAnalysis = {
           kind: 'multi-dim',
           model: 'claude-haiku-4-5-20251001',
-          systemPrompt: 'Return JSON for relationship deltas only.',
+          systemPrompt: '你负责分析单轮对话对关系状态的影响，只输出 JSON。',
           messages: [
-            createTextMessage('user', 'User said: 这次你的方案靠谱多了\nAssistant said: answer'),
+            createTextMessage('user', '用户说：这次你的方案靠谱多了\n助手回复：answer'),
           ],
           currentState: {
             trust: 0.4,
@@ -897,7 +897,7 @@ test('runAgent executes pending relationship analysis as a separate observer cal
     },
   ])
   assert.equal(seen.relationshipRequest?.model, 'claude-haiku-4-5-20251001')
-  assert.equal(seen.relationshipRequest?.systemPrompt, 'Return JSON for relationship deltas only.')
+  assert.equal(seen.relationshipRequest?.systemPrompt, '你负责分析单轮对话对关系状态的影响，只输出 JSON。')
   assert.deepEqual(seen.relationshipRequest?.reasoning, { effort: 'none' })
   assert.deepEqual(observerStarts.map((item) => item.kind), ['turn', 'relationship'])
   assert.deepEqual(seen.analysis, {

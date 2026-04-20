@@ -3,7 +3,7 @@ import type { AgentSystem, ConversationBlock, ConversationMessage, PendingCompac
 export const DEFAULT_MAX_MESSAGES = 40
 export const DEFAULT_KEEP_RECENT_MESSAGES = 20
 export const DEFAULT_MAX_INPUT_TOKENS = 12_000
-export const COMPACTION_SUMMARY_PREFIX = 'Conversation summary:'
+export const COMPACTION_SUMMARY_PREFIX = '对话摘要：'
 
 function estimateTokens(messages: ConversationMessage[]): number {
   const chars = messages.reduce((total, message) => total + estimateContentChars(message.content), 0)
@@ -24,14 +24,14 @@ function estimateBlockChars(block: ConversationBlock): number {
 
 function buildSummaryPrompt(): string {
   return [
-    'You compress earlier conversation history into a durable summary for later turns.',
-    'Use only the information present in the provided messages.',
-    'Keep the summary concise and factual.',
-    'Return plain text under exactly these headings:',
-    'Key facts',
-    'User preferences',
-    'Unresolved tasks',
-    'Important recent context',
+    '你要把较早的对话历史压缩成一份后续可复用的稳定摘要。',
+    '只允许使用提供消息中的信息，不要补充外部内容。',
+    '摘要保持简洁、准确、可复用。',
+    '请返回纯文本，并严格使用以下标题：',
+    '关键事实',
+    '用户偏好',
+    '未完成事项',
+    '重要近期上下文',
   ].join('\n')
 }
 

@@ -128,9 +128,9 @@ test('memory sqlite system prepares a pending retrieval query in beforeTurn and 
     const loaded = ctx.state.memories as Array<{ id: string; summary: string }>
     assert.deepEqual(loaded.map((memory) => memory.id), [catMemory.id])
     assert.equal(ctx.promptFragments[0]?.priority, 30)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /Relevant memories/)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /available recollections/i)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /Do not claim that you cannot remember/i)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /以下是本轮回复可直接依赖的相关记忆/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /把这些内容视为你这一轮可用的回忆/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /不要再声称自己记不住/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /橘子的猫/)
   } finally {
     resetDb()
@@ -171,6 +171,7 @@ test('memory sqlite system uses summarize model override for retrieval queries t
   assert.equal(ctx.pendingMemoryQuery?.kind, 'sqlite')
   assert.equal(ctx.pendingMemoryQuery?.model, 'memory-model')
   assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /time_range/i)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /你要为 sqlite 记忆系统准备一份检索查询/)
 })
 
 test('memory sqlite system parses and persists chinese summarize output', async () => {
@@ -297,8 +298,8 @@ test('memory sqlite retrieve prompt distinguishes stable topics from time-only r
 
   await system.beforeTurn?.(ctx)
 
-  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /stable retrieval topics/i)
-  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /If the message is mainly asking about a time period/i)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /稳定的话题锚点/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /如果用户主要是在追问某个时间段内发生了什么/)
   assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /昨天发生了什么/i)
   assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /"keywords":\s*\[\]/i)
 })

@@ -118,9 +118,10 @@ test('dimensional emotion loads baseline, injects a fragment, and persists the u
 
   await system.afterLLM?.(ctx)
   assert.equal(ctx.pendingEmotionAnalysis?.kind, 'dimensional')
+  assert.match(ctx.pendingEmotionAnalysis?.systemPrompt ?? '', /只输出 JSON/)
   assert.match(
     JSON.stringify(ctx.pendingEmotionAnalysis?.messages ?? []),
-    /JSON/,
+    /分析这一轮已经完成的对话/,
   )
   assert.match(JSON.stringify(ctx.pendingEmotionAnalysis?.messages ?? []), /你怎么这么慢/)
 

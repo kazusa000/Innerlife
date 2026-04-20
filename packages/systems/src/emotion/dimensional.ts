@@ -137,28 +137,28 @@ function buildAnalysisRequest(
     : ''
 
   const analysisInput = [
-    'Analyze how this single completed turn should change the persona emotion state.',
-    'Return strict JSON only.',
-    'Required keys: mood_delta, energy_delta, stress_delta, trigger.',
-    'mood_delta must be in [-1, 1].',
-    'energy_delta and stress_delta must be in [-1, 1].',
-    'Use small deltas unless the interaction is clearly strong.',
+    '请分析这一轮已经完成的对话，应该如何改变这个 persona 的情绪状态。',
+    '只输出严格 JSON。',
+    '必须包含这些键：mood_delta、energy_delta、stress_delta、trigger。',
+    'mood_delta 必须落在 [-1, 1]。',
+    'energy_delta 和 stress_delta 也必须落在 [-1, 1]。',
+    '除非互动强度非常明显，否则增量要保持小幅变化。',
     '',
-    `Current state: ${JSON.stringify(currentState)}`,
-    `Baseline: ${JSON.stringify(baseline)}`,
-    `Decay per turn: ${decayPerTurn}`,
+    `当前状态：${JSON.stringify(currentState)}`,
+    `基线状态：${JSON.stringify(baseline)}`,
+    `每轮衰减：${decayPerTurn}`,
     '',
-    'User message:',
-    ctx.input.text || '(empty)',
+    '用户消息：',
+    ctx.input.text || '（空）',
     '',
-    'Assistant reply:',
-    assistantText || '(empty)',
+    '助手回复：',
+    assistantText || '（空）',
   ].join('\n')
 
   return {
     kind: 'dimensional',
     model,
-    systemPrompt: 'You analyze conversational emotional impact. Output JSON only.',
+    systemPrompt: '你负责分析单轮对话对情绪状态的影响，只输出 JSON。',
     messages: [
       {
         role: 'user',

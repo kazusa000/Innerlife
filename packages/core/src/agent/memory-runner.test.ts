@@ -99,7 +99,7 @@ function createTextMessage(role: Message['role'], text: string): Message {
 }
 
 function isMemoryRetrievePrompt(systemPrompt: string): boolean {
-  return systemPrompt.includes('memory retrieval query for sqlite-based agent memories')
+  return systemPrompt.includes('sqlite 记忆系统准备一份检索查询')
 }
 
 test('runAgent records memory retrieval metadata and writes a memory row after turn', async () => {
@@ -160,10 +160,7 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
         return
       }
 
-      if (
-        params.systemPrompt.includes('严格返回只有以下键的 JSON')
-        || params.systemPrompt.includes('strict JSON')
-      ) {
+      if (params.systemPrompt.includes('严格返回只有以下键的 JSON')) {
         yield {
           type: 'message_complete',
           response: {
@@ -184,7 +181,7 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
         return
       }
 
-      assert.match(params.systemPrompt, /Relevant memories/)
+      assert.match(params.systemPrompt, /以下是本轮回复可直接依赖的相关记忆/)
       yield {
         type: 'message_complete',
         response: {
@@ -225,7 +222,7 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
         reasoning: request.reasoning,
         kind: isMemoryRetrievePrompt(request.systemPrompt)
           ? 'retrieve'
-          : request.systemPrompt.includes('严格返回只有以下键的 JSON') || request.systemPrompt.includes('strict JSON')
+          : request.systemPrompt.includes('严格返回只有以下键的 JSON')
             ? 'summarize'
             : 'turn',
       })),
@@ -322,7 +319,7 @@ test('runAgent uses LLM-expanded memory keywords instead of tokenizer results', 
         return
       }
 
-      if (params.systemPrompt.includes('strict JSON')) {
+      if (params.systemPrompt.includes('严格返回只有以下键的 JSON')) {
         yield {
           type: 'message_complete',
           response: {
@@ -343,7 +340,7 @@ test('runAgent uses LLM-expanded memory keywords instead of tokenizer results', 
         return
       }
 
-      assert.match(params.systemPrompt, /Relevant memories/)
+      assert.match(params.systemPrompt, /以下是本轮回复可直接依赖的相关记忆/)
       yield {
         type: 'message_complete',
         response: {
@@ -435,7 +432,7 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
         throw new Error('memory query failed')
       }
 
-      if (params.systemPrompt.includes('strict JSON')) {
+      if (params.systemPrompt.includes('严格返回只有以下键的 JSON')) {
         yield {
           type: 'message_complete',
           response: {
@@ -526,7 +523,7 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
         ctx.pendingMemoryQuery = {
           kind: 'sqlite',
           system: 'memory:sqlite',
-          prompt: 'You prepare a memory retrieval query for sqlite-based agent memories.',
+          prompt: '你要为 sqlite 记忆系统准备一份检索查询。',
           inputText: ctx.input.text,
           parse() {
             return {
@@ -648,7 +645,7 @@ test('runAgent emits system_error without fallback retrieval when memory query r
         return
       }
 
-      if (params.systemPrompt.includes('strict JSON')) {
+      if (params.systemPrompt.includes('严格返回只有以下键的 JSON')) {
         yield {
           type: 'message_complete',
           response: {
@@ -750,8 +747,8 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
           kind: 'sqlite',
           system: 'memory:sqlite',
           model: 'memory-model',
-          prompt: 'memory summary prompt',
-          sourceText: 'User: 你好\nAssistant: 你好呀',
+          prompt: '记忆总结 prompt',
+          sourceText: '用户：你好\n助手：你好呀',
           parse() {
             return {
               summary: '用户打了招呼',
@@ -772,8 +769,8 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
         ctx.pendingEmotionAnalysis = {
           kind: 'dimensional',
           model: 'emotion-model',
-          systemPrompt: 'emotion prompt',
-          messages: [{ role: 'user', content: [{ type: 'text', text: 'emotion input' }] }],
+          systemPrompt: '情绪分析 prompt',
+          messages: [{ role: 'user', content: [{ type: 'text', text: '情绪分析输入' }] }],
           currentState: { mood: 0, energy: 0, stress: 0 },
           baseline: { mood: 0, energy: 0, stress: 0 },
           decayPerTurn: 0.1,
@@ -792,8 +789,8 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
         ctx.pendingRelationshipAnalysis = {
           kind: 'multi-dim',
           model: 'relationship-model',
-          systemPrompt: 'relationship prompt',
-          messages: [{ role: 'user', content: [{ type: 'text', text: 'relationship input' }] }],
+          systemPrompt: '关系分析 prompt',
+          messages: [{ role: 'user', content: [{ type: 'text', text: '关系分析输入' }] }],
           currentState: { trust: 0.5, affinity: 0.5, familiarity: 0.1, respect: 0.5 },
           baseline: { trust: 0.5, affinity: 0.5, familiarity: 0.1, respect: 0.5 },
           decayPerTurn: 0.1,
@@ -826,7 +823,7 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
       await sleep(20)
       activePostTurnCalls -= 1
 
-      if (params.systemPrompt === 'emotion prompt') {
+      if (params.systemPrompt === '情绪分析 prompt') {
         return {
           content: [{ type: 'text', text: '{"mood_delta":0.1,"energy_delta":0,"stress_delta":0,"trigger":"greeting"}' }],
           stopReason: 'end_turn',
@@ -834,7 +831,7 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
         }
       }
 
-      if (params.systemPrompt === 'relationship prompt') {
+      if (params.systemPrompt === '关系分析 prompt') {
         return {
           content: [{ type: 'text', text: '{"trust_delta":0.05,"affinity_delta":0.04,"familiarity_delta":0.02,"respect_delta":0.01,"trigger":"greeting"}' }],
           stopReason: 'end_turn',
@@ -842,7 +839,7 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
         }
       }
 
-      if (params.systemPrompt === 'memory summary prompt') {
+      if (params.systemPrompt === '记忆总结 prompt') {
         return {
           content: [{ type: 'text', text: '{"summary":"用户打了招呼","tags":["打招呼"],"importance":0.4}' }],
           stopReason: 'end_turn',

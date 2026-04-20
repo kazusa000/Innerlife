@@ -103,27 +103,27 @@ function buildSummaryPrompt(): string {
 
 function buildRetrievePrompt(): string {
   return [
-    'You prepare a memory retrieval query for sqlite-based agent memories.',
-    'You will receive the current local datetime of the computer and the user\'s latest message.',
-    'Think in two channels:',
-    '- time_range answers when the user is referring to.',
-    '- keywords capture stable retrieval topics that are likely to appear in memory summaries or tags.',
-    'Return strict JSON with exactly this shape:',
+    '你要为 sqlite 记忆系统准备一份检索查询。',
+    '你会收到电脑当前的本地时间，以及用户最新一条消息。',
+    '请把理解拆成两个通道：',
+    '- time_range 用来回答“用户指的是哪段时间”。',
+    '- keywords 用来提取稳定的话题锚点，这些锚点很可能出现在记忆 summary 或 tags 里。',
+    '请严格返回如下 JSON 结构：',
     '{"keywords": string[], "time_range": {"start": string, "end": string} | null}',
-    'keywords should be stable retrieval topics such as names, people, places, projects, objects, concerns, activities, commitments, or incidents.',
-    'keywords may be empty.',
-    'Use the same language as the user\'s message.',
-    'Choose concepts that would still make sense if the time expression were removed from the message.',
-    'Prefer topic anchors over sentence fragments, query scaffolding, or generic recall words.',
-    'If the user expresses time-related intent, translate it into an absolute time_range based on the provided current local datetime.',
-    'If the user expresses no time-related intent, return "time_range": null.',
-    'If the time intent is too ambiguous to resolve safely, return "time_range": null.',
-    'If the message is mainly asking about a time period or recent events and does not name a concrete topic, return an empty keywords array and rely on time_range.',
-    'Example: if the user says "昨天发生了什么", return {"keywords":[],"time_range":{"start":"...","end":"..."}}.',
-    'Example: if the user says "昨天我们聊数据库迁移了吗", return {"keywords":["数据库迁移"],"time_range":{"start":"...","end":"..."}}.',
-    'Example: if the user says "你记得我叫什么吗", return {"keywords":["名字"],"time_range":null}.',
-    '"start" and "end" must be ISO 8601 datetime strings.',
-    'Do not add markdown or code fences.',
+    'keywords 应该是稳定的话题锚点，例如名字、人物、地点、项目、对象、顾虑、活动、承诺或事件。',
+    'keywords 可以为空。',
+    'keywords 使用与用户消息一致的语言。',
+    '只保留那些即使去掉时间表达也依然成立的主题概念。',
+    '优先选择话题锚点，不要返回句子碎片、提问脚手架或泛泛的回忆词。',
+    '如果用户表达了时间相关意图，请基于提供的当前本地时间，把它翻译成绝对的 time_range。',
+    '如果用户没有表达时间相关意图，返回 "time_range": null。',
+    '如果时间意图过于模糊、无法安全判断，也返回 "time_range": null。',
+    '如果用户主要是在追问某个时间段内发生了什么，但没有点名具体话题，那么返回空的 keywords，并依赖 time_range。',
+    '例子：如果用户说“昨天发生了什么”，返回 {"keywords":[],"time_range":{"start":"...","end":"..."}}。',
+    '例子：如果用户说“昨天我们聊数据库迁移了吗”，返回 {"keywords":["数据库迁移"],"time_range":{"start":"...","end":"..."}}。',
+    '例子：如果用户说“你记得我叫什么吗”，返回 {"keywords":["名字"],"time_range":null}。',
+    '"start" 和 "end" 必须是 ISO 8601 datetime 字符串。',
+    '不要输出 markdown、代码块或任何额外说明。',
   ].join('\n')
 }
 
@@ -133,11 +133,11 @@ function renderMemoryFragment(memories: MemoryRecord[]): string | null {
   }
 
   return [
-    'Relevant memories you can rely on for this reply (most important first):',
-    'Treat these as your available recollections for this turn.',
-    'If the user asks about prior interactions, past facts, or recent events and these memories are relevant, answer from them directly.',
-    'Do not claim that you cannot remember or that you lack memory if the relevant answer is contained here.',
-    'If these memories are insufficient, say you are not sure instead of inventing details.',
+    '以下是本轮回复可直接依赖的相关记忆（按重要性从高到低）：',
+    '把这些内容视为你这一轮可用的回忆。',
+    '如果用户在询问先前互动、过去事实或最近发生的事情，而且这些记忆相关，就直接基于这些记忆回答。',
+    '如果答案已经包含在这些记忆里，不要再声称自己记不住，或声称自己没有记忆能力。',
+    '如果这些记忆仍然不足以回答，就明确说你不确定，不要编造细节。',
     ...memories.map((memory) => `- ${memory.summary}`),
   ].join('\n')
 }
@@ -191,8 +191,8 @@ function formatLocalIsoDateTime(date: Date): string {
 
 function buildRetrieveInputText(userText: string, now = new Date()): string {
   return [
-    `Current local datetime: ${formatLocalIsoDateTime(now)}`,
-    `User message: ${userText}`,
+    `当前本地时间：${formatLocalIsoDateTime(now)}`,
+    `用户消息：${userText}`,
   ].join('\n')
 }
 
@@ -205,8 +205,8 @@ function buildSourceText(ctx: TurnContext): string {
   }
 
   return truncate([
-    `User: ${userText || '(empty)'}`,
-    `Assistant: ${assistantText || '(empty)'}`,
+    `用户：${userText || '（空）'}`,
+    `助手：${assistantText || '（空）'}`,
   ].join('\n'), MAX_MEMORY_CONTENT_CHARS)
 }
 
@@ -327,25 +327,25 @@ function parseMemoryQueryResponse(responseText: string): MemoryQueryResult {
 
 export function buildMemoryConsolidationPrompt(): string {
   return [
-    'You consolidate stored sqlite memories for one agent.',
-    'Use only the provided memory list.',
-    'Return strict JSON with exactly this shape:',
+    '你要为单个 agent 整理已经存储的 sqlite 记忆。',
+    '只允许使用提供的记忆列表，不要补充外部信息。',
+    '请严格返回如下 JSON 结构：',
     '{"actions": Array<keep|rewrite|merge>}',
-    'keep action: {"op":"keep","id":"memory-id"}',
-    'rewrite action: {"op":"rewrite","id":"memory-id","summary":string,"tags":string[],"importance":number}',
-    'merge action: {"op":"merge","sourceIds":string[],"summary":string,"tags":string[],"importance":number}',
-    'Keep facts unless they are duplicated or can be rewritten more clearly.',
-    'A memory id may appear at most once across all actions.',
-    'sourceIds must contain at least 2 ids when merging.',
-    'importance must be a number between 0 and 1.',
+    'keep 动作：{"op":"keep","id":"memory-id"}',
+    'rewrite 动作：{"op":"rewrite","id":"memory-id","summary":string,"tags":string[],"importance":number}',
+    'merge 动作：{"op":"merge","sourceIds":string[],"summary":string,"tags":string[],"importance":number}',
+    '除非内容重复，或者可以改写得更清晰，否则尽量保留事实。',
+    '同一个 memory id 最多只能出现在一个动作里。',
+    'merge 时 sourceIds 至少要包含 2 个 id。',
+    'importance 必须是 0 到 1 之间的数字。',
     TAG_GUIDANCE,
-    'Do not add markdown or code fences.',
+    '不要输出 markdown、代码块或任何额外说明。',
   ].join('\n')
 }
 
 export function buildMemoryConsolidationSourceText(memories: MemoryRecord[]): string {
   return [
-    'Memories to consolidate (oldest first):',
+    '待整理的记忆（按时间从旧到新）：',
     JSON.stringify(
       memories.map((memory) => ({
         id: memory.id,

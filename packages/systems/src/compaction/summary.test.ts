@@ -51,9 +51,9 @@ test('summary compaction requests compaction when message count exceeds threshol
     ctx.pendingCompaction?.sourceMessages.length,
     ctx.messages.length - DEFAULT_KEEP_RECENT_MESSAGES,
   )
-  assert.match(ctx.pendingCompaction?.prompt ?? '', /Key facts/i)
-  assert.match(ctx.pendingCompaction?.prompt ?? '', /User preferences/i)
-  assert.match(ctx.pendingCompaction?.prompt ?? '', /Unresolved tasks/i)
+  assert.match(ctx.pendingCompaction?.prompt ?? '', /关键事实/)
+  assert.match(ctx.pendingCompaction?.prompt ?? '', /用户偏好/)
+  assert.match(ctx.pendingCompaction?.prompt ?? '', /未完成事项/)
 })
 
 test('summary compaction requests compaction when estimated tokens exceed threshold', async () => {
@@ -73,7 +73,7 @@ test('summary compaction keeps the prior compaction summary in later compaction 
   const ctx = createContext()
   ctx.messages = [
     createSystemMessage('Base system prompt that should not be compacted'),
-    createSystemMessage('Conversation summary:\nKey facts: old summary survives'),
+    createSystemMessage('对话摘要：\n关键事实：旧摘要仍然保留'),
     ...Array.from({ length: 42 }, (_, index) => createMessage(index)),
   ]
 
@@ -86,6 +86,6 @@ test('summary compaction keeps the prior compaction summary in later compaction 
   )
   assert.deepEqual(
     ctx.pendingCompaction?.sourceMessages.filter((message) => message.role === 'system'),
-    [createSystemMessage('Conversation summary:\nKey facts: old summary survives')],
+    [createSystemMessage('对话摘要：\n关键事实：旧摘要仍然保留')],
   )
 })

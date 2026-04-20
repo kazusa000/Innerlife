@@ -101,7 +101,8 @@ test('multi-dim relationship loads baseline, injects a fragment, and persists th
 
     await system.afterLLM?.(ctx)
     assert.equal(ctx.pendingRelationshipAnalysis?.kind, 'multi-dim')
-    assert.match(JSON.stringify(ctx.pendingRelationshipAnalysis?.messages ?? []), /JSON/)
+    assert.match(ctx.pendingRelationshipAnalysis?.systemPrompt ?? '', /只输出 JSON/)
+    assert.match(JSON.stringify(ctx.pendingRelationshipAnalysis?.messages ?? []), /分析这一轮已经完成的对话/)
 
     ctx.relationshipAnalysis = {
       delta: {

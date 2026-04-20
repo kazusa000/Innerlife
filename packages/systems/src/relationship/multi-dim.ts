@@ -149,27 +149,27 @@ function buildAnalysisRequest(
     : ''
 
   const analysisInput = [
-    'Analyze how this single completed turn should change the persona relationship state toward the current user.',
-    'Return strict JSON only.',
-    'Required keys: trust_delta, affinity_delta, familiarity_delta, respect_delta, trigger.',
-    'All *_delta values must be numbers in [-1, 1].',
-    'Use small deltas unless the interaction is clearly strong.',
+    '请分析这一轮已经完成的对话，应该如何改变这个 persona 面向当前用户的关系状态。',
+    '只输出严格 JSON。',
+    '必须包含这些键：trust_delta、affinity_delta、familiarity_delta、respect_delta、trigger。',
+    '所有 *_delta 的数值都必须落在 [-1, 1]。',
+    '除非互动强度非常明显，否则增量要保持小幅变化。',
     '',
-    `Current state: ${JSON.stringify(currentState)}`,
-    `Baseline: ${JSON.stringify(baseline)}`,
-    `Decay per turn: ${decayPerTurn}`,
+    `当前状态：${JSON.stringify(currentState)}`,
+    `基线状态：${JSON.stringify(baseline)}`,
+    `每轮衰减：${decayPerTurn}`,
     '',
-    'User message:',
-    ctx.input.text || '(empty)',
+    '用户消息：',
+    ctx.input.text || '（空）',
     '',
-    'Assistant reply:',
-    assistantText || '(empty)',
+    '助手回复：',
+    assistantText || '（空）',
   ].join('\n')
 
   return {
     kind: 'multi-dim',
     model,
-    systemPrompt: 'You analyze conversational relationship impact. Output JSON only.',
+    systemPrompt: '你负责分析单轮对话对关系状态的影响，只输出 JSON。',
     messages: [
       {
         role: 'user',
