@@ -594,8 +594,8 @@ growth_logs                           -- Phase 4: 成长记录
 | `/agent/[id]` | 虚拟人详情 — 配置、状态、会话列表 | 1 |
 | `/chat/[sessionId]` | 对话界面 — 流式消息渲染 | 1 |
 | `/agent/[id]/edit` | 人格编辑器（性格滑块、价值观配置） | Phase 2 |
-| `/agent/[id]/memory` | 记忆管理界面 | Phase 2 |
-| `/agent/[id]/relationships` | 关系图谱可视化 | Phase 3 |
+| `/agent/[id]/memory` | 记忆管理统一入口（按当前 scheme 进入对应管理子系统） | Phase 2 |
+| `/agent/[id]/relationships` | 关系管理统一入口（按当前 scheme 进入对应管理子系统 / 图谱视图） | Phase 3 |
 | `/dashboard` | 仪表盘（运行状态、统计、成本） | Phase 5 |
 
 ### 8.2 API 端点
@@ -617,14 +617,17 @@ POST   /api/chat                  发送消息
        Response: SSE stream（逐事件推送 AgentEvent）
 
 # Phase 2+
-GET    /api/agents/:id/memories       查询记忆
-POST   /api/agents/:id/memories       手动添加记忆
-GET    /api/agents/:id/emotions       情感状态历史
+GET    /api/agents/:id/memory                     记忆管理入口元信息（当前 scheme / 可用能力）
+GET    /api/agents/:id/memory/sqlite             sqlite 记忆列表 / 搜索
+DELETE /api/agents/:id/memory/sqlite/:memoryId   删除 sqlite 记忆
+POST   /api/agents/:id/memory/sqlite/consolidate 手动整理 sqlite 记忆
+GET    /api/agents/:id/emotions                  情感状态历史
 
 # Phase 3+
 POST   /api/agents/:id/start         启动 agent
 POST   /api/agents/:id/stop          停止 agent
-GET    /api/relationships             关系图谱
+GET    /api/agents/:id/relationships                 关系管理入口元信息（当前 scheme / 可用能力）
+GET    /api/agents/:id/relationships/multi-dim      multi-dim 关系详情 / 历史 / 图谱数据
 
 # Phase 4+
 POST   /api/scheduled-tasks           创建定时任务
@@ -734,6 +737,36 @@ interface BusMessage {
 | 改某个方案内部逻辑 | 只改那一个文件 | 其他所有文件 |
 | 前端显示可选方案 | 不改（从 registry 动态读） | — |
 
+### 10.2.1 模块管理入口与 scheme 分发规则
+
+所有模块的**管理 UI 入口只有一个**，但入口后面的管理系统按 `scheme` 严格分流：
+
+- `memory` 固定入口：`/agent/[id]/memory`
+- `relationship` 固定入口：`/agent/[id]/relationships`
+- 未来其他模块也遵守同样模式（如 `/agent/[id]/emotion`）
+
+入口层只负责三件事：
+
+1. 读取 `agents.modules.<type>.scheme`
+2. 渲染当前 scheme 对应的管理子系统，或在 `noop` / 未配置 / 未支持时显示空状态
+3. 提供稳定 URL，让用户始终从同一个位置进入该模块
+
+**不做**：
+
+- 不在入口层混用不同 scheme 的数据
+- 不定义“跨 scheme 通用记忆池 / 通用关系池”
+- 不要求不同 scheme 共享同一套 CRUD 语义或同一份展示组件
+
+也就是说：**统一的是入口，不是内部实现。**
+
+后端 API 也遵循同样原则：可以共享前缀，但真正的数据操作走各自 scheme 的子路由，例如：
+
+- `/api/agents/:id/memory/sqlite/*`
+- `/api/agents/:id/memory/chromadb/*`
+- `/api/agents/:id/relationships/multi-dim/*`
+
+不同 scheme 的存储、查询、管理 UI、操作按钮、字段形状都允许完全不同；只要求入口层和 `modules.<type>.scheme` 配置保持稳定。
+
 ### 10.3 内在系统 — 性格（Personality）
 
 #### big-five 方案
@@ -817,6 +850,8 @@ interface BigFiveParams {
 
 持久化：`relationships` 表（fromId, toId, dimensions JSON, history JSON, updatedAt）
 
+关系系统的管理入口固定为 `/agent/[id]/relationships`。入口页只负责根据 `agents.modules.relationship.scheme` 分发到对应管理子系统；`simple`、`multi-dim`、未来的新方案彼此独立，不共享同一套管理视图或数据语义。
+
 ### 10.6 内在系统 — 记忆（Memory）
 
 #### sqlite 方案
@@ -844,6 +879,15 @@ Palace（宫殿）= 一个虚拟人的全部记忆
 通信方式：主项目通过 HTTP/MCP 调用记忆服务。
 
 参考项目：MemPalace（`reference-project/mempalace/`）
+
+记忆系统的管理入口固定为 `/agent/[id]/memory`。D4 第一版只实现 `memory:sqlite` 的管理子系统，但入口路径和分发方式从第一天就按多架构设计：
+
+- 入口页读取 `agents.modules.memory.scheme`
+- `scheme = "sqlite"` → 进入 sqlite 记忆管理子系统
+- `scheme = "chromadb"` → 将来进入 chromadb 记忆管理子系统
+- `scheme = "noop"` 或未配置 → 显示空状态 / 引导启用
+
+不同记忆方案的数据、浏览方式、搜索方式、清理方式完全独立；**不会**把 sqlite 记忆和 chromadb 记忆混在一起显示或互相复用管理逻辑。
 
 ### 10.7 感知层
 
@@ -1023,6 +1067,7 @@ Phase 1（已完成）
 - [ ] **C3 Relationship — multi-dim 方案** — 多维关系（trust/affinity/familiarity/respect）
   - 实现 AgentSystem 接口，beforeTurn 加载关系 → afterTurn 更新
   - relationships 表（fromId, toId, dimensions JSON, history JSON）
+  - 本 task 只做 `relationship:multi-dim` 方案本身；统一入口 `/agent/[id]/relationships` 与其他 scheme 的管理子系统后续独立落地
   - 效果：虚拟人对"老朋友"和"陌生人"说话语气不同
 - [ ] **C4 Values — priority-list 方案** — 价值观优先级列表
   - 实现 AgentSystem 接口，beforeLLM 注入价值观描述
@@ -1058,9 +1103,11 @@ Phase 1（已完成）
 - [ ] **D3 MemorySearchTool** — agent 主动搜索自己的记忆
   - agent 在对话中可以调用这个工具检索过去的对话
   - 效果：问"我之前跟你说过什么"，agent 能搜到
-- [ ] **D4 记忆管理 UI** — 网页上查看/搜索/删除虚拟人的记忆
-  - 按 Wing/Room 浏览，支持关键词搜索
-  - 效果：你能看到虚拟人记住了什么，删掉不想要的
+- [ ] **D4 记忆管理 UI** — 统一入口 + `sqlite` 记忆管理子系统
+  - 路由固定为 `/agent/[id]/memory`，入口层按当前 `memory.scheme` 分发
+  - 第一版只实现 `memory:sqlite` 的查看 / 搜索 / 删除 / consolidate 触发；`chromadb` 以后单独接到同一个入口下
+  - 不同 scheme 记忆不互通、不混显、不抽统一 CRUD 语义
+  - 效果：你能从固定入口进入当前记忆架构对应的管理界面，看到虚拟人记住了什么，并执行该架构自己的管理动作
 
 ---
 
