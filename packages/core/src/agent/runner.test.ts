@@ -769,3 +769,107 @@ test('runAgent executes pending emotion analysis as a separate observer call and
     trigger: '用户用了责备语气',
   })
 })
+
+test('runAgent executes pending relationship analysis and exposes parsed deltas to afterTurn', async () => {
+  const seen: { relationshipRequest?: LLMRequest; analysis?: unknown } = {}
+
+  const provider: LLMProvider = {
+    name: 'fake',
+    async *streamMessage(params) {
+      assert.equal(params.model, 'fake-model')
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: 'answer' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 8, outputTokens: 6 },
+        },
+      }
+    },
+    async sendMessage(params) {
+      seen.relationshipRequest = params
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              trust_delta: -0.3,
+              affinity_delta: -0.45,
+              familiarity_delta: 0.1,
+              respect_delta: -0.2,
+              trigger: '用户刚刚有些冒犯',
+            }),
+          },
+        ],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 5, outputTokens: 7 },
+      }
+    },
+  }
+
+  const systems: AgentSystem[] = [
+    {
+      name: 'relationship:multi-dim',
+      type: 'relationship',
+      async afterLLM(ctx: TurnContext) {
+        ctx.pendingRelationshipAnalysis = {
+          kind: 'multi-dim',
+          model: 'claude-haiku-4-5-20251001',
+          systemPrompt: 'Return JSON for relationship deltas only.',
+          messages: [
+            createTextMessage('user', 'User said: 你怎么又错了\nAssistant said: answer'),
+          ],
+          currentState: {
+            trust: 0.6,
+            affinity: 0.5,
+            familiarity: 0.2,
+            respect: 0.7,
+          },
+          baseline: {
+            trust: 0.5,
+            affinity: 0.4,
+            familiarity: 0.1,
+            respect: 0.5,
+          },
+          decayPerTurn: 0.1,
+        }
+      },
+      async afterTurn(ctx: TurnContext) {
+        seen.analysis = clone(ctx.relationshipAnalysis)
+      },
+    },
+  ]
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig(),
+    [createTextMessage('user', 'hello')],
+    provider,
+    systems,
+  )) {
+    events.push(event)
+  }
+
+  assert.deepEqual(events, [
+    {
+      type: 'complete',
+      response: {
+        content: [{ type: 'text', text: 'answer' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 8, outputTokens: 6 },
+      },
+    },
+  ])
+  assert.equal(seen.relationshipRequest?.model, 'claude-haiku-4-5-20251001')
+  assert.equal(seen.relationshipRequest?.systemPrompt, 'Return JSON for relationship deltas only.')
+  assert.deepEqual(seen.analysis, {
+    delta: {
+      trust: -0.3,
+      affinity: -0.45,
+      familiarity: 0.1,
+      respect: -0.2,
+    },
+    trigger: '用户刚刚有些冒犯',
+    rawResponse: '{"trust_delta":-0.3,"affinity_delta":-0.45,"familiarity_delta":0.1,"respect_delta":-0.2,"trigger":"用户刚刚有些冒犯"}',
+  })
+})
