@@ -6,6 +6,10 @@ import type { LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent } from '../pr
 import type { Tool } from '../tools/types'
 import type { ContentBlock, Message, ToolDefinition } from '../types'
 import { createSystems, type AgentSystem, type TurnContext } from '@mas/systems'
+import { getDb, getRawSqlite, resetDb } from '@mas/db'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 class FakeProvider implements LLMProvider {
   name = 'fake'
@@ -768,4 +772,178 @@ test('runAgent executes pending emotion analysis as a separate observer call and
     },
     trigger: '用户用了责备语气',
   })
+})
+
+function bootstrapRelationshipDb(dbPath: string) {
+  resetDb()
+  getDb(dbPath)
+  getRawSqlite().exec(`
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      personality TEXT,
+      skills TEXT,
+      modules TEXT,
+      status TEXT NOT NULL DEFAULT 'idle',
+      model TEXT NOT NULL,
+      config TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE TABLE IF NOT EXISTS relationships (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id),
+      counterpart_type TEXT NOT NULL,
+      counterpart_id TEXT NOT NULL,
+      dimensions TEXT NOT NULL,
+      history TEXT NOT NULL,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_relationships_agent_counterpart
+      ON relationships(agent_id, counterpart_type, counterpart_id);
+    DELETE FROM relationships;
+    DELETE FROM agents;
+    INSERT INTO agents (id, name, model, status)
+    VALUES ('test-agent', 'Relationship Agent', 'fake-model', 'idle');
+  `)
+}
+
+test('runAgent with noop relationship config injects no fragment and writes no relationship rows', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-relationship-noop-'))
+  const dbPath = join(dir, 'relationship.db')
+
+  try {
+    bootstrapRelationshipDb(dbPath)
+
+    let systemPrompt = ''
+    const provider = new FakeProvider(async function* (params) {
+      systemPrompt = params.systemPrompt
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: 'done' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1 },
+        },
+      }
+    })
+
+    for await (const _event of runAgent(
+      createConfig(),
+      [createTextMessage('user', 'hi')],
+      provider,
+      createSystems({
+        relationship: { scheme: 'noop' },
+      }),
+    )) {
+    }
+
+    const countRow = getRawSqlite().prepare('SELECT COUNT(*) AS count FROM relationships').get() as {
+      count: number
+    }
+    assert.equal(systemPrompt, 'test')
+    assert.equal(countRow.count, 0)
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('runAgent includes relationship prompts and high/low states lead to observably different replies', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-relationship-diff-'))
+  const dbPath = join(dir, 'relationship.db')
+
+  try {
+    bootstrapRelationshipDb(dbPath)
+
+    const prompts: string[] = []
+    const provider = new FakeProvider(async function* (params) {
+      prompts.push(params.systemPrompt)
+
+      const reply = params.systemPrompt.includes('高度信任') && params.systemPrompt.includes('非常熟悉')
+        ? '当然，我直接帮你把这件事接着做完。'
+        : '我会先谨慎确认你的意图，再继续处理。'
+
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: reply }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1 },
+        },
+      }
+    })
+
+    const lowSystems = createSystems({
+      relationship: {
+        scheme: 'multi-dim',
+        baseline: {
+          trust: 0.1,
+          affinity: 0.1,
+          familiarity: 0.05,
+          respect: 0.2,
+        },
+      },
+    })
+    const highSystems = createSystems({
+      relationship: {
+        scheme: 'multi-dim',
+        baseline: {
+          trust: 0.95,
+          affinity: 0.9,
+          familiarity: 0.9,
+          respect: 0.95,
+        },
+      },
+    })
+
+    const lowEvents = []
+    for await (const event of runAgent(
+      createConfig(),
+      [createTextMessage('user', '继续处理这个任务')],
+      provider,
+      lowSystems,
+    )) {
+      lowEvents.push(event)
+    }
+
+    resetDb()
+    bootstrapRelationshipDb(dbPath)
+
+    const highEvents = []
+    for await (const event of runAgent(
+      createConfig(),
+      [createTextMessage('user', '继续处理这个任务')],
+      provider,
+      highSystems,
+    )) {
+      highEvents.push(event)
+    }
+
+    const turnPrompts = prompts.filter((prompt) => prompt.includes('当前你与用户的关系状态'))
+
+    assert.equal(turnPrompts.length, 2)
+    assert.match(turnPrompts[0] ?? '', /几乎不信任/)
+    assert.match(turnPrompts[1] ?? '', /高度信任/)
+    assert.deepEqual(lowEvents.at(-1), {
+      type: 'complete',
+      response: {
+        content: [{ type: 'text', text: '我会先谨慎确认你的意图，再继续处理。' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      },
+    })
+    assert.deepEqual(highEvents.at(-1), {
+      type: 'complete',
+      response: {
+        content: [{ type: 'text', text: '当然，我直接帮你把这件事接着做完。' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      },
+    })
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
