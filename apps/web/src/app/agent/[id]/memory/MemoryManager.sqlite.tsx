@@ -1,6 +1,7 @@
 'use client'
 
 import { useDeferredValue, useEffect, useState, useTransition } from 'react'
+import { getSqliteMemoryToolbarState } from './MemoryManager.sqlite.state'
 
 interface AgentMemoryMeta {
   agentId: string
@@ -44,9 +45,16 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const deferredQuery = useDeferredValue(query)
   const [memories, setMemories] = useState<SqliteMemory[]>([])
   const [loading, setLoading] = useState(true)
+  const [isConsolidating, setIsConsolidating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const toolbarState = getSqliteMemoryToolbarState({
+    loading,
+    pending,
+    isConsolidating,
+    memoryCount: memories.length,
+  })
 
   async function refresh(search = deferredQuery) {
     setLoading(true)
@@ -100,24 +108,31 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
 
   async function handleConsolidate() {
     setError(null)
-    setNotice(null)
+    setNotice('正在整理 sqlite memories，这一步可能需要接近 1 分钟。')
+    setIsConsolidating(true)
 
-    const response = await fetch(`/api/agents/${agentId}/memory/sqlite/consolidate`, {
-      method: 'POST',
-    })
-    const data = await response.json()
-    if (!response.ok) {
-      setError(typeof data?.error === 'string' ? data.error : 'Failed to consolidate sqlite memories')
-      return
+    try {
+      const response = await fetch(`/api/agents/${agentId}/memory/sqlite/consolidate`, {
+        method: 'POST',
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Failed to consolidate sqlite memories')
+      }
+
+      const report = data as ConsolidationReport
+      setNotice(
+        `SQLite memory consolidate 完成：${report.before} -> ${report.after}，保留 ${report.kept}，重写 ${report.rewritten}，合并 ${report.merged}。`,
+      )
+      startTransition(() => {
+        void refresh()
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to consolidate sqlite memories')
+      setNotice(null)
+    } finally {
+      setIsConsolidating(false)
     }
-
-    const report = data as ConsolidationReport
-    setNotice(
-      `SQLite memory consolidate 完成：${report.before} -> ${report.after}，保留 ${report.kept}，重写 ${report.rewritten}，合并 ${report.merged}。`,
-    )
-    startTransition(() => {
-      void refresh()
-    })
   }
 
   return (
@@ -138,7 +153,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             type="button"
             className="sqlite-button"
             onClick={() => startTransition(() => { void refresh() })}
-            disabled={pending}
+            disabled={toolbarState.refreshDisabled}
           >
             Refresh
           </button>
@@ -146,9 +161,9 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             type="button"
             className="sqlite-button sqlite-button-primary"
             onClick={handleConsolidate}
-            disabled={pending || loading || memories.length === 0}
+            disabled={toolbarState.consolidateDisabled}
           >
-            Consolidate sqlite memory
+            {toolbarState.consolidateLabel}
           </button>
         </div>
       </div>
@@ -161,7 +176,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           当前 sqlite memories: <strong>{memories.length}</strong>
           {deferredQuery.trim() ? `，筛选词：${deferredQuery.trim()}` : ''}
         </p>
-        {(loading || pending) && <span className="sqlite-status">Loading…</span>}
+        {toolbarState.status && <span className="sqlite-status">{toolbarState.status}</span>}
       </div>
 
       {loading && memories.length === 0 ? (
@@ -186,7 +201,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                   type="button"
                   className="sqlite-button sqlite-button-danger"
                   onClick={() => handleDelete(memory.id)}
-                  disabled={pending}
+                  disabled={toolbarState.deleteDisabled}
                 >
                   Delete
                 </button>
