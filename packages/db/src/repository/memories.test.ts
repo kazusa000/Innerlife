@@ -148,6 +148,55 @@ test('findRelevantMemories supports time range filtering on top of embedding sim
   }
 })
 
+test('findRelevantMemories keeps time-range candidates even when semantic similarity is zero', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapMemoryDb(dbPath)
+
+    const insideRange = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User had tomato egg noodles for dinner yesterday.',
+      displaySummary: '用户昨晚吃了番茄鸡蛋面',
+      retrievalText: '用户昨晚晚饭吃了番茄鸡蛋面，还放了很多胡椒。',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'openai/text-embedding-3-small',
+      tags: ['晚饭', '番茄鸡蛋面'],
+      importance: 0.6,
+      createdAt: new Date('2026-04-19T18:30:00.000Z'),
+    })
+    addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User talked about work today.',
+      displaySummary: '用户今天聊了工作上的烦心事',
+      retrievalText: '用户今天提到被老板批评后有些烦躁。',
+      retrievalEmbedding: vector([0, 1]),
+      retrievalModel: 'openai/text-embedding-3-small',
+      tags: ['工作', '情绪'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-20T10:00:00.000Z'),
+    })
+
+    const results = findRelevantMemories({
+      agentId: 'agent-1',
+      queryEmbeddings: [vector([0, 1])],
+      topK: 5,
+      timeRange: {
+        start: new Date('2026-04-19T00:00:00.000Z'),
+        end: new Date('2026-04-19T23:59:59.000Z'),
+      },
+    })
+
+    assert.deepEqual(results.map((memory) => memory.id), [insideRange.id])
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('applyConsolidationPlan keeps, rewrites, and merges memories in one transaction', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
   const dbPath = join(dir, 'memory.db')

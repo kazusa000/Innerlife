@@ -235,6 +235,7 @@ export function findRelevantMemories(input: {
     end: Date
   } | null
 }) {
+  const hasTimeRange = !!input.timeRange
   const queryEmbeddings = input.queryEmbeddings
     .filter((embedding): embedding is number[] => Array.isArray(embedding) && embedding.length > 0)
     .map((embedding) => embedding.filter((value): value is number => typeof value === 'number' && Number.isFinite(value)))
@@ -261,7 +262,7 @@ export function findRelevantMemories(input: {
         ? Math.max(...queryEmbeddings.map((queryEmbedding) => cosineSimilarity(queryEmbedding, memory.retrievalEmbedding)))
         : 0,
     }))
-    .filter(({ similarity }) => queryEmbeddings.length === 0 || similarity > 0)
+    .filter(({ similarity }) => hasTimeRange || queryEmbeddings.length === 0 || similarity > 0)
     .sort((left, right) => {
       if (right.similarity !== left.similarity) {
         return right.similarity - left.similarity

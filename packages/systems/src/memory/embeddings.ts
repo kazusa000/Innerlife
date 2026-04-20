@@ -1,4 +1,4 @@
-export const DEFAULT_MEMORY_EMBEDDING_MODEL = 'qwen/qwen3-embedding-0.6b'
+export const DEFAULT_MEMORY_EMBEDDING_MODEL = 'openai/text-embedding-3-small'
 const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
 export type MemoryEmbeddingInputType = 'search_query' | 'search_document'
