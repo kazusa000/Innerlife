@@ -16,6 +16,7 @@ interface Session {
 interface Agent {
   id: string
   name: string
+  provider: 'anthropic' | 'openrouter'
   model: string
   modules: AgentModules | null
 }

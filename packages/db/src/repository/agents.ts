@@ -4,6 +4,11 @@ import { agents } from '../schema'
 import { randomUUID } from 'node:crypto'
 
 export type AgentModules = Record<string, unknown> | null
+export type AgentProvider = 'anthropic' | 'openrouter'
+
+type AgentConfig = {
+  provider?: AgentProvider
+}
 
 function parseModules(modules: string | null) {
   if (!modules) return null
@@ -16,9 +21,28 @@ function serializeModules(modules: AgentModules | undefined) {
   return JSON.stringify(modules)
 }
 
+function parseConfig(config: string | null): AgentConfig {
+  if (!config) return {}
+  try {
+    const parsed = JSON.parse(config)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as AgentConfig
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+function serializeConfig(config: AgentConfig | undefined) {
+  if (!config) return undefined
+  return JSON.stringify(config)
+}
+
 function mapAgent(row: typeof agents.$inferSelect) {
+  const config = parseConfig(row.config)
   return {
     ...row,
+    provider: config.provider === 'openrouter' ? 'openrouter' : 'anthropic',
     modules: parseModules(row.modules),
   }
 }
@@ -28,6 +52,7 @@ export function createAgent(data: {
   description?: string
   personality?: string
   skills?: string
+  provider?: AgentProvider
   model: string
   modules?: AgentModules
 }) {
@@ -35,7 +60,12 @@ export function createAgent(data: {
   const id = randomUUID()
   db
     .insert(agents)
-    .values({ id, ...data, modules: serializeModules(data.modules) ?? null })
+    .values({
+      id,
+      ...data,
+      modules: serializeModules(data.modules) ?? null,
+      config: serializeConfig({ provider: data.provider ?? 'anthropic' }) ?? null,
+    })
     .run()
   return getAgent(id)!
 }
@@ -54,15 +84,26 @@ export function listAgents() {
 export function updateAgent(id: string, data: {
   name?: string
   description?: string
+  provider?: AgentProvider
   model?: string
   modules?: AgentModules
 }) {
   const db = getDb()
+  const existing = db.select().from(agents).where(eq(agents.id, id)).get()
+  const nextConfig = data.provider !== undefined
+    ? serializeConfig({
+        ...parseConfig(existing?.config ?? null),
+        provider: data.provider,
+      }) ?? null
+    : undefined
   db
     .update(agents)
     .set({
-      ...data,
+      name: data.name,
+      description: data.description,
+      model: data.model,
       modules: serializeModules(data.modules),
+      config: nextConfig,
       updatedAt: new Date(),
     })
     .where(eq(agents.id, id))

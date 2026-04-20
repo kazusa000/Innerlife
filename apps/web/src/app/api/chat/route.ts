@@ -1,6 +1,6 @@
 import {
   runAgent,
-  AnthropicProvider,
+  createProvider,
   getDefaultTools,
 } from '@mas/core'
 import type { AgentConfig, Message } from '@mas/core'
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   const session = sessionRepo.getSession(sessionId)
   const agent = session ? agentRepo.getAgent(session.agentId) : null
 
-  const provider = new AnthropicProvider()
+  const provider = createProvider(agent?.provider)
   const tools = getDefaultTools()
   const systems = createSystems(agent?.modules ?? null)
   const toolPrompt = 'You can use the web_fetch tool to fetch web pages. Be concise.'

@@ -7,6 +7,7 @@ interface Agent {
   id: string
   name: string
   description: string | null
+  provider: 'anthropic' | 'openrouter'
   model: string
   modules: Record<string, unknown> | null
   status: string
@@ -76,6 +77,11 @@ const DEFAULT_EMOTION_BASELINE: EmotionBaseline = {
   energy: 0,
   stress: 0,
 }
+
+const DEFAULT_MODEL_BY_PROVIDER = {
+  anthropic: 'claude-sonnet-4-6',
+  openrouter: 'anthropic/claude-sonnet-4.6',
+} as const
 
 const MODEL_LABELS: Record<string, string> = {
   'claude-sonnet-4-6': 'Sonnet 4.6',
@@ -341,7 +347,8 @@ export default function HomePage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [model, setModel] = useState('claude-sonnet-4-6')
+  const [provider, setProvider] = useState<'anthropic' | 'openrouter'>('anthropic')
+  const [model, setModel] = useState<string>(DEFAULT_MODEL_BY_PROVIDER.anthropic)
   const [baseModules, setBaseModules] = useState<Record<string, unknown>>({})
   const [personalityEnabled, setPersonalityEnabled] = useState(true)
   const [big5, setBig5] = useState<BigFiveScores>({ ...DEFAULT_BIG5 })
@@ -373,7 +380,8 @@ export default function HomePage() {
     setEditingId(null)
     setName('')
     setDescription('')
-    setModel('claude-sonnet-4-6')
+    setProvider('anthropic')
+    setModel(DEFAULT_MODEL_BY_PROVIDER.anthropic)
     setBaseModules({})
     setPersonalityEnabled(true)
     setBig5({ ...DEFAULT_BIG5 })
@@ -396,6 +404,7 @@ export default function HomePage() {
     setEditingId(agent.id)
     setName(agent.name)
     setDescription(agent.description ?? '')
+    setProvider(agent.provider ?? 'anthropic')
     setModel(agent.model)
     setBaseModules(stripManagedModules(agent.modules))
     setPersonalityEnabled(personality.enabled)
@@ -463,13 +472,13 @@ export default function HomePage() {
       await fetch(`/api/agents/${editingId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, model, modules }),
+        body: JSON.stringify({ name, description, provider, model, modules }),
       })
     } else {
       await fetch('/api/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, model, modules }),
+        body: JSON.stringify({ name, description, provider, model, modules }),
       })
     }
     resetForm()
@@ -544,20 +553,45 @@ export default function HomePage() {
                 />
               </label>
               <label className="field">
+                <span className="field-label">Provider</span>
+                <select
+                  className="input"
+                  value={provider}
+                  onChange={(e) => {
+                    const nextProvider = e.target.value as 'anthropic' | 'openrouter'
+                    setProvider(nextProvider)
+                    if (
+                      !model.trim()
+                      || model === DEFAULT_MODEL_BY_PROVIDER.anthropic
+                      || model === DEFAULT_MODEL_BY_PROVIDER.openrouter
+                    ) {
+                      setModel(DEFAULT_MODEL_BY_PROVIDER[nextProvider])
+                    }
+                  }}
+                >
+                  <option value="anthropic">Anthropic</option>
+                  <option value="openrouter">OpenRouter</option>
+                </select>
+              </label>
+              <label className="field">
                 <span className="field-label">Model</span>
                 <input
                   className="input"
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  placeholder="e.g. claude-sonnet-4-6, deepseek-chat, deepseek-reasoner"
+                  placeholder={provider === 'openrouter'
+                    ? 'e.g. anthropic/claude-sonnet-4.6, openai/gpt-5.2'
+                    : 'e.g. claude-sonnet-4-6, claude-haiku-4-5-20251001'}
                   list="model-suggestions"
                 />
                 <datalist id="model-suggestions">
                   <option value="claude-sonnet-4-6" />
                   <option value="claude-haiku-4-5-20251001" />
                   <option value="claude-opus-4-6" />
-                  <option value="deepseek-chat" />
-                  <option value="deepseek-reasoner" />
+                  <option value="anthropic/claude-sonnet-4.6" />
+                  <option value="openai/gpt-5.2" />
+                  <option value="google/gemini-2.5-flash" />
+                  <option value="deepseek/deepseek-chat-v3-0324" />
                 </datalist>
               </label>
 

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { getDb, getRawSqlite, resetDb } from '../client'
 import { createAgent, getAgent, updateAgent } from './agents'
 
-test('createAgent and updateAgent round-trip nullable modules JSON', () => {
+test('createAgent and updateAgent round-trip nullable modules JSON and provider config', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-agents-'))
   const dbPath = join(dir, 'test.db')
 
@@ -32,10 +32,12 @@ test('createAgent and updateAgent round-trip nullable modules JSON', () => {
     const created = createAgent({
       name: 'Modules Test',
       description: 'repo test',
+      provider: 'openrouter',
       model: 'claude-sonnet-4-6',
     })
 
     assert.equal(created.modules, null)
+    assert.equal(created.provider, 'openrouter')
 
     const modules = {
       personality: { type: 'big-five' },
@@ -47,6 +49,10 @@ test('createAgent and updateAgent round-trip nullable modules JSON', () => {
 
     const loaded = getAgent(created.id)
     assert.deepEqual(loaded?.modules, modules)
+    assert.equal(loaded?.provider, 'openrouter')
+
+    const switched = updateAgent(created.id, { provider: 'anthropic' })
+    assert.equal(switched?.provider, 'anthropic')
   } finally {
     resetDb()
     rmSync(dir, { recursive: true, force: true })

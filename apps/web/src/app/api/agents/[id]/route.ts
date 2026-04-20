@@ -29,11 +29,18 @@ export async function PATCH(
   const updates: {
     name?: string
     description?: string
+    provider?: 'anthropic' | 'openrouter'
     model?: string
     modules?: Record<string, unknown> | null
   } = {}
   if (body.name !== undefined) updates.name = body.name
   if (body.description !== undefined) updates.description = body.description
+  if (body.provider !== undefined) {
+    if (body.provider !== 'anthropic' && body.provider !== 'openrouter') {
+      return Response.json({ error: 'provider must be anthropic or openrouter' }, { status: 400 })
+    }
+    updates.provider = body.provider
+  }
   if (body.model !== undefined) updates.model = body.model
   if (body.modules !== undefined) updates.modules = body.modules
 

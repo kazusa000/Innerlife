@@ -12,6 +12,7 @@ export async function POST(request: Request) {
   const body = await request.json()
   const name = body.name as string
   const description = (body.description as string) || ''
+  const provider = body.provider as string | undefined
   const model = (body.model as string) || 'claude-sonnet-4-6'
   const modules = (body.modules as Record<string, unknown> | null | undefined) ?? null
 
@@ -19,9 +20,14 @@ export async function POST(request: Request) {
     return Response.json({ error: 'name is required' }, { status: 400 })
   }
 
+  if (provider !== undefined && provider !== 'anthropic' && provider !== 'openrouter') {
+    return Response.json({ error: 'provider must be anthropic or openrouter' }, { status: 400 })
+  }
+
   const agent = agentRepo.createAgent({
     name: name.trim(),
     description,
+    provider,
     model,
     modules,
   })

@@ -1,4 +1,9 @@
-import { AnthropicProvider, type LLMProvider, type Message, type RunAgentObserver } from '@mas/core'
+import {
+  createProvider,
+  type LLMProvider,
+  type Message,
+  type RunAgentObserver,
+} from '@mas/core'
 import { agentRepo, memoryRepo } from '@mas/db'
 import {
   buildMemoryConsolidationPrompt,
@@ -42,7 +47,7 @@ export async function consolidateSqliteMemories(
     return Response.json({ error: 'Too many memories to consolidate at once' }, { status: 400 })
   }
 
-  const provider = deps.provider ?? new AnthropicProvider()
+  const provider = deps.provider ?? createProvider(agent.provider)
   const model = resolveMemorySqliteConfig(memoryConfig).summarizeModel ?? agent.model
   const systemPrompt = buildMemoryConsolidationPrompt()
   const phaseMetadata = { phase: 'consolidate' as const }

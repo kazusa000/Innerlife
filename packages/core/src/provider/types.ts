@@ -1,5 +1,8 @@
 import type { ContentBlock, Message, ToolDefinition } from '../types'
 
+export const PROVIDER_NAMES = ['anthropic', 'openrouter'] as const
+export type ProviderName = (typeof PROVIDER_NAMES)[number]
+
 export interface LLMRequest {
   model: string
   systemPrompt: string

@@ -13,6 +13,7 @@ export type {
   LLMRequest,
   LLMResponse,
   LLMStreamEvent,
+  ProviderName,
 } from './provider/types'
 
 export { runAgent } from './agent/runner'
@@ -27,4 +28,6 @@ export {
   executeTool,
 } from './tools'
 export { AnthropicProvider } from './provider/anthropic'
+export { OpenRouterProvider } from './provider/openrouter'
+export { createProvider, resolveProviderName } from './provider/factory'
 export { createAbortError, isAbortError, throwIfAborted } from './utils/abort'
