@@ -231,7 +231,7 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
       })),
       [
         { kind: 'retrieve', model: 'memory-model', reasoning: { effort: 'none' } },
-        { kind: 'turn', model: 'fake-model', reasoning: undefined },
+        { kind: 'turn', model: 'fake-model', reasoning: { effort: 'none' } },
         { kind: 'summarize', model: 'memory-model', reasoning: { effort: 'none' } },
       ],
     )

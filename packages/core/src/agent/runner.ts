@@ -130,6 +130,7 @@ export async function* runAgent(
         systemPrompt: llmInput.systemPrompt,
         messages: llmInput.messages,
         tools: toolDefs,
+        reasoning: { effort: 'none' },
         signal,
       })) {
         throwIfAborted(signal)

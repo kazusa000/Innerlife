@@ -137,10 +137,11 @@ test('runAgent emits aborted when provider stream is cancelled mid-response', as
 })
 
 test('runAgent composes sorted prompt fragments from systems before calling the provider', async () => {
-  const seen: { systemPrompt?: string } = {}
+  const seen: { systemPrompt?: string; reasoning?: unknown } = {}
 
   const provider = new FakeProvider(async function* (params) {
     seen.systemPrompt = params.systemPrompt
+    seen.reasoning = params.reasoning
     yield {
       type: 'message_complete',
       response: {
@@ -208,6 +209,7 @@ test('runAgent composes sorted prompt fragments from systems before calling the 
     },
   ])
   assert.equal(seen.systemPrompt, 'test\n\nfirst\n\nsecond\n\nthird')
+  assert.deepEqual(seen.reasoning, { effort: 'none' })
 })
 
 test('runAgent snapshots normalized prompt fragments into observer metadata', async () => {
