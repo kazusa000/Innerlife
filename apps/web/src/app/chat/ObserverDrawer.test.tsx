@@ -124,7 +124,10 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
         metadata: {
           phase: 'retrieve',
           keywords: ['cat'],
-          fallbackKeywords: ['pet'],
+          timeRange: {
+            start: '2026-04-20T13:55:00.000Z',
+            end: '2026-04-20T14:00:00.000Z',
+          },
           hits: [
             {
               id: 'memory-1',
@@ -140,28 +143,6 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
         usage: { inputTokens: 1, outputTokens: 1 },
         finished: true,
       },
-      {
-        callId: 'memory-summarize',
-        turnIndex: 1,
-        kind: 'memory',
-        model: 'fake-model',
-        systemPrompt: 'memory summarize prompt',
-        tools: [],
-        messages: [],
-        metadata: {
-          phase: 'summarize',
-          written: {
-            id: 'memory-2',
-            summary: 'new summary',
-            tags: ['tag-a'],
-            importance: 0.7,
-          },
-        },
-        response: [{ type: 'text', text: '{}' }],
-        stopReason: 'end_turn',
-        usage: { inputTokens: 1, outputTokens: 1 },
-        finished: true,
-      },
     ],
   }
 
@@ -171,12 +152,13 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
     agentModules: { memory: { scheme: 'sqlite' } },
   })
 
-  assert.equal(html.includes('memory.summarize'), true)
-  assert.equal(html.includes('tag-a'), true)
-  assert.equal(html.includes('memory-2'), true)
+  assert.equal(html.includes('memory.retrieve'), true)
+  assert.equal(html.includes('time range'), true)
+  assert.equal(html.includes('2026-04-20T13:55:00.000Z'), true)
+  assert.equal(html.includes('2026-04-20T14:00:00.000Z'), true)
   assert.equal(html.includes('原 prompt'), true)
   assert.equal(html.includes('retrieve'), true)
-  assert.equal(html.includes('summarize'), true)
+  assert.equal(html.includes('cat memory'), true)
 })
 
 test('emotion tab renders dimensional delta details and empty tabs remain visible', () => {

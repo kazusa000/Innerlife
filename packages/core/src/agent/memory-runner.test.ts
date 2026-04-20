@@ -98,6 +98,10 @@ function createTextMessage(role: Message['role'], text: string): Message {
   }
 }
 
+function isMemoryRetrievePrompt(systemPrompt: string): boolean {
+  return systemPrompt.includes('memory retrieval query for sqlite-based agent memories')
+}
+
 test('runAgent records memory retrieval metadata and writes a memory row after turn', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
   const dbPath = join(dir, 'test.db')
@@ -131,7 +135,7 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
     }
 
     const provider = new FakeProvider(async function* (params) {
-      if (params.systemPrompt.includes('retrieval keywords')) {
+      if (isMemoryRetrievePrompt(params.systemPrompt)) {
         yield {
           type: 'message_complete',
           response: {
@@ -204,9 +208,8 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
     assert.deepEqual(observerStarts.map((call) => call.kind), ['memory', 'turn', 'memory'])
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
-      source: 'llm',
-      fallbackKeywords: ['猫', '我猫叫什么'],
       keywords: ['猫', '我猫叫什么'],
+      timeRange: null,
       hitCount: 1,
       memoryIds: ['existing-memory'],
       hits: [
@@ -278,7 +281,7 @@ test('runAgent uses LLM-expanded memory keywords instead of tokenizer results', 
     }
 
     const provider = new FakeProvider(async function* (params) {
-      if (params.systemPrompt.includes('retrieval keywords')) {
+      if (isMemoryRetrievePrompt(params.systemPrompt)) {
         yield {
           type: 'message_complete',
           response: {
@@ -344,9 +347,8 @@ test('runAgent uses LLM-expanded memory keywords instead of tokenizer results', 
     assert.deepEqual(observerStarts.map((call) => call.kind), ['memory', 'turn', 'memory'])
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
-      source: 'llm',
-      fallbackKeywords: ['name'],
       keywords: ['name', '名字'],
+      timeRange: null,
       hitCount: 1,
       memoryIds: ['name-memory'],
       hits: [
@@ -369,8 +371,8 @@ test('runAgent uses LLM-expanded memory keywords instead of tokenizer results', 
   }
 })
 
-test('runAgent falls back to tokenizer keywords and emits system_error when memory query call throws', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-query-fallback-'))
+test('runAgent emits system_error and skips memory retrieval when memory query call throws', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-query-error-'))
   const dbPath = join(dir, 'test.db')
 
   try {
@@ -400,7 +402,7 @@ test('runAgent falls back to tokenizer keywords and emits system_error when memo
     }
 
     const provider = new FakeProvider(async function* (params) {
-      if (params.systemPrompt.includes('retrieval keywords')) {
+      if (isMemoryRetrievePrompt(params.systemPrompt)) {
         throw new Error('memory query failed')
       }
 
@@ -425,7 +427,7 @@ test('runAgent falls back to tokenizer keywords and emits system_error when memo
         return
       }
 
-      assert.match(params.systemPrompt, /Relevant memories/)
+      assert.equal(params.systemPrompt, 'test')
       yield {
         type: 'message_complete',
         response: {
@@ -467,20 +469,8 @@ test('runAgent falls back to tokenizer keywords and emits system_error when memo
     assert.equal(events.at(-1)?.type, 'complete')
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
-      source: 'fallback',
-      fallbackKeywords: ['猫', '我猫叫什么'],
-      keywords: ['猫', '我猫叫什么'],
-      hitCount: 1,
-      memoryIds: ['fallback-memory'],
-      hits: [
-        {
-          id: 'fallback-memory',
-          summary: '用户养了一只叫橘子的猫',
-          tags: ['猫', 'pet'],
-          importance: 0.9,
-          matchedTerms: ['猫'],
-        },
-      ],
+      keywords: [],
+      timeRange: null,
     })
     assert.equal(observerEnds[0]?.error, 'memory query failed')
   } finally {
@@ -507,11 +497,13 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
         ctx.pendingMemoryQuery = {
           kind: 'sqlite',
           system: 'memory:sqlite',
-          prompt: 'memory retrieval keywords',
+          prompt: 'You prepare a memory retrieval query for sqlite-based agent memories.',
           inputText: ctx.input.text,
-          fallback: ['cat'],
           parse() {
-            return ['cat']
+            return {
+              keywords: ['cat'],
+              timeRange: null,
+            }
           },
           retrieve() {
             throw new Error('memory retrieve failed')
@@ -521,7 +513,7 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
     },
   ]
   const provider = new FakeProvider(async function* (params) {
-    if (params.systemPrompt === 'memory retrieval keywords') {
+    if (isMemoryRetrievePrompt(params.systemPrompt)) {
       yield {
         type: 'message_complete',
         response: {
@@ -568,14 +560,16 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
   assert.equal(events.at(-1)?.type, 'complete')
   assert.deepEqual(observerEnds[0]?.metadata, {
     phase: 'retrieve',
-    source: 'llm',
-    fallbackKeywords: ['cat'],
     keywords: ['cat'],
+    timeRange: null,
+    hitCount: 0,
+    memoryIds: [],
+    hits: [],
   })
   assert.equal(observerEnds[0]?.error, 'memory retrieve failed')
 })
 
-test('runAgent falls back to tokenizer keywords when memory query returns invalid JSON or empty keywords', async () => {
+test('runAgent emits system_error without fallback retrieval when memory query returns invalid JSON or empty keywords', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-query-invalid-'))
   const dbPath = join(dir, 'test.db')
 
@@ -607,7 +601,7 @@ test('runAgent falls back to tokenizer keywords when memory query returns invali
 
     let queryCalls = 0
     const provider = new FakeProvider(async function* (params) {
-      if (params.systemPrompt.includes('retrieval keywords')) {
+      if (isMemoryRetrievePrompt(params.systemPrompt)) {
         queryCalls += 1
         yield {
           type: 'message_complete',
@@ -646,7 +640,7 @@ test('runAgent falls back to tokenizer keywords when memory query returns invali
         return
       }
 
-      assert.match(params.systemPrompt, /Relevant memories/)
+      assert.equal(params.systemPrompt, 'test')
       yield {
         type: 'message_complete',
         response: {
@@ -687,41 +681,24 @@ test('runAgent falls back to tokenizer keywords when memory query returns invali
         phase: 'beforeTurn',
         error: queryCalls === 1
           ? 'Memory query call returned invalid JSON'
-          : 'Memory query call returned no keywords',
+          : 'Memory query call returned neither keywords nor time_range',
       })
     }
 
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
-      source: 'fallback',
-      fallbackKeywords: ['猫', '我猫叫什么'],
-      keywords: ['猫', '我猫叫什么'],
-      hitCount: 1,
-      memoryIds: ['invalid-memory'],
-      hits: [
-        {
-          id: 'invalid-memory',
-          summary: '用户养了一只叫橘子的猫',
-          tags: ['猫', 'pet'],
-          importance: 0.9,
-          matchedTerms: ['猫'],
-        },
-      ],
+      keywords: [],
+      timeRange: null,
     })
     assert.equal((observerEnds[3]?.metadata as { phase?: string })?.phase, 'retrieve')
-    assert.equal((observerEnds[3]?.metadata as { source?: string })?.source, 'fallback')
-    assert.deepEqual(
-      (observerEnds[3]?.metadata as { fallbackKeywords?: string[] })?.fallbackKeywords,
-      ['猫', '我猫叫什么'],
-    )
     assert.deepEqual(
       (observerEnds[3]?.metadata as { keywords?: string[] })?.keywords,
-      ['猫', '我猫叫什么'],
+      [],
     )
-    assert.equal((observerEnds[3]?.metadata as { hitCount?: number })?.hitCount, 2)
+    assert.equal((observerEnds[3]?.metadata as { hitCount?: number })?.hitCount, undefined)
     assert.deepEqual(
       ((observerEnds[3]?.metadata as { memoryIds?: string[] })?.memoryIds ?? []).includes('invalid-memory'),
-      true,
+      false,
     )
   } finally {
     resetDb()

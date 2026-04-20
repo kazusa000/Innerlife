@@ -2,6 +2,7 @@ import { memoryRepo } from '@mas/db'
 import type {
   AgentSystem,
   MemoryRecord,
+  MemoryQueryResult,
   PendingMemoryQuery,
   MemoryWriteResult,
   PendingMemoryWrite,
@@ -11,62 +12,6 @@ import type {
 const DEFAULT_RETRIEVE_TOP_K = 5
 const DEFAULT_MIN_TERM_LENGTH = 2
 const MAX_MEMORY_CONTENT_CHARS = 500
-const LATIN_STOPWORDS = new Set([
-  'a',
-  'an',
-  'and',
-  'are',
-  'did',
-  'do',
-  'does',
-  'for',
-  'how',
-  'i',
-  'is',
-  'it',
-  'me',
-  'my',
-  'of',
-  'or',
-  'the',
-  'to',
-  'was',
-  'what',
-  'when',
-  'where',
-  'who',
-  'why',
-  'you',
-  'your',
-])
-const CJK_STOPWORDS = new Set([
-  '了',
-  '他',
-  '们',
-  '你',
-  '叫',
-  '吗',
-  '啊',
-  '啥',
-  '呢',
-  '和',
-  '在',
-  '她',
-  '它',
-  '就',
-  '我',
-  '是',
-  '有',
-  '的',
-  '什',
-  '要',
-  '说',
-  '谁',
-  '这',
-  '那',
-  '都',
-  '么',
-])
 
 interface MemoryModuleConfig {
   summarizeModel: string | null
@@ -100,11 +45,10 @@ export type MemoryConsolidationAction =
   | MemoryConsolidationRewriteAction
   | MemoryConsolidationMergeAction
 
-const BILINGUAL_TAG_GUIDANCE = [
-  'tags must include at least 6 short reusable keywords.',
-  'Every tag list MUST contain both Chinese and English equivalents for each important concept (strictly bilingual).',
-  'Do not output tags in only one language.',
-  'Example tags: ["名字", "name", "称呼", "introduction", "宠物", "pet"].',
+const TAG_GUIDANCE = [
+  'tags must include at least 4 short reusable keywords when possible.',
+  'Use the main language of the conversation turn for tags.',
+  'Do not force bilingual tags.',
 ].join('\n')
 
 function readConfig(config: unknown): MemoryModuleConfig {
@@ -151,20 +95,25 @@ function buildSummaryPrompt(): string {
     'Return strict JSON with exactly these keys:',
     '{"summary": string, "tags": string[], "importance": number}',
     'importance must be a number between 0 and 1.',
-    BILINGUAL_TAG_GUIDANCE,
+    TAG_GUIDANCE,
     'Do not add markdown or code fences.',
   ].join('\n')
 }
 
 function buildRetrievePrompt(): string {
   return [
-    'You expand retrieval keywords for searching persona memories by tag.',
-    'The user input will be provided as the only user message.',
+    'You prepare a memory retrieval query for sqlite-based agent memories.',
+    'You will receive the current local datetime of the computer and the user\'s latest message.',
     'Return strict JSON with exactly this shape:',
-    '{"keywords": string[]}',
-    'List 4-8 short reusable retrieval keywords when possible.',
-    'Include Chinese and English synonyms when relevant.',
-    'Do not just copy the surface words. Expand to paraphrases, related topics, and likely tag variants.',
+    '{"keywords": string[], "time_range": {"start": string, "end": string} | null}',
+    'keywords are for semantic topics, entities, events, tasks, or objects only.',
+    'keywords may be empty.',
+    'Use the same language as the user\'s message.',
+    'Do not include time expressions in keywords.',
+    'If the user expresses time-related intent, translate it into an absolute time_range based on the provided current local datetime.',
+    'If the user expresses no time-related intent, return "time_range": null.',
+    'If the time intent is too ambiguous to resolve safely, return "time_range": null.',
+    '"start" and "end" must be ISO 8601 datetime strings.',
     'Do not add markdown or code fences.',
   ].join('\n')
 }
@@ -207,6 +156,33 @@ function truncate(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}...`
 }
 
+function formatOffset(minutesEastOfUtc: number): string {
+  const sign = minutesEastOfUtc >= 0 ? '+' : '-'
+  const absoluteMinutes = Math.abs(minutesEastOfUtc)
+  const hours = String(Math.floor(absoluteMinutes / 60)).padStart(2, '0')
+  const minutes = String(absoluteMinutes % 60).padStart(2, '0')
+  return `${sign}${hours}:${minutes}`
+}
+
+function formatLocalIsoDateTime(date: Date): string {
+  const localMinutes = date.getTimezoneOffset() * -1
+  const localDate = new Date(date.getTime() + date.getTimezoneOffset() * 60_000 * -1)
+  const year = localDate.getUTCFullYear()
+  const month = String(localDate.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(localDate.getUTCDate()).padStart(2, '0')
+  const hours = String(localDate.getUTCHours()).padStart(2, '0')
+  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
+  const seconds = String(localDate.getUTCSeconds()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${formatOffset(localMinutes)}`
+}
+
+function buildRetrieveInputText(userText: string, now = new Date()): string {
+  return [
+    `Current local datetime: ${formatLocalIsoDateTime(now)}`,
+    `User message: ${userText}`,
+  ].join('\n')
+}
+
 function buildSourceText(ctx: TurnContext): string {
   const userText = ctx.input.text.trim()
   const assistantText = extractResponseText(ctx)
@@ -219,44 +195,6 @@ function buildSourceText(ctx: TurnContext): string {
     `User: ${userText || '(empty)'}`,
     `Assistant: ${assistantText || '(empty)'}`,
   ].join('\n'), MAX_MEMORY_CONTENT_CHARS)
-}
-
-function containsCjk(text: string): boolean {
-  return /[\u3400-\u9fff]/u.test(text)
-}
-
-function tokenizeText(text: string, minTermLength: number): string[] {
-  const matches = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
-  const tokens = new Set<string>()
-
-  for (const match of matches) {
-    if (!match) {
-      continue
-    }
-
-    if (containsCjk(match)) {
-      for (const char of Array.from(match)) {
-        if (CJK_STOPWORDS.has(char)) {
-          continue
-        }
-        tokens.add(char)
-      }
-
-      if (match.length >= minTermLength && !CJK_STOPWORDS.has(match)) {
-        tokens.add(match)
-      }
-
-      continue
-    }
-
-    if (match.length < minTermLength || LATIN_STOPWORDS.has(match)) {
-      continue
-    }
-
-    tokens.add(match)
-  }
-
-  return [...tokens]
 }
 
 function extractJson(text: string): unknown {
@@ -315,7 +253,31 @@ function parseMemoryWriteResponse(responseText: string): MemoryWriteResult {
   }
 }
 
-function parseMemoryQueryResponse(responseText: string): string[] {
+function parseTimeRange(value: unknown): MemoryQueryResult['timeRange'] {
+  if (value == null) {
+    return null
+  }
+
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Memory query call returned an invalid time_range')
+  }
+
+  const record = value as Record<string, unknown>
+  const start = typeof record.start === 'string' ? new Date(record.start) : null
+  const end = typeof record.end === 'string' ? new Date(record.end) : null
+
+  if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new Error('Memory query call returned an invalid time_range')
+  }
+
+  if (start.getTime() > end.getTime()) {
+    throw new Error('Memory query call returned an inverted time_range')
+  }
+
+  return { start, end }
+}
+
+function parseMemoryQueryResponse(responseText: string): MemoryQueryResult {
   let parsed: unknown
 
   try {
@@ -337,12 +299,16 @@ function parseMemoryQueryResponse(responseText: string): string[] {
           .filter(Boolean),
       )]
     : []
+  const timeRange = parseTimeRange(record.time_range)
 
-  if (keywords.length === 0) {
-    throw new Error('Memory query call returned no keywords')
+  if (keywords.length === 0 && !timeRange) {
+    throw new Error('Memory query call returned neither keywords nor time_range')
   }
 
-  return keywords
+  return {
+    keywords,
+    timeRange,
+  }
 }
 
 
@@ -359,7 +325,7 @@ export function buildMemoryConsolidationPrompt(): string {
     'A memory id may appear at most once across all actions.',
     'sourceIds must contain at least 2 ids when merging.',
     'importance must be a number between 0 and 1.',
-    BILINGUAL_TAG_GUIDANCE,
+    TAG_GUIDANCE,
     'Do not add markdown or code fences.',
   ].join('\n')
 }
@@ -455,29 +421,25 @@ export class MemorySqliteSystem implements AgentSystem {
 
   private readonly summarizeModel: string | null
   private readonly retrieveTopK: number
-  private readonly minTermLength: number
 
   constructor(config?: unknown) {
     const resolved = readConfig(config)
     this.summarizeModel = resolved.summarizeModel
     this.retrieveTopK = resolved.retrieveTopK
-    this.minTermLength = resolved.minTermLength
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
-    const fallback = tokenizeText(ctx.input.text, this.minTermLength)
-
     const pending: PendingMemoryQuery = {
       kind: 'sqlite',
       system: this.name,
       prompt: buildRetrievePrompt(),
-      inputText: ctx.input.text,
-      fallback,
+      inputText: buildRetrieveInputText(ctx.input.text),
       parse: parseMemoryQueryResponse,
-      retrieve: async (keywords) => memoryRepo.findRelevantMemories({
+      retrieve: async (query) => memoryRepo.findRelevantMemories({
         agentId: ctx.agentId,
-        terms: keywords,
+        terms: query.keywords,
         topK: this.retrieveTopK,
+        timeRange: query.timeRange,
       }),
     }
 

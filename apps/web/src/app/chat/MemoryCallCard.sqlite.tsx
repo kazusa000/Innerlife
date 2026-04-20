@@ -4,10 +4,10 @@ import React, { useState } from 'react'
 import type { LiveCall } from './observer-types'
 import {
   getCallPhase,
-  getMemoryFallbackKeywords,
   getMemoryHits,
   getMemoryKeywords,
   getMemoryReport,
+  getMemoryTimeRange,
   getMemoryWritten,
   formatImportance,
   formatJson,
@@ -17,7 +17,7 @@ import { CALL_ACCENTS, CodeBlock, CollapsibleSection, DetailList, Pill, TagPills
 export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
   const phase = getCallPhase(call) ?? 'unknown'
   const keywords = getMemoryKeywords(call)
-  const fallbackKeywords = getMemoryFallbackKeywords(call)
+  const timeRange = getMemoryTimeRange(call)
   const hits = getMemoryHits(call)
   const written = getMemoryWritten(call)
   const report = getMemoryReport(call)
@@ -72,7 +72,17 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                 <DetailList
                   rows={[
                     { label: 'keywords', value: <TagPills values={keywords} accent={CALL_ACCENTS.memory.color} /> },
-                    { label: 'fallback keywords', value: <TagPills values={fallbackKeywords} accent={CALL_ACCENTS.memory.color} /> },
+                    {
+                      label: 'time range',
+                      value: timeRange ? (
+                        <DetailList
+                          rows={[
+                            { label: 'start', value: timeRange.start },
+                            { label: 'end', value: timeRange.end },
+                          ]}
+                        />
+                      ) : 'none',
+                    },
                   ]}
                 />
               </CollapsibleSection>

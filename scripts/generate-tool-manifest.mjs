@@ -13,6 +13,9 @@ const ignoredFiles = new Set([
   'registry.ts',
   'types.ts',
 ])
+const enabledDefaultToolFiles = new Set([
+  'web-fetch.ts',
+])
 
 function getToolExports(filePath) {
   const source = readFileSync(filePath, 'utf8')
@@ -24,6 +27,7 @@ const toolModules = readdirSync(toolsDir)
   .filter((fileName) => fileName.endsWith('.ts'))
   .filter((fileName) => !fileName.endsWith('.test.ts'))
   .filter((fileName) => !ignoredFiles.has(fileName))
+  .filter((fileName) => enabledDefaultToolFiles.has(fileName))
   .map((fileName) => ({
     fileName,
     exportNames: getToolExports(join(toolsDir, fileName)),
