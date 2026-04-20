@@ -153,7 +153,7 @@ export default function HomePage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this persona and all of its conversations?')) return
+    if (!confirm('删除这个虚拟人及其全部对话吗？')) return
     await fetch(`/api/agents/${id}`, { method: 'DELETE' })
     await loadAgents()
   }
@@ -174,10 +174,10 @@ export default function HomePage() {
       <div className="home-wrap">
         <header className="home-head">
           <div>
-            <p className="eyebrow">Your companions</p>
-            <h1 className="home-title">Virtual Personas</h1>
+            <p className="eyebrow">你的陪伴者</p>
+            <h1 className="home-title">虚拟人格</h1>
             <p className="home-sub">
-              首页现在只负责选择 provider / model 和各模块 scheme。具体参数都迁到对应管理系统里。
+              首页现在只负责选择模型提供方、模型和各模块方案。具体参数都迁到对应管理系统里。
             </p>
           </div>
           <button
@@ -187,40 +187,40 @@ export default function HomePage() {
               setShowForm(true)
             }}
           >
-            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> New persona
+            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> 新建虚拟人
           </button>
         </header>
 
         {showForm && (
           <form onSubmit={handleSubmit} className="card form">
             <h3 className="form-title">
-              {editingId ? 'Edit persona' : 'Create a persona'}
+              {editingId ? '编辑虚拟人' : '创建虚拟人'}
             </h3>
 
             <div className="form-grid">
               <label className="field">
-                <span className="field-label">Name</span>
+                <span className="field-label">名称</span>
                 <input
                   className="input"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  placeholder="e.g. Hazel, Orion, Sage"
+                  placeholder="例如 Hazel、Orion、Sage"
                   autoFocus
                 />
               </label>
 
               <label className="field">
-                <span className="field-label">Description</span>
+                <span className="field-label">描述</span>
                 <input
                   className="input"
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
-                  placeholder="A calm late-night listener who loves stargazing"
+                  placeholder="例如：一位喜欢深夜倾听和看星星的安静陪伴者"
                 />
               </label>
 
               <label className="field">
-                <span className="field-label">Provider</span>
+                <span className="field-label">模型提供方</span>
                 <select
                   className="input"
                   value={provider}
@@ -242,15 +242,15 @@ export default function HomePage() {
               </label>
 
               <label className="field">
-                <span className="field-label">Model</span>
+                <span className="field-label">模型</span>
                 <input
                   className="input"
                   value={model}
                   onChange={(event) => setModel(event.target.value)}
                   placeholder={
                     provider === 'openrouter'
-                      ? 'e.g. anthropic/claude-sonnet-4.6, openai/gpt-5.2'
-                      : 'e.g. claude-sonnet-4-6, claude-haiku-4-5-20251001'
+                      ? '例如 anthropic/claude-sonnet-4.6、openai/gpt-5.2'
+                      : '例如 claude-sonnet-4-6、claude-haiku-4-5-20251001'
                   }
                   list="model-suggestions"
                 />
@@ -265,9 +265,9 @@ export default function HomePage() {
                 </datalist>
               </label>
 
-              <section className="modules-panel" aria-label="Modules configuration">
+              <section className="modules-panel" aria-label="模块配置">
                 <div className="modules-panel-head">
-                  <span className="field-label">模块 scheme</span>
+                  <span className="field-label">模块方案</span>
                   <span className="placeholder-pill">values 已移除</span>
                 </div>
 
@@ -275,15 +275,15 @@ export default function HomePage() {
                   <div className="module-head">
                     <div>
                       <p className="module-label">性格</p>
-                      <h4 className="module-title">Personality scheme</h4>
+                      <h4 className="module-title">性格方案</h4>
                     </div>
                     <span className="module-pill">{formatSchemeLabel(personalityScheme)}</span>
                   </div>
                   <p className="module-copy">
-                    这里只决定是否启用、以及使用哪个 personality scheme。Big Five 分数、说话风格和背景故事去性格管理页维护。
+                    这里只决定是否启用、以及使用哪个性格方案。Big Five 分数、说话风格和背景故事去性格管理页维护。
                   </p>
                   <label className="field">
-                    <span className="field-label">Scheme</span>
+                    <span className="field-label">方案</span>
                     <select
                       className="input"
                       value={personalityScheme}
@@ -300,15 +300,15 @@ export default function HomePage() {
                   <div className="module-head">
                     <div>
                       <p className="module-label">情绪</p>
-                      <h4 className="module-title">Emotion scheme</h4>
+                      <h4 className="module-title">情绪方案</h4>
                     </div>
                     <span className="module-pill">{formatSchemeLabel(emotionScheme)}</span>
                   </div>
                   <p className="module-copy">
-                    情绪模块的 baseline、decay 和 analysis model 迁到情绪管理页，这里只保留启用与 scheme 选择。
+                    情绪模块的基线、衰减和分析模型迁到情绪管理页，这里只保留启用与方案选择。
                   </p>
                   <label className="field">
-                    <span className="field-label">Scheme</span>
+                    <span className="field-label">方案</span>
                     <select
                       className="input"
                       value={emotionScheme}
@@ -325,15 +325,15 @@ export default function HomePage() {
                   <div className="module-head">
                     <div>
                       <p className="module-label">关系</p>
-                      <h4 className="module-title">Relationship scheme</h4>
+                      <h4 className="module-title">关系方案</h4>
                     </div>
                     <span className="module-pill">{formatSchemeLabel(relationshipScheme)}</span>
                   </div>
                   <p className="module-copy">
-                    关系模块的 baseline、decay 和 analysis model 迁到关系管理页。这里仅负责打开/关闭以及选择 scheme。
+                    关系模块的基线、衰减和分析模型迁到关系管理页。这里仅负责打开或关闭以及选择方案。
                   </p>
                   <label className="field">
-                    <span className="field-label">Scheme</span>
+                    <span className="field-label">方案</span>
                     <select
                       className="input"
                       value={relationshipScheme}
@@ -350,15 +350,15 @@ export default function HomePage() {
                   <div className="module-head">
                     <div>
                       <p className="module-label">记忆</p>
-                      <h4 className="module-title">Memory scheme</h4>
+                      <h4 className="module-title">记忆方案</h4>
                     </div>
                     <span className="module-pill">{formatSchemeLabel(memoryScheme)}</span>
                   </div>
                   <p className="module-copy">
-                    Memory model override 已迁到 `/agent/[id]/memory`。首页只选择当前记忆架构，进入统一入口后再管理具体系统。
+                    记忆模型覆盖已迁到 `/agent/[id]/memory`。首页只选择当前记忆架构，进入统一入口后再管理具体系统。
                   </p>
                   <label className="field">
-                    <span className="field-label">Scheme</span>
+                    <span className="field-label">方案</span>
                     <select
                       className="input"
                       value={memoryScheme}
@@ -374,8 +374,7 @@ export default function HomePage() {
                 <div className="module-note">
                   <strong>模块参数已迁移。</strong>
                   <span>
-                    保存后请从 persona 卡片进入 Personality / Emotion / Relationship / Memory
-                    管理页继续配置详细参数。
+                    保存后请从虚拟人卡片进入性格 / 情绪 / 关系 / 记忆管理页，继续配置详细参数。
                   </span>
                 </div>
               </section>
@@ -383,10 +382,10 @@ export default function HomePage() {
 
             <div className="form-actions">
               <button type="submit" className="btn btn-primary">
-                {editingId ? 'Save changes' : 'Create persona'}
+                {editingId ? '保存更改' : '创建虚拟人'}
               </button>
               <button type="button" className="btn btn-ghost" onClick={resetForm}>
-                Cancel
+                取消
               </button>
             </div>
           </form>
@@ -395,9 +394,9 @@ export default function HomePage() {
         {agents.length === 0 && !showForm && (
           <div className="empty">
             <div className="empty-glyph" aria-hidden />
-            <p className="empty-title">No personas yet</p>
+            <p className="empty-title">还没有虚拟人</p>
             <p className="empty-sub">
-              Create your first companion to start a conversation.
+              创建第一个虚拟人，开始一段对话。
             </p>
           </div>
         )}
@@ -426,18 +425,18 @@ export default function HomePage() {
                           </span>
                         </div>
                         <h3 className="persona-name">{agent.name}</h3>
-                        <p className="persona-meta">Control-ready virtual companion</p>
+                        <p className="persona-meta">已准备好管理的虚拟陪伴者</p>
                       </div>
 
                       <div className="persona-admin">
                         <button className="admin-chip" onClick={() => startEdit(agent)}>
-                          Edit persona
+                          编辑
                         </button>
                         <button
                           className="admin-chip admin-chip-danger"
                           onClick={() => handleDelete(agent.id)}
                         >
-                          Delete
+                          删除
                         </button>
                       </div>
                     </div>
@@ -458,14 +457,14 @@ export default function HomePage() {
                 <div className="persona-console">
                   <div className="console-head">
                     <div>
-                      <p className="console-label">Control Deck</p>
-                      <h4 className="console-title">Manage this persona from one dock</h4>
+                      <p className="console-label">控制台</p>
+                      <h4 className="console-title">从一个面板管理这个虚拟人</h4>
                     </div>
                     <button
                       className="btn btn-primary console-chat"
                       onClick={() => handleChat(agent.id)}
                     >
-                      Open Chat
+                      打开聊天
                     </button>
                   </div>
 
@@ -476,8 +475,8 @@ export default function HomePage() {
                     >
                       <span className="manager-index">01</span>
                       <span className="manager-copy">
-                        <strong>Personality</strong>
-                        <small>Traits, voice, background</small>
+                        <strong>性格</strong>
+                        <small>特质、语气、背景</small>
                       </span>
                     </button>
                     <button
@@ -486,8 +485,8 @@ export default function HomePage() {
                     >
                       <span className="manager-index">02</span>
                       <span className="manager-copy">
-                        <strong>Emotion</strong>
-                        <small>State, baseline, drift</small>
+                        <strong>情绪</strong>
+                        <small>状态、衰减、分析</small>
                       </span>
                     </button>
                     <button
@@ -496,8 +495,8 @@ export default function HomePage() {
                     >
                       <span className="manager-index">03</span>
                       <span className="manager-copy">
-                        <strong>Relationship</strong>
-                        <small>Bond, trust, history</small>
+                        <strong>关系</strong>
+                        <small>连结、信任、历史</small>
                       </span>
                     </button>
                     <button
@@ -506,8 +505,8 @@ export default function HomePage() {
                     >
                       <span className="manager-index">04</span>
                       <span className="manager-copy">
-                        <strong>Memory</strong>
-                        <small>Archive, search, consolidate</small>
+                        <strong>记忆</strong>
+                        <small>归档、搜索、整理</small>
                       </span>
                     </button>
                   </div>

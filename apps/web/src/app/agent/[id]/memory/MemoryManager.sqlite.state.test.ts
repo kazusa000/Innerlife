@@ -14,7 +14,7 @@ test('idle toolbar enables consolidate when sqlite memories exist', () => {
     refreshDisabled: false,
     consolidateDisabled: false,
     deleteDisabled: false,
-    consolidateLabel: 'Consolidate sqlite memory',
+    consolidateLabel: '整理 sqlite 记忆',
     status: null,
   })
 })
@@ -30,8 +30,8 @@ test('empty or loading toolbar keeps consolidate unavailable', () => {
   assert.equal(state.refreshDisabled, false)
   assert.equal(state.consolidateDisabled, true)
   assert.equal(state.deleteDisabled, false)
-  assert.equal(state.consolidateLabel, 'Consolidate sqlite memory')
-  assert.equal(state.status, 'Loading…')
+  assert.equal(state.consolidateLabel, '整理 sqlite 记忆')
+  assert.equal(state.status, '加载中…')
 })
 
 test('consolidating toolbar shows progress and locks actions', () => {
@@ -46,7 +46,7 @@ test('consolidating toolbar shows progress and locks actions', () => {
     refreshDisabled: true,
     consolidateDisabled: true,
     deleteDisabled: true,
-    consolidateLabel: 'Consolidating sqlite memory…',
-    status: 'Consolidating…',
+    consolidateLabel: '正在整理 sqlite 记忆…',
+    status: '整理中…',
   })
 })

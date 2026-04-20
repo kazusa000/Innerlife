@@ -77,10 +77,10 @@ export default function EmotionManagerDimensional(
         })
         const data = await response.json() as unknown
         if (!response.ok) {
-          throw new Error(readErrorMessage(data, 'Failed to load emotion config'))
+          throw new Error(readErrorMessage(data, '加载情绪配置失败'))
         }
         if (!isEmotionResponse(data)) {
-          throw new Error('Failed to load emotion config')
+          throw new Error('加载情绪配置失败')
         }
 
         if (!cancelled) {
@@ -93,7 +93,7 @@ export default function EmotionManagerDimensional(
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load emotion config')
+          setError(err instanceof Error ? err.message : '加载情绪配置失败')
         }
       } finally {
         if (!cancelled) {
@@ -128,10 +128,10 @@ export default function EmotionManagerDimensional(
       })
       const data = await response.json() as unknown
       if (!response.ok) {
-        throw new Error(readErrorMessage(data, 'Failed to save emotion config'))
+        throw new Error(readErrorMessage(data, '保存情绪配置失败'))
       }
       if (!isEmotionResponse(data)) {
-        throw new Error('Failed to save emotion config')
+        throw new Error('保存情绪配置失败')
       }
 
       setDecayPerTurn(
@@ -140,9 +140,9 @@ export default function EmotionManagerDimensional(
       setAnalysisModel(data.analysisModel ?? '')
       setCurrentState(data.currentState ?? data.baseline)
       setHistory(data.history)
-      setNotice('Current emotion 已更新。')
+      setNotice('当前情绪已更新。')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save emotion config')
+      setError(err instanceof Error ? err.message : '保存情绪配置失败')
     } finally {
       setSaving(false)
     }
@@ -155,7 +155,7 @@ export default function EmotionManagerDimensional(
   if (error) {
     return (
       <div className="manager-state">
-        <h3>Emotion 加载失败</h3>
+        <h3>情绪配置加载失败</h3>
         <p>{error}</p>
       </div>
     )
@@ -165,7 +165,7 @@ export default function EmotionManagerDimensional(
     <section className="manager">
       <div className="manager-head">
         <div>
-          <p className="manager-label">Scheme</p>
+          <p className="manager-label">方案</p>
           <h3 className="manager-title">Dimensional</h3>
           <p className="manager-copy">
             这里直接调整当前情绪。保存时会写入一条 `manual_override` 记录；每轮衰减和分析模型仍可在下面继续配置。
@@ -177,7 +177,7 @@ export default function EmotionManagerDimensional(
           onClick={() => void saveConfig()}
           disabled={saving}
         >
-          {saving ? 'Saving…' : 'Save changes'}
+          {saving ? '保存中…' : '保存更改'}
         </button>
       </div>
 
@@ -267,10 +267,10 @@ export default function EmotionManagerDimensional(
         <section className="panel">
           <div className="panel-head">
             <h4>当前情绪说明</h4>
-            <span className="panel-pill">manual</span>
+            <span className="panel-pill">手动</span>
           </div>
           <p className="panel-copy">
-            上面的三个滑杆代表这个 persona 现在的真实情绪。保存后会立刻成为新的运行时状态，而不是去修改长期 baseline。
+            上面的三个滑杆代表这个虚拟人现在的真实情绪。保存后会立刻成为新的运行时状态，而不是去修改长期基线。
           </p>
         </section>
 
@@ -286,11 +286,11 @@ export default function EmotionManagerDimensional(
                   <div className="history-head">
                     <strong>{new Date(entry.createdAt).toLocaleString()}</strong>
                     <span>
-                      Δ {entry.delta ? `${entry.delta.mood.toFixed(2)} / ${entry.delta.energy.toFixed(2)} / ${entry.delta.stress.toFixed(2)}` : 'none'}
+                      Δ {entry.delta ? `${entry.delta.mood.toFixed(2)} / ${entry.delta.energy.toFixed(2)} / ${entry.delta.stress.toFixed(2)}` : '无'}
                     </span>
                   </div>
                   <p className="history-copy">
-                    state: mood {entry.state.mood.toFixed(2)}, energy {entry.state.energy.toFixed(2)}, stress {entry.state.stress.toFixed(2)}
+                    状态：心情 {entry.state.mood.toFixed(2)}，精力 {entry.state.energy.toFixed(2)}，压力 {entry.state.stress.toFixed(2)}
                   </p>
                   {entry.trigger && <p className="history-trigger">{entry.trigger}</p>}
                 </article>

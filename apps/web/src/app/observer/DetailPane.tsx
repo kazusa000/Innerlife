@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { formatDurationLabel } from '../../lib/format-duration'
 import { CompactionView, EmotionView, MemoryView, MessagesView, ResponseView } from '@/lib/call-renderers'
+import { OBSERVER_UI_COPY, translateCallKind, translateObserverTab } from '../../lib/ui-copy'
 
 interface CallDetail {
   id: string
@@ -52,13 +53,13 @@ export function DetailPane({ callId }: Props) {
 
   if (!callId) {
     return (
-      <div style={{ flex: 1, padding: 40, color: '#666', fontSize: 13 }}>
-        Select a call to see its details.
-      </div>
+        <div style={{ flex: 1, padding: 40, color: '#666', fontSize: 13 }}>
+        {OBSERVER_UI_COPY.selectCall}
+        </div>
     )
   }
   if (!detail) {
-    return <div style={{ flex: 1, padding: 40, color: '#666' }}>Loading…</div>
+    return <div style={{ flex: 1, padding: 40, color: '#666' }}>{OBSERVER_UI_COPY.loading}</div>
   }
 
   const inputTabs: Tab[] = [
@@ -75,7 +76,7 @@ export function DetailPane({ callId }: Props) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       <div style={{ padding: '8px 14px', borderBottom: '1px solid #222', fontSize: 12, color: '#888' }}>
-        {detail.kind} · {detail.model} · in {detail.inputTokens ?? '?'} / out {detail.outputTokens ?? '?'} tokens · {detail.stopReason ?? 'pending'}{duration ? ` · ${duration}` : ''}
+        {translateCallKind(detail.kind)} · {detail.model} · {OBSERVER_UI_COPY.inputTokens} {detail.inputTokens ?? '?'} / {OBSERVER_UI_COPY.outputTokens} {detail.outputTokens ?? '?'} tokens · {detail.stopReason ?? OBSERVER_UI_COPY.pending}{duration ? ` · ${duration}` : ''}
       </div>
       <div
         style={{
@@ -87,7 +88,7 @@ export function DetailPane({ callId }: Props) {
         }}
       >
         <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
-          input
+          {OBSERVER_UI_COPY.input}
         </span>
         {inputTabs.map((t) => (
           <button
@@ -103,12 +104,12 @@ export function DetailPane({ callId }: Props) {
               fontSize: 12,
             }}
           >
-            {t}
+            {translateObserverTab(t)}
           </button>
         ))}
         <span style={{ flex: 1 }} />
         <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
-          output
+          {OBSERVER_UI_COPY.output}
         </span>
         {OUTPUT_TABS.map((t) => (
           <button
@@ -124,7 +125,7 @@ export function DetailPane({ callId }: Props) {
               fontSize: 12,
             }}
           >
-            {t}
+            {translateObserverTab(t)}
           </button>
         ))}
       </div>

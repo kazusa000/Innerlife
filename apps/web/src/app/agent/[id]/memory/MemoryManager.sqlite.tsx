@@ -72,7 +72,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       )
       const data = await response.json()
       if (!response.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Failed to load sqlite memories')
+        throw new Error(typeof data?.error === 'string' ? data.error : '加载 sqlite 记忆失败')
       }
 
       const nextSummarizeModel =
@@ -83,7 +83,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       }
       setMemories(Array.isArray(data.memories) ? data.memories : [])
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load sqlite memories')
+      setError(err instanceof Error ? err.message : '加载 sqlite 记忆失败')
     } finally {
       setLoading(false)
     }
@@ -94,7 +94,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   }, [agentId, deferredQuery])
 
   async function handleDelete(memoryId: string) {
-    if (!window.confirm('Delete this sqlite memory?')) {
+    if (!window.confirm('要删除这条 sqlite 记忆吗？')) {
       return
     }
 
@@ -106,11 +106,11 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     })
     const data = await response.json()
     if (!response.ok) {
-      setError(typeof data?.error === 'string' ? data.error : 'Failed to delete sqlite memory')
+      setError(typeof data?.error === 'string' ? data.error : '删除 sqlite 记忆失败')
       return
     }
 
-    setNotice('SQLite memory deleted.')
+    setNotice('已删除这条 sqlite 记忆。')
     startTransition(() => {
       void refresh()
     })
@@ -127,18 +127,18 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       })
       const data = await response.json()
       if (!response.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Failed to consolidate sqlite memories')
+        throw new Error(typeof data?.error === 'string' ? data.error : '整理 sqlite 记忆失败')
       }
 
       const report = data as ConsolidationReport
       setNotice(
-        `SQLite memory consolidate 完成：${report.before} -> ${report.after}，保留 ${report.kept}，重写 ${report.rewritten}，合并 ${report.merged}。`,
+        `sqlite 记忆整理完成：${report.before} -> ${report.after}，保留 ${report.kept}，重写 ${report.rewritten}，合并 ${report.merged}。`,
       )
       startTransition(() => {
         void refresh()
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to consolidate sqlite memories')
+      setError(err instanceof Error ? err.message : '整理 sqlite 记忆失败')
       setNotice(null)
     } finally {
       setIsConsolidating(false)
@@ -158,7 +158,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       })
       const data = await response.json()
       if (!response.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Failed to save memory model override')
+        throw new Error(typeof data?.error === 'string' ? data.error : '保存记忆模型覆盖失败')
       }
 
       const nextValue = typeof data.summarizeModel === 'string' ? data.summarizeModel : ''
@@ -167,11 +167,11 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       setMemoryModelDirty(false)
       setNotice(
         nextValue
-          ? `Memory model override 已保存：${nextValue}`
-          : 'Memory model override 已清空，后续会继承 persona model。',
+          ? `记忆模型覆盖已保存：${nextValue}`
+          : '记忆模型覆盖已清空，后续会继承虚拟人的主模型。',
       )
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save memory model override')
+      setError(err instanceof Error ? err.message : '保存记忆模型覆盖失败')
     } finally {
       setSavingModel(false)
     }
@@ -183,16 +183,16 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         <div className="sqlite-settings-head">
           <div>
             <p className="sqlite-settings-label">模型设置</p>
-            <h3 className="sqlite-settings-title">Memory model override</h3>
+            <h3 className="sqlite-settings-title">记忆模型覆盖</h3>
           </div>
-          <span className="sqlite-settings-pill">retrieve · summarize · consolidate</span>
+          <span className="sqlite-settings-pill">检索 · 总结 · 整理</span>
         </div>
         <p className="sqlite-copy">
-          记忆系统相关的 LLM 设置统一放在这里。留空时会继承当前 persona 的主模型。
+          记忆系统相关的 LLM 设置统一放在这里。留空时会继承当前虚拟人的主模型。
         </p>
         <div className="sqlite-settings-controls">
           <label className="sqlite-search sqlite-model-field">
-            <span>Memory model</span>
+            <span>记忆模型</span>
             <input
               className="sqlite-input"
               value={memoryModelDraft}
@@ -201,7 +201,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 setMemoryModelDraft(nextValue)
                 setMemoryModelDirty(nextValue.trim() !== memoryModel.trim())
               }}
-              placeholder="例如 qwen/qwen-2.5-7b-instruct；留空则继承 persona model"
+              placeholder="例如 qwen/qwen-2.5-7b-instruct；留空则继承虚拟人主模型"
             />
           </label>
           <button
@@ -210,14 +210,14 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             onClick={handleSaveMemoryModel}
             disabled={savingModel || isConsolidating || memoryModelDraft.trim() === memoryModel.trim()}
           >
-            {savingModel ? 'Saving…' : 'Save memory model'}
+            {savingModel ? '保存中…' : '保存记忆模型'}
           </button>
         </div>
       </section>
 
       <div className="sqlite-toolbar">
         <label className="sqlite-search">
-          <span>Search</span>
+          <span>搜索</span>
           <input
             className="sqlite-input"
             value={query}
@@ -233,13 +233,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             onClick={() => startTransition(() => { void refresh() })}
             disabled={toolbarState.refreshDisabled}
           >
-            Refresh
+            刷新
           </button>
           <button
             type="button"
             className="sqlite-button sqlite-button-primary"
             onClick={handleConsolidate}
-            disabled={toolbarState.consolidateDisabled}
+              disabled={toolbarState.consolidateDisabled}
           >
             {toolbarState.consolidateLabel}
           </button>
@@ -251,7 +251,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
 
       <div className="sqlite-summary-row">
         <p className="sqlite-copy">
-          当前 sqlite memories: <strong>{memories.length}</strong>
+          当前 sqlite 记忆：<strong>{memories.length}</strong>
           {deferredQuery.trim() ? `，筛选词：${deferredQuery.trim()}` : ''}
         </p>
         {toolbarState.status && <span className="sqlite-status">{toolbarState.status}</span>}
@@ -259,7 +259,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
 
       {loading && memories.length === 0 ? (
         <div className="sqlite-empty">
-          <h3>正在加载 sqlite memories…</h3>
+          <h3>正在加载 sqlite 记忆…</h3>
         </div>
       ) : memories.length === 0 ? (
         <div className="sqlite-empty">
@@ -272,7 +272,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             <article key={memory.id} className="sqlite-memory-card">
               <div className="sqlite-memory-head">
                 <div>
-                  <p className="sqlite-memory-meta">session {memory.sessionId}</p>
+                  <p className="sqlite-memory-meta">会话 {memory.sessionId}</p>
                   <h3>{memory.summary}</h3>
                 </div>
                 <button
@@ -281,13 +281,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                   onClick={() => handleDelete(memory.id)}
                   disabled={toolbarState.deleteDisabled}
                 >
-                  Delete
+                  删除
                 </button>
               </div>
 
               <div className="sqlite-memory-details">
                 <span>{DATE_FORMATTER.format(new Date(memory.createdAt))}</span>
-                <span>importance {memory.importance.toFixed(2)}</span>
+                <span>重要性 {memory.importance.toFixed(2)}</span>
                 <span>{memory.id}</span>
               </div>
 

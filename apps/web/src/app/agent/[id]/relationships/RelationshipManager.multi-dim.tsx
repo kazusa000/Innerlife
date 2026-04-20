@@ -80,10 +80,10 @@ export default function RelationshipManagerMultiDim(
         })
         const data = await response.json() as unknown
         if (!response.ok) {
-          throw new Error(readErrorMessage(data, 'Failed to load relationship config'))
+          throw new Error(readErrorMessage(data, '加载关系配置失败'))
         }
         if (!isRelationshipResponse(data)) {
-          throw new Error('Failed to load relationship config')
+          throw new Error('加载关系配置失败')
         }
 
         if (!cancelled) {
@@ -98,7 +98,7 @@ export default function RelationshipManagerMultiDim(
       } catch (err) {
         if (!cancelled) {
           setError(
-            err instanceof Error ? err.message : 'Failed to load relationship config',
+            err instanceof Error ? err.message : '加载关系配置失败',
           )
         }
       } finally {
@@ -134,10 +134,10 @@ export default function RelationshipManagerMultiDim(
       })
       const data = await response.json() as unknown
       if (!response.ok) {
-        throw new Error(readErrorMessage(data, 'Failed to save relationship config'))
+        throw new Error(readErrorMessage(data, '保存关系配置失败'))
       }
       if (!isRelationshipResponse(data)) {
-        throw new Error('Failed to save relationship config')
+        throw new Error('保存关系配置失败')
       }
 
       setBaseline(data.baseline)
@@ -147,10 +147,10 @@ export default function RelationshipManagerMultiDim(
       setAnalysisModel(data.analysisModel ?? '')
       setCurrentState(data.currentState)
       setHistory(data.history)
-      setNotice('Relationship 配置已保存。')
+      setNotice('关系配置已保存。')
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Failed to save relationship config',
+        err instanceof Error ? err.message : '保存关系配置失败',
       )
     } finally {
       setSaving(false)
@@ -164,7 +164,7 @@ export default function RelationshipManagerMultiDim(
   if (error) {
     return (
       <div className="manager-state">
-        <h3>Relationship 加载失败</h3>
+        <h3>关系配置加载失败</h3>
         <p>{error}</p>
       </div>
     )
@@ -174,7 +174,7 @@ export default function RelationshipManagerMultiDim(
     <section className="manager">
       <div className="manager-head">
         <div>
-          <p className="manager-label">Scheme</p>
+          <p className="manager-label">方案</p>
           <h3 className="manager-title">Multi-dim</h3>
           <p className="manager-copy">
             编辑 baseline、每轮衰减和分析模型。下面同时展示当前 relationship state 和最近 history。
@@ -186,7 +186,7 @@ export default function RelationshipManagerMultiDim(
           onClick={() => void saveConfig()}
           disabled={saving}
         >
-          {saving ? 'Saving…' : 'Save changes'}
+          {saving ? '保存中…' : '保存更改'}
         </button>
       </div>
 
@@ -194,10 +194,10 @@ export default function RelationshipManagerMultiDim(
 
       <div className="trait-grid">
         {([
-          ['trust', '信任 baseline', '范围 0 到 1，越高越容易把用户当成可信对象。'],
-          ['affinity', '亲和 baseline', '范围 0 到 1，越高越容易表现出亲近和温度。'],
-          ['familiarity', '熟悉 baseline', '范围 0 到 1，越高越像已经认识一段时间。'],
-          ['respect', '尊重 baseline', '范围 0 到 1，越高越容易维持郑重和分寸感。'],
+          ['trust', '信任基线', '范围 0 到 1，越高越容易把用户当成可信对象。'],
+          ['affinity', '亲和基线', '范围 0 到 1，越高越容易表现出亲近和温度。'],
+          ['familiarity', '熟悉基线', '范围 0 到 1，越高越像已经认识一段时间。'],
+          ['respect', '尊重基线', '范围 0 到 1，越高越容易维持郑重和分寸感。'],
         ] as Array<[keyof RelationshipBaseline, string, string]>).map(([key, label, hint]) => (
           <label key={key} className="trait-card">
             <div className="trait-head">
@@ -250,7 +250,7 @@ export default function RelationshipManagerMultiDim(
         <section className="panel">
           <div className="panel-head">
             <h4>当前关系</h4>
-            <span className="panel-pill">{currentState ? 'live' : 'empty'}</span>
+            <span className="panel-pill">{currentState ? '运行中' : '空'}</span>
           </div>
           {currentState ? (
             <dl className="metric-list">
@@ -272,7 +272,7 @@ export default function RelationshipManagerMultiDim(
               </div>
             </dl>
           ) : (
-            <p className="panel-copy">还没有 relationship state。多聊几轮后这里会出现当前四维关系。</p>
+            <p className="panel-copy">还没有当前关系状态。多聊几轮后这里会出现当前四维关系。</p>
           )}
         </section>
 
@@ -297,7 +297,7 @@ export default function RelationshipManagerMultiDim(
               ))}
             </div>
           ) : (
-            <p className="panel-copy">还没有 relationship history。</p>
+            <p className="panel-copy">还没有关系历史记录。</p>
           )}
         </section>
       </div>

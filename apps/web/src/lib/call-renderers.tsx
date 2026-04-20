@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, type ReactNode } from 'react'
+import { OBSERVER_UI_COPY, translateRole } from './ui-copy'
 
 interface Block {
   type: string
@@ -117,7 +118,7 @@ function RenderBlock({ block }: { block: Block }) {
       <Collapsible
         label={
           <span style={{ color: accent }}>
-            {block.is_error ? '✗' : '↳'} result: <span style={{ color: '#888' }}>{preview}</span>
+            {block.is_error ? '✗' : '↳'} {OBSERVER_UI_COPY.result}： <span style={{ color: '#888' }}>{preview}</span>
           </span>
         }
         body={body}
@@ -160,7 +161,7 @@ export function MessagesView({ messages }: { messages: unknown }) {
                 fontWeight: 600,
               }}
             >
-              {m.role}
+              {translateRole(m.role)}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {blocks.map((b, j) => (
@@ -198,7 +199,7 @@ export function CompactionView({ metadata }: { metadata: unknown }) {
             fontWeight: 600,
           }}
         >
-          Trigger
+          {OBSERVER_UI_COPY.trigger}
         </div>
         <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
           {JSON.stringify(record.reason ?? null, null, 2)}
@@ -215,7 +216,7 @@ export function CompactionView({ metadata }: { metadata: unknown }) {
             fontWeight: 600,
           }}
         >
-          Before
+          {OBSERVER_UI_COPY.before}
         </div>
         <MessagesView messages={record.beforeMessages ?? []} />
       </div>
@@ -230,7 +231,7 @@ export function CompactionView({ metadata }: { metadata: unknown }) {
             fontWeight: 600,
           }}
         >
-          After
+          {OBSERVER_UI_COPY.after}
         </div>
         <MessagesView messages={record.afterMessages ?? []} />
       </div>
@@ -258,7 +259,7 @@ export function EmotionView({
             fontWeight: 600,
           }}
         >
-          Analysis
+          {OBSERVER_UI_COPY.analysis}
         </div>
         <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
           {JSON.stringify(metadata ?? null, null, 2)}
@@ -275,7 +276,7 @@ export function EmotionView({
             fontWeight: 600,
           }}
         >
-          Latest emotion_state row
+          {OBSERVER_UI_COPY.latestEmotionState}
         </div>
         <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
           {JSON.stringify(latestState ?? null, null, 2)}
@@ -337,18 +338,18 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <MemorySection title="Phase">
+      <MemorySection title={OBSERVER_UI_COPY.phase}>
         <pre style={{ fontSize: 11, color: '#cdd9e5' }}>{phase}</pre>
       </MemorySection>
 
       {phase === 'retrieve' && (
         <>
-          <MemorySection title="Keywords">
+          <MemorySection title={OBSERVER_UI_COPY.keywords}>
             <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
               {JSON.stringify({ keywords }, null, 2)}
             </pre>
           </MemorySection>
-          <MemorySection title="Time range">
+          <MemorySection title={OBSERVER_UI_COPY.timeRange}>
             <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
               {JSON.stringify(
                 timeRangeStart && timeRangeEnd
@@ -359,7 +360,7 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
               )}
             </pre>
           </MemorySection>
-          <MemorySection title="Hits">
+          <MemorySection title={OBSERVER_UI_COPY.hits}>
             <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
               {JSON.stringify(record?.hits ?? [], null, 2)}
             </pre>
@@ -368,7 +369,7 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
       )}
 
       {phase === 'summarize' && (
-        <MemorySection title="Written">
+        <MemorySection title={OBSERVER_UI_COPY.written}>
           <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
             {JSON.stringify(record?.written ?? null, null, 2)}
           </pre>
@@ -376,7 +377,7 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
       )}
 
       {phase === 'consolidate' && (
-        <MemorySection title="Report">
+        <MemorySection title={OBSERVER_UI_COPY.report}>
           <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
             {JSON.stringify(record?.report ?? null, null, 2)}
           </pre>
@@ -413,10 +414,10 @@ export function ResponseInfoBar({
   )
   return (
     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-      {pill('stop', stopReason ?? 'pending', '#ededed')}
-      {pill('in', String(inputTokens ?? '?'), '#7ee787')}
-      {pill('out', String(outputTokens ?? '?'), '#f0883e')}
-      {latencyMs != null && pill('time', `${(latencyMs / 1000).toFixed(2)}s`, '#a78bfa')}
+      {pill(OBSERVER_UI_COPY.stop, stopReason ?? OBSERVER_UI_COPY.pending, '#ededed')}
+      {pill(OBSERVER_UI_COPY.inputTokens, String(inputTokens ?? '?'), '#7ee787')}
+      {pill(OBSERVER_UI_COPY.outputTokens, String(outputTokens ?? '?'), '#f0883e')}
+      {latencyMs != null && pill(OBSERVER_UI_COPY.duration, `${(latencyMs / 1000).toFixed(2)}s`, '#a78bfa')}
     </div>
   )
 }
@@ -461,7 +462,7 @@ export function ResponseView({
         </div>
       )}
       {blocks.length === 0 && !error ? (
-        <div style={{ color: '#666', fontSize: 12 }}>(pending)</div>
+        <div style={{ color: '#666', fontSize: 12 }}>（{OBSERVER_UI_COPY.pending}）</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {blocks.map((b, i) => (

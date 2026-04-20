@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type ComponentType } from 'react'
+import { COMMON_UI_COPY } from '@/lib/ui-copy'
 import MemoryManagerSqlite from './MemoryManager.sqlite'
 
 interface AgentMemoryMeta {
@@ -38,7 +39,7 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
         })
         const data = await response.json()
         if (!response.ok) {
-          throw new Error(typeof data?.error === 'string' ? data.error : 'Failed to load memory manager')
+          throw new Error(typeof data?.error === 'string' ? data.error : '加载记忆管理入口失败')
         }
 
         if (!cancelled) {
@@ -46,7 +47,7 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load memory manager')
+          setError(err instanceof Error ? err.message : '加载记忆管理入口失败')
         }
       } finally {
         if (!cancelled) {
@@ -71,18 +72,18 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
       <div className="memory-wrap">
         <header className="memory-head">
           <div>
-            <p className="memory-eyebrow">Unified entry</p>
-            <h1 className="memory-title">Memory Manager</h1>
+            <p className="memory-eyebrow">{COMMON_UI_COPY.unifiedEntry}</p>
+            <h1 className="memory-title">记忆管理</h1>
             <p className="memory-sub">
               固定入口 `/agent/{agentId}/memory`。当前页面只根据 `memory.scheme` 分发到对应子系统。
             </p>
           </div>
           <div className="memory-actions">
             <Link href="/" className="memory-link">
-              Back to personas
+              {COMMON_UI_COPY.backToPersonas}
             </Link>
             <Link href={`/chat?agent=${agentId}`} className="memory-link memory-link-primary">
-              Open chat
+              {COMMON_UI_COPY.openChat}
             </Link>
           </div>
         </header>
@@ -90,12 +91,12 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
         <section className="memory-card">
           <div className="memory-card-head">
             <div>
-              <p className="memory-label">Agent</p>
+              <p className="memory-label">{COMMON_UI_COPY.agent}</p>
               <h2 className="memory-card-title">{agentId}</h2>
             </div>
             {meta && (
               <span className="memory-pill">
-                {meta.scheme ?? 'unconfigured'}
+                {meta.scheme ?? COMMON_UI_COPY.unconfigured}
               </span>
             )}
           </div>
@@ -113,7 +114,7 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
             <div className="memory-state">
               <h3>记忆模块尚未开启</h3>
               <p>
-                这个 agent 还没有启用 memory manager。回到首页编辑 persona，把 `Memory scheme`
+                这个虚拟人还没有启用记忆管理。回到首页编辑虚拟人，把 `记忆方案`
                 切到 `sqlite` 后再进入这里。
               </p>
             </div>
@@ -127,9 +128,9 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
 
           {!loading && !error && meta?.configured && !Manager && (
             <div className="memory-state">
-              <h3>该 scheme 的管理器尚未实现</h3>
+              <h3>该方案的管理器尚未实现</h3>
               <p>
-                当前 scheme 是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理 UI
+                当前方案是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理界面
                 还没接入。
               </p>
             </div>

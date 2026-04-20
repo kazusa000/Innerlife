@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { formatDurationLabel } from '../../lib/format-duration'
+import { OBSERVER_UI_COPY, translateMemoryPhase } from '../../lib/ui-copy'
 import { EmotionCallCardDimensional } from './EmotionCallCard.dimensional'
 import { MemoryCallCardSqlite } from './MemoryCallCard.sqlite'
 import { RelationshipCallCardMultiDim } from './RelationshipCallCard.multi-dim'
@@ -21,10 +22,10 @@ function callSubtabLabel(call: LiveCall): string {
   if (call.kind === 'turn') return `#${call.turnIndex}`
   if (call.kind === 'memory') {
     const phase = typeof call.metadata?.phase === 'string' ? call.metadata.phase : 'call'
-    return phase
+    return translateMemoryPhase(phase)
   }
-  if (call.kind === 'emotion') return 'delta'
-  if (call.kind === 'relationship') return 'delta'
+  if (call.kind === 'emotion') return OBSERVER_UI_COPY.delta
+  if (call.kind === 'relationship') return OBSERVER_UI_COPY.delta
   return call.callId
 }
 
@@ -102,9 +103,9 @@ function CallSubtabs({
 
 function formatTurnStatus(status: ObserverTurnState['status']): string {
   if (status === 'loading') return '正在加载最近一轮…'
-  if (status === 'running') return '当前 turn 进行中'
-  if (status === 'error') return '当前 turn 结束于错误'
-  if (status === 'complete') return '显示当前 turn'
+  if (status === 'running') return '当前轮对话进行中'
+  if (status === 'error') return '当前轮对话结束于错误'
+  if (status === 'complete') return '显示当前轮对话'
   return '等待下一轮对话'
 }
 
@@ -164,15 +165,15 @@ function MainTurnCallCard({
     ...fragmentSections.map((section) => ({ id: section.id, label: section.label, visible: true })),
     {
       id: 'messages',
-      label: 'Messages',
+      label: OBSERVER_UI_COPY.messages,
       visible:
         Array.isArray(call.messages) && call.messages.length > 0
           || call.response !== undefined
           || !!call.error
           || inlineCompactionCall !== null,
     },
-    { id: 'tools', label: 'Tools', visible: toolsCount > 0 },
-    { id: 'final-prompt', label: 'Final prompt', visible: Boolean(call.systemPrompt) },
+    { id: 'tools', label: OBSERVER_UI_COPY.toolsSchema, visible: toolsCount > 0 },
+    { id: 'final-prompt', label: OBSERVER_UI_COPY.finalSystemPrompt, visible: Boolean(call.systemPrompt) },
   ].filter((item) => item.visible)
 
   const scrollToSection = (id: string) => {
@@ -218,17 +219,17 @@ function MainTurnCallCard({
           </span>
           <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>#{call.turnIndex}</span>
           <span style={{ color: call.finished ? 'var(--fg-muted)' : 'var(--orange)', fontSize: 12 }}>
-            {call.finished ? 'finished' : 'running'}
+            {call.finished ? OBSERVER_UI_COPY.finished : OBSERVER_UI_COPY.running}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Pill label="model" value={call.model} />
-          {duration ? <Pill label="duration" value={duration} /> : null}
-          <Pill label="tools" value={String(toolsCount)} />
-          <Pill label="fragments" value={String(fragmentsCount)} />
-          <Pill label="stop" value={call.stopReason ?? (call.finished ? 'end_turn' : 'pending')} accent={CALL_ACCENTS.turn.color} />
-          <Pill label="in" value={String(call.usage?.inputTokens ?? '?')} />
-          <Pill label="out" value={String(call.usage?.outputTokens ?? '?')} />
+          <Pill label={OBSERVER_UI_COPY.model} value={call.model} />
+          {duration ? <Pill label={OBSERVER_UI_COPY.duration} value={duration} /> : null}
+          <Pill label={OBSERVER_UI_COPY.tools} value={String(toolsCount)} />
+          <Pill label={OBSERVER_UI_COPY.fragments} value={String(fragmentsCount)} />
+          <Pill label={OBSERVER_UI_COPY.stop} value={call.stopReason ?? (call.finished ? 'end_turn' : OBSERVER_UI_COPY.pending)} accent={CALL_ACCENTS.turn.color} />
+          <Pill label={OBSERVER_UI_COPY.inputTokens} value={String(call.usage?.inputTokens ?? '?')} />
+          <Pill label={OBSERVER_UI_COPY.outputTokens} value={String(call.usage?.outputTokens ?? '?')} />
         </div>
       </div>
 
@@ -289,7 +290,7 @@ function MainTurnCallCard({
             }}
             style={{ scrollMarginTop: 12 }}
           >
-            <DimensionPanel title="Messages" accent={CALL_ACCENTS.turn} defaultOpen>
+            <DimensionPanel title={OBSERVER_UI_COPY.messages} accent={CALL_ACCENTS.turn} defaultOpen>
               <MessagesTimeline call={call} inlineCompactionCall={inlineCompactionCall} />
             </DimensionPanel>
           </div>
@@ -301,7 +302,7 @@ function MainTurnCallCard({
               }}
               style={{ scrollMarginTop: 12 }}
             >
-              <CollapsibleSection title="Tools schema" accent={CALL_ACCENTS.turn.color} badge={String(toolsCount)}>
+              <CollapsibleSection title={OBSERVER_UI_COPY.toolsSchema} accent={CALL_ACCENTS.turn.color} badge={String(toolsCount)}>
                 <CodeBlock value={JSON.stringify(call.tools ?? null, null, 2)} />
               </CollapsibleSection>
             </div>
@@ -314,7 +315,7 @@ function MainTurnCallCard({
               }}
               style={{ scrollMarginTop: 12 }}
             >
-              <CollapsibleSection title="Final system prompt" accent={CALL_ACCENTS.turn.color}>
+              <CollapsibleSection title={OBSERVER_UI_COPY.finalSystemPrompt} accent={CALL_ACCENTS.turn.color}>
                 <CodeBlock value={call.systemPrompt} />
               </CollapsibleSection>
             </div>
@@ -334,7 +335,7 @@ function UnknownSchemeCard({
   return (
     <EmptyState
       title={title}
-      body={scheme ? `当前 scheme "${scheme}" 暂未实现该 tab 组件。` : '当前 agent 没有可识别的 scheme 配置。'}
+      body={scheme ? `当前方案 "${scheme}" 暂未实现该标签页组件。` : '当前虚拟人没有可识别的方案配置。'}
     />
   )
 }
@@ -388,7 +389,7 @@ export function ObserverDrawer({
       return (
         <EmptyState
           title="本轮未触发主对话调用"
-          body={turn.status === 'running' ? '正在等待主对话 call 开始。' : '当前 turn 没有可展示的主对话 call。'}
+          body={turn.status === 'running' ? '正在等待主对话调用开始。' : '当前轮对话没有可展示的主对话调用。'}
         />
       )
     }
@@ -411,7 +412,7 @@ export function ObserverDrawer({
 
   const renderMemoryTab = () => {
     if (memoryCalls.length === 0) {
-      return <EmptyState title="本轮未触发记忆调用" body="当前 turn 没有 memory.retrieve / summarize / consolidate 调用。" />
+      return <EmptyState title="本轮未触发记忆调用" body="当前轮对话没有记忆检索、总结或整理调用。" />
     }
 
     if (memoryScheme !== 'sqlite') {
@@ -430,7 +431,7 @@ export function ObserverDrawer({
 
   const renderEmotionTab = () => {
     if (emotionCalls.length === 0) {
-      return <EmptyState title="本轮未触发情绪调用" body="当前 turn 没有 emotion.delta 调用。" />
+      return <EmptyState title="本轮未触发情绪调用" body="当前轮对话没有情绪变化分析调用。" />
     }
 
     if (emotionScheme !== 'dimensional') {
@@ -449,7 +450,7 @@ export function ObserverDrawer({
 
   const renderRelationshipTab = () => {
     if (relationshipCalls.length === 0) {
-      return <EmptyState title="本轮未触发关系调用" body="当前 turn 没有 relationship.delta 调用。" />
+      return <EmptyState title="本轮未触发关系调用" body="当前轮对话没有关系变化分析调用。" />
     }
 
     if (relationshipScheme !== 'multi-dim') {
@@ -498,7 +499,7 @@ export function ObserverDrawer({
           flexShrink: 0,
         }}
       >
-        <strong style={{ color: 'var(--fg)', fontSize: 14 }}>Observer</strong>
+        <strong style={{ color: 'var(--fg)', fontSize: 14 }}>{OBSERVER_UI_COPY.title}</strong>
         <span style={{ color: 'var(--fg-muted)', fontSize: 12 }}>{formatTurnStatus(turn.status)}</span>
       </div>
 

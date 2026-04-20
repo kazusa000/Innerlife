@@ -1,5 +1,7 @@
 'use client'
 
+import { OBSERVER_UI_COPY } from '../../lib/ui-copy'
+
 interface Session {
   id: string
   title: string | null
@@ -25,7 +27,7 @@ export function SessionsList({ sessions, currentId, onSelect, onClearAll }: Prop
       }}
     >
       <div style={{ padding: '12px 14px', borderBottom: '1px solid #222' }}>
-        <strong style={{ color: '#ededed', fontSize: 14 }}>Sessions</strong>
+        <strong style={{ color: '#ededed', fontSize: 14 }}>{OBSERVER_UI_COPY.sessions}</strong>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
         {sessions.map((s) => {
@@ -47,7 +49,7 @@ export function SessionsList({ sessions, currentId, onSelect, onClearAll }: Prop
                 whiteSpace: 'nowrap',
               }}
             >
-              {s.title || 'Untitled'}
+              {s.title || OBSERVER_UI_COPY.untitled}
             </div>
           )
         })}
@@ -55,7 +57,7 @@ export function SessionsList({ sessions, currentId, onSelect, onClearAll }: Prop
       <div style={{ padding: 10, borderTop: '1px solid #222' }}>
         <button
           onClick={() => {
-            if (confirm('Delete ALL observer data? This cannot be undone.')) onClearAll()
+            if (confirm(OBSERVER_UI_COPY.clearAllDataConfirm)) onClearAll()
           }}
           style={{
             width: '100%',
@@ -68,7 +70,7 @@ export function SessionsList({ sessions, currentId, onSelect, onClearAll }: Prop
             fontSize: 13,
           }}
         >
-          🗑 Clear all observer data
+          🗑 {OBSERVER_UI_COPY.clearAllData}
         </button>
       </div>
     </div>

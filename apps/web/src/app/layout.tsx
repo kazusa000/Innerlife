@@ -18,8 +18,8 @@ const body = Plus_Jakarta_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'Virtual Personas',
-  description: 'Your AI companions — memory, personality, presence.',
+  title: '虚拟人格',
+  description: '你的 AI 陪伴者，拥有记忆、性格与长期存在感。',
 }
 
 export default function RootLayout({
@@ -28,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable}`}>
+    <html lang="zh-CN" className={`${display.variable} ${body.variable}`}>
       <body>{children}</body>
     </html>
   )

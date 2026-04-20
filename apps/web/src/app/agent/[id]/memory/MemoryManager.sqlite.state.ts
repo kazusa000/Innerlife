@@ -24,8 +24,8 @@ export function getSqliteMemoryToolbarState({
       refreshDisabled: true,
       consolidateDisabled: true,
       deleteDisabled: true,
-      consolidateLabel: 'Consolidating sqlite memory…',
-      status: 'Consolidating…',
+      consolidateLabel: '正在整理 sqlite 记忆…',
+      status: '整理中…',
     }
   }
 
@@ -33,7 +33,7 @@ export function getSqliteMemoryToolbarState({
     refreshDisabled: pending,
     consolidateDisabled: pending || loading || memoryCount === 0,
     deleteDisabled: pending,
-    consolidateLabel: 'Consolidate sqlite memory',
-    status: loading || pending ? 'Loading…' : null,
+    consolidateLabel: '整理 sqlite 记忆',
+    status: loading || pending ? '加载中…' : null,
   }
 }

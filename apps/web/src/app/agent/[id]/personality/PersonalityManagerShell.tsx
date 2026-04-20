@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type ComponentType } from 'react'
+import { COMMON_UI_COPY } from '@/lib/ui-copy'
 import PersonalityManagerBigFive from './PersonalityManager.big-five'
 
 interface AgentPersonalityMeta {
@@ -41,7 +42,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
           throw new Error(
             typeof data?.error === 'string'
               ? data.error
-              : 'Failed to load personality manager',
+              : '加载性格管理入口失败',
           )
         }
 
@@ -51,7 +52,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
       } catch (err) {
         if (!cancelled) {
           setError(
-            err instanceof Error ? err.message : 'Failed to load personality manager',
+            err instanceof Error ? err.message : '加载性格管理入口失败',
           )
         }
       } finally {
@@ -77,8 +78,8 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
       <div className="personality-wrap">
         <header className="personality-head">
           <div>
-            <p className="personality-eyebrow">Unified entry</p>
-            <h1 className="personality-title">Personality Manager</h1>
+            <p className="personality-eyebrow">{COMMON_UI_COPY.unifiedEntry}</p>
+            <h1 className="personality-title">性格管理</h1>
             <p className="personality-sub">
               固定入口 `/agent/{agentId}/personality`。当前页面只根据
               `personality.scheme` 分发到对应子系统。
@@ -86,10 +87,10 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
           </div>
           <div className="personality-actions">
             <Link href="/" className="personality-link">
-              Back to personas
+              {COMMON_UI_COPY.backToPersonas}
             </Link>
             <Link href={`/chat?agent=${agentId}`} className="personality-link personality-link-primary">
-              Open chat
+              {COMMON_UI_COPY.openChat}
             </Link>
           </div>
         </header>
@@ -97,12 +98,12 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
         <section className="personality-card">
           <div className="personality-card-head">
             <div>
-              <p className="personality-label">Agent</p>
+              <p className="personality-label">{COMMON_UI_COPY.agent}</p>
               <h2 className="personality-card-title">{agentId}</h2>
             </div>
             {meta && (
               <span className="personality-pill">
-                {meta.scheme ?? 'unconfigured'}
+                {meta.scheme ?? COMMON_UI_COPY.unconfigured}
               </span>
             )}
           </div>
@@ -120,8 +121,8 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
             <div className="personality-state">
               <h3>性格模块尚未开启</h3>
               <p>
-                这个 agent 还没有启用 personality manager。当前固定入口已经就绪，但如果你想使用
-                `big-five`，先回到首页的 persona 编辑区启用 personality scheme。
+                这个虚拟人还没有启用性格管理。当前固定入口已经就绪，但如果你想使用
+                `big-five`，先回到首页的虚拟人编辑区启用性格方案。
               </p>
             </div>
           )}
@@ -134,9 +135,9 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
 
           {!loading && !error && meta?.configured && !Manager && (
             <div className="personality-state">
-              <h3>该 scheme 的管理器尚未实现</h3>
+              <h3>该方案的管理器尚未实现</h3>
               <p>
-                当前 scheme 是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理 UI
+                当前方案是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理界面
                 还没接入。
               </p>
             </div>

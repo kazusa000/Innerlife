@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type ComponentType } from 'react'
+import { COMMON_UI_COPY } from '@/lib/ui-copy'
 import RelationshipManagerMultiDim from './RelationshipManager.multi-dim'
 
 interface AgentRelationshipMeta {
@@ -41,7 +42,7 @@ export default function RelationshipManagerShell({ agentId }: { agentId: string 
           throw new Error(
             typeof data?.error === 'string'
               ? data.error
-              : 'Failed to load relationship manager',
+              : '加载关系管理入口失败',
           )
         }
 
@@ -51,7 +52,7 @@ export default function RelationshipManagerShell({ agentId }: { agentId: string 
       } catch (err) {
         if (!cancelled) {
           setError(
-            err instanceof Error ? err.message : 'Failed to load relationship manager',
+            err instanceof Error ? err.message : '加载关系管理入口失败',
           )
         }
       } finally {
@@ -77,8 +78,8 @@ export default function RelationshipManagerShell({ agentId }: { agentId: string 
       <div className="relationship-wrap">
         <header className="relationship-head">
           <div>
-            <p className="relationship-eyebrow">Unified entry</p>
-            <h1 className="relationship-title">Relationship Manager</h1>
+            <p className="relationship-eyebrow">{COMMON_UI_COPY.unifiedEntry}</p>
+            <h1 className="relationship-title">关系管理</h1>
             <p className="relationship-sub">
               固定入口 `/agent/{agentId}/relationships`。当前页面只根据
               `relationship.scheme` 分发到对应子系统。
@@ -86,10 +87,10 @@ export default function RelationshipManagerShell({ agentId }: { agentId: string 
           </div>
           <div className="relationship-actions">
             <Link href="/" className="relationship-link">
-              Back to personas
+              {COMMON_UI_COPY.backToPersonas}
             </Link>
             <Link href={`/chat?agent=${agentId}`} className="relationship-link relationship-link-primary">
-              Open chat
+              {COMMON_UI_COPY.openChat}
             </Link>
           </div>
         </header>
@@ -97,11 +98,11 @@ export default function RelationshipManagerShell({ agentId }: { agentId: string 
         <section className="relationship-card">
           <div className="relationship-card-head">
             <div>
-              <p className="relationship-label">Agent</p>
+              <p className="relationship-label">{COMMON_UI_COPY.agent}</p>
               <h2 className="relationship-card-title">{agentId}</h2>
             </div>
             {meta && (
-              <span className="relationship-pill">{meta.scheme ?? 'unconfigured'}</span>
+              <span className="relationship-pill">{meta.scheme ?? COMMON_UI_COPY.unconfigured}</span>
             )}
           </div>
 
@@ -118,8 +119,8 @@ export default function RelationshipManagerShell({ agentId }: { agentId: string 
             <div className="relationship-state">
               <h3>关系模块尚未开启</h3>
               <p>
-                这个 agent 还没有启用 relationship manager。当前固定入口已经就绪，但如果你想使用
-                `multi-dim`，先回到首页的 persona 编辑区启用 relationship scheme。
+                这个虚拟人还没有启用关系管理。当前固定入口已经就绪，但如果你想使用
+                `multi-dim`，先回到首页的虚拟人编辑区启用关系方案。
               </p>
             </div>
           )}
@@ -132,9 +133,9 @@ export default function RelationshipManagerShell({ agentId }: { agentId: string 
 
           {!loading && !error && meta?.configured && !Manager && (
             <div className="relationship-state">
-              <h3>该 scheme 的管理器尚未实现</h3>
+              <h3>该方案的管理器尚未实现</h3>
               <p>
-                当前 scheme 是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理 UI
+                当前方案是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理界面
                 还没接入。
               </p>
             </div>

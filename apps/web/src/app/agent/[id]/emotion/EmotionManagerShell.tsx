@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type ComponentType } from 'react'
+import { COMMON_UI_COPY } from '@/lib/ui-copy'
 import EmotionManagerDimensional from './EmotionManager.dimensional'
 
 interface AgentEmotionMeta {
@@ -39,7 +40,7 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
         const data = await response.json()
         if (!response.ok) {
           throw new Error(
-            typeof data?.error === 'string' ? data.error : 'Failed to load emotion manager',
+            typeof data?.error === 'string' ? data.error : '加载情绪管理入口失败',
           )
         }
 
@@ -48,7 +49,7 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load emotion manager')
+          setError(err instanceof Error ? err.message : '加载情绪管理入口失败')
         }
       } finally {
         if (!cancelled) {
@@ -73,8 +74,8 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
       <div className="emotion-wrap">
         <header className="emotion-head">
           <div>
-            <p className="emotion-eyebrow">Unified entry</p>
-            <h1 className="emotion-title">Emotion Manager</h1>
+            <p className="emotion-eyebrow">{COMMON_UI_COPY.unifiedEntry}</p>
+            <h1 className="emotion-title">情绪管理</h1>
             <p className="emotion-sub">
               固定入口 `/agent/{agentId}/emotion`。当前页面只根据 `emotion.scheme`
               分发到对应子系统。
@@ -82,10 +83,10 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
           </div>
           <div className="emotion-actions">
             <Link href="/" className="emotion-link">
-              Back to personas
+              {COMMON_UI_COPY.backToPersonas}
             </Link>
             <Link href={`/chat?agent=${agentId}`} className="emotion-link emotion-link-primary">
-              Open chat
+              {COMMON_UI_COPY.openChat}
             </Link>
           </div>
         </header>
@@ -93,10 +94,10 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
         <section className="emotion-card">
           <div className="emotion-card-head">
             <div>
-              <p className="emotion-label">Agent</p>
+              <p className="emotion-label">{COMMON_UI_COPY.agent}</p>
               <h2 className="emotion-card-title">{agentId}</h2>
             </div>
-            {meta && <span className="emotion-pill">{meta.scheme ?? 'unconfigured'}</span>}
+            {meta && <span className="emotion-pill">{meta.scheme ?? COMMON_UI_COPY.unconfigured}</span>}
           </div>
 
           {loading && <p className="emotion-copy">正在加载情绪管理入口…</p>}
@@ -112,8 +113,8 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
             <div className="emotion-state">
               <h3>情绪模块尚未开启</h3>
               <p>
-                这个 agent 还没有启用 emotion manager。当前固定入口已经就绪，但如果你想使用
-                `dimensional`，先回到首页的 persona 编辑区启用 emotion scheme。
+                这个虚拟人还没有启用情绪管理。当前固定入口已经就绪，但如果你想使用
+                `dimensional`，先回到首页的虚拟人编辑区启用情绪方案。
               </p>
             </div>
           )}
@@ -126,9 +127,9 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
 
           {!loading && !error && meta?.configured && !Manager && (
             <div className="emotion-state">
-              <h3>该 scheme 的管理器尚未实现</h3>
+              <h3>该方案的管理器尚未实现</h3>
               <p>
-                当前 scheme 是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理 UI
+                当前方案是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理界面
                 还没接入。
               </p>
             </div>

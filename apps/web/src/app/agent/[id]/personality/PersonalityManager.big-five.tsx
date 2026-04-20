@@ -100,10 +100,10 @@ export default function PersonalityManagerBigFive(
         })
         const data = await response.json() as unknown
         if (!response.ok) {
-          throw new Error(readErrorMessage(data, 'Failed to load big-five personality config'))
+          throw new Error(readErrorMessage(data, '加载 Big Five 性格配置失败'))
         }
         if (!isBigFiveResponse(data)) {
-          throw new Error('Failed to load big-five personality config')
+          throw new Error('加载 Big Five 性格配置失败')
         }
 
         if (!cancelled) {
@@ -116,7 +116,7 @@ export default function PersonalityManagerBigFive(
           setError(
             err instanceof Error
               ? err.message
-              : 'Failed to load big-five personality config',
+              : '加载 Big Five 性格配置失败',
           )
         }
       } finally {
@@ -152,10 +152,10 @@ export default function PersonalityManagerBigFive(
       })
       const data = await response.json() as unknown
       if (!response.ok) {
-        throw new Error(readErrorMessage(data, 'Failed to save big-five personality config'))
+        throw new Error(readErrorMessage(data, '保存 Big Five 性格配置失败'))
       }
       if (!isBigFiveResponse(data)) {
-        throw new Error('Failed to save big-five personality config')
+        throw new Error('保存 Big Five 性格配置失败')
       }
 
       setBig5(data.big5)
@@ -164,7 +164,7 @@ export default function PersonalityManagerBigFive(
       setNotice('Big Five 配置已保存。')
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Failed to save big-five personality config',
+        err instanceof Error ? err.message : '保存 Big Five 性格配置失败',
       )
     } finally {
       setSaving(false)
@@ -178,7 +178,7 @@ export default function PersonalityManagerBigFive(
   if (error) {
     return (
       <div className="manager-state">
-        <h3>Big Five 加载失败</h3>
+        <h3>Big Five 配置加载失败</h3>
         <p>{error}</p>
       </div>
     )
@@ -188,7 +188,7 @@ export default function PersonalityManagerBigFive(
     <section className="manager">
       <div className="manager-head">
         <div>
-          <p className="manager-label">Scheme</p>
+          <p className="manager-label">方案</p>
           <h3 className="manager-title">Big Five</h3>
           <p className="manager-copy">
             编辑五维人格、说话风格和背景故事。保存后只会更新 `modules.personality`。
@@ -200,12 +200,12 @@ export default function PersonalityManagerBigFive(
           onClick={() => void saveConfig()}
           disabled={saving}
         >
-          {saving ? 'Saving…' : 'Save changes'}
+          {saving ? '保存中…' : '保存更改'}
         </button>
       </div>
 
       {notice && <p className="manager-notice manager-notice-success">{notice}</p>}
-      {!notice && <p className="manager-notice">当前 personality scheme 已固定为 `big-five`。</p>}
+      {!notice && <p className="manager-notice">当前性格方案已固定为 `big-five`。</p>}
 
       <div className="trait-grid">
         {BIG_FIVE_FIELDS.map(({ key, label, hint }) => (

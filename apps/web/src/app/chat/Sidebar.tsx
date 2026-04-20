@@ -28,7 +28,7 @@ export function Sidebar({ agentName, onBack }: Props) {
             <button
               onClick={onBack}
               className="back-btn"
-              aria-label="Back to personas"
+              aria-label="返回虚拟人列表"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
                 <path
@@ -48,22 +48,22 @@ export function Sidebar({ agentName, onBack }: Props) {
             {initials(agentName)}
           </div>
           <div className="agent-meta">
-            <span className="agent-eyebrow">Chatting with</span>
+            <span className="agent-eyebrow">当前对话对象</span>
             <span className="agent-name">{agentName}</span>
           </div>
         </div>
       )}
 
       <div className="rail-copy">
-        <p className="rail-label">Single thread</p>
-        <h2 className="rail-title">One ongoing conversation</h2>
+        <p className="rail-label">单线对话</p>
+        <h2 className="rail-title">一条持续进行中的对话</h2>
         <p className="rail-sub">
-          你和这个 persona 只有一条对话线。底层 session 仍然存在，但只用于内部章节和状态边界，不再作为前端可操作对象。
+          你和这个虚拟人只有一条对话线。底层 session 仍然存在，但只用于内部章节和状态边界，不再作为前端可操作对象。
         </p>
       </div>
 
       <div className="rail-note">
-        <span className="rail-note-title">Current behavior</span>
+        <span className="rail-note-title">当前行为</span>
         <p className="rail-note-body">
           进入聊天时会自动解析当前 active session。网页端不再提供新建、切换或删除 session。
         </p>

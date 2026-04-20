@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import type { LiveCall } from './observer-types'
 import { formatDurationLabel } from '../../lib/format-duration'
+import { OBSERVER_UI_COPY, translateMemoryPhase } from '../../lib/ui-copy'
 import {
   getCallPhase,
   getMemoryHits,
@@ -52,10 +53,10 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <strong style={{ color: 'var(--fg)', fontSize: 14 }}>memory.{phase}</strong>
-          <Pill label="model" value={call.model} />
-          {duration ? <Pill label="duration" value={duration} /> : null}
-          <Pill label="stop" value={call.stopReason ?? (call.finished ? 'end_turn' : 'pending')} accent={CALL_ACCENTS.memory.color} />
+          <strong style={{ color: 'var(--fg)', fontSize: 14 }}>记忆.{translateMemoryPhase(phase)}</strong>
+          <Pill label={OBSERVER_UI_COPY.model} value={call.model} />
+          {duration ? <Pill label={OBSERVER_UI_COPY.duration} value={duration} /> : null}
+          <Pill label={OBSERVER_UI_COPY.stop} value={call.stopReason ?? (call.finished ? 'end_turn' : OBSERVER_UI_COPY.pending)} accent={CALL_ACCENTS.memory.color} />
         </div>
         <span style={{ color: 'var(--fg-subtle)', fontSize: 12, flexShrink: 0 }}>{open ? '收起' : '展开'}</span>
       </button>
@@ -71,27 +72,27 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
         >
           {phase === 'retrieve' && (
             <>
-              <CollapsibleSection title="Keywords" accent={CALL_ACCENTS.memory.color} defaultOpen>
+              <CollapsibleSection title={OBSERVER_UI_COPY.keywords} accent={CALL_ACCENTS.memory.color} defaultOpen>
                 <DetailList
                   rows={[
-                    { label: 'keywords', value: <TagPills values={keywords} accent={CALL_ACCENTS.memory.color} /> },
+                    { label: OBSERVER_UI_COPY.keywords, value: <TagPills values={keywords} accent={CALL_ACCENTS.memory.color} /> },
                     {
-                      label: 'time range',
+                      label: OBSERVER_UI_COPY.timeRange,
                       value: timeRange ? (
                         <DetailList
                           rows={[
-                            { label: 'start', value: timeRange.start },
-                            { label: 'end', value: timeRange.end },
+                            { label: '开始', value: timeRange.start },
+                            { label: '结束', value: timeRange.end },
                           ]}
                         />
-                      ) : 'none',
+                      ) : '无',
                     },
                   ]}
                 />
               </CollapsibleSection>
 
               <CollapsibleSection
-                title="Hits"
+                title={OBSERVER_UI_COPY.hits}
                 accent={CALL_ACCENTS.memory.color}
                 badge={String(hits.length)}
                 defaultOpen
@@ -112,11 +113,11 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                       >
                         <DetailList
                           rows={[
-                            { label: 'memory id', value: hit.id },
-                            { label: 'summary', value: hit.summary },
-                            { label: 'importance', value: formatImportance(hit.importance) },
-                            { label: 'matched terms', value: <TagPills values={hit.matchedTerms} accent={CALL_ACCENTS.memory.color} /> },
-                            { label: 'tags', value: <TagPills values={hit.tags} accent={CALL_ACCENTS.memory.color} /> },
+                            { label: '记忆 ID', value: hit.id },
+                            { label: '摘要', value: hit.summary },
+                            { label: '重要性', value: formatImportance(hit.importance) },
+                            { label: '命中词', value: <TagPills values={hit.matchedTerms} accent={CALL_ACCENTS.memory.color} /> },
+                            { label: '标签', value: <TagPills values={hit.tags} accent={CALL_ACCENTS.memory.color} /> },
                           ]}
                         />
                       </div>
@@ -128,34 +129,34 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
           )}
 
           {phase === 'summarize' && (
-            <CollapsibleSection title="Written" accent={CALL_ACCENTS.memory.color} defaultOpen>
+            <CollapsibleSection title={OBSERVER_UI_COPY.written} accent={CALL_ACCENTS.memory.color} defaultOpen>
               <DetailList
                 rows={[
-                  ...(written?.id ? [{ label: 'written id', value: written.id }] : []),
-                  { label: 'summary', value: written?.summary ?? '无' },
-                  { label: 'importance', value: written ? formatImportance(written.importance) : '无' },
-                  { label: 'tags', value: <TagPills values={written?.tags ?? []} accent={CALL_ACCENTS.memory.color} /> },
+                  ...(written?.id ? [{ label: '写入 ID', value: written.id }] : []),
+                  { label: '摘要', value: written?.summary ?? '无' },
+                  { label: '重要性', value: written ? formatImportance(written.importance) : '无' },
+                  { label: '标签', value: <TagPills values={written?.tags ?? []} accent={CALL_ACCENTS.memory.color} /> },
                 ]}
               />
             </CollapsibleSection>
           )}
 
           {phase === 'consolidate' && (
-            <CollapsibleSection title="Report" accent={CALL_ACCENTS.memory.color} defaultOpen>
+            <CollapsibleSection title={OBSERVER_UI_COPY.report} accent={CALL_ACCENTS.memory.color} defaultOpen>
               <DetailList
                 rows={[
-                  { label: 'before', value: String(report?.before ?? '?') },
-                  { label: 'after', value: String(report?.after ?? '?') },
-                  { label: 'kept', value: String(report?.kept ?? '?') },
-                  { label: 'rewritten', value: String(report?.rewritten ?? '?') },
-                  { label: 'merged', value: String(report?.merged ?? '?') },
+                  { label: '整理前', value: String(report?.before ?? '?') },
+                  { label: '整理后', value: String(report?.after ?? '?') },
+                  { label: '保留', value: String(report?.kept ?? '?') },
+                  { label: '重写', value: String(report?.rewritten ?? '?') },
+                  { label: '合并', value: String(report?.merged ?? '?') },
                 ]}
               />
             </CollapsibleSection>
           )}
 
           <CollapsibleSection title="原 prompt" accent={CALL_ACCENTS.memory.color}>
-            <CodeBlock value={call.systemPrompt || '(empty)'} />
+            <CodeBlock value={call.systemPrompt || '（空）'} />
           </CollapsibleSection>
           <CollapsibleSection title="原 response" accent={CALL_ACCENTS.memory.color}>
             <CodeBlock value={formatJson(call.response ?? null)} />

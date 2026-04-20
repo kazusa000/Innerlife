@@ -16,7 +16,7 @@ export function formatDurationLabel(
   }
 
   if (typeof finishedAt !== 'number' || Number.isNaN(finishedAt)) {
-    return 'running…'
+    return '运行中…'
   }
 
   return formatDurationMs(finishedAt - startedAt)

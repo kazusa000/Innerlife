@@ -1,5 +1,7 @@
 'use client'
 
+import { OBSERVER_UI_COPY, translateCallKind } from '../../lib/ui-copy'
+
 export interface TurnNode {
   userMessageId: string
   userText: string
@@ -21,19 +23,7 @@ interface Props {
 }
 
 function describeCallKind(kind: TurnNode['calls'][number]['kind']) {
-  if (kind === 'compaction') {
-    return 'compact'
-  }
-  if (kind === 'memory') {
-    return 'memory'
-  }
-  if (kind === 'emotion') {
-    return 'emotion'
-  }
-  if (kind === 'relationship') {
-    return 'relationship'
-  }
-  return 'call'
+  return translateCallKind(kind)
 }
 
 export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
@@ -49,7 +39,7 @@ export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
     >
       {turns.length === 0 && (
         <p style={{ color: '#666', textAlign: 'center', marginTop: 40, fontSize: 13 }}>
-          No observer data for this session.
+          当前会话还没有观测记录。
         </p>
       )}
       {turns.map((turn) => (
@@ -65,7 +55,7 @@ export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
             }}
             title={turn.userText}
           >
-            User: {turn.userText || '(empty)'}
+            用户：{turn.userText || '（空）'}
           </div>
           {turn.calls.map((c) => {
             const active = c.id === currentCallId
@@ -85,7 +75,7 @@ export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
               >
                 └ {describeCallKind(c.kind)} #{c.turnIndex}{' '}
                 <span style={{ color: '#666' }}>
-                  {c.stopReason ?? (c.finishedAt ? '?' : '…')}
+                  {c.stopReason ?? (c.finishedAt ? '?' : OBSERVER_UI_COPY.pending)}
                 </span>
               </div>
             )

@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, type ReactNode } from 'react'
+import { COMMON_UI_COPY, OBSERVER_UI_COPY, translateRole } from '../../lib/ui-copy'
 import type { LiveCall } from './observer-types'
 import {
   blockText,
@@ -236,7 +237,7 @@ export function CollapsibleSection({
             </span>
           )}
         </span>
-        <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{open ? '收起' : '展开'}</span>
+        <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{open ? COMMON_UI_COPY.collapse : COMMON_UI_COPY.expand}</span>
       </button>
       {open && <div style={{ padding: '0 14px 14px' }}>{children}</div>}
     </div>
@@ -262,8 +263,8 @@ function RenderBlock({ block }: { block: ConversationBlock }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ color: 'var(--orange)', fontSize: 11, textTransform: 'uppercase' }}>tool_use</span>
-          <strong style={{ color: 'var(--fg)' }}>{block.name ?? 'tool'}</strong>
+          <span style={{ color: 'var(--orange)', fontSize: 11, textTransform: 'uppercase' }}>{OBSERVER_UI_COPY.toolUse}</span>
+          <strong style={{ color: 'var(--fg)' }}>{block.name ?? OBSERVER_UI_COPY.tools}</strong>
           <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{summarizeInput(block.input)}</span>
         </div>
         <CodeBlock value={formatJson(block.input ?? {})} />
@@ -288,8 +289,8 @@ function RenderBlock({ block }: { block: ConversationBlock }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ color: accent, fontSize: 11, textTransform: 'uppercase' }}>tool_result</span>
-          <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{preview || '(empty)'}</span>
+          <span style={{ color: accent, fontSize: 11, textTransform: 'uppercase' }}>{OBSERVER_UI_COPY.toolResult}</span>
+          <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{preview || '（空）'}</span>
         </div>
         <CodeBlock value={blockText(block.content)} />
       </div>
@@ -343,7 +344,7 @@ function MessageCard({
             fontWeight: 700,
           }}
         >
-          {title ?? role}
+          {title ?? translateRole(role)}
         </span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 14 }}>
@@ -401,7 +402,7 @@ function CompactionInlineCard({ call }: { call: LiveCall }) {
             fontWeight: 700,
           }}
         >
-          compaction.summary
+          {OBSERVER_UI_COPY.summaryCompaction}
         </span>
         <span style={{ color: 'var(--fg)', fontSize: 13 }}>
           本轮压缩：{compactedCount ?? beforeMessageCount ?? '?'} 条 → 1 条摘要
@@ -430,7 +431,7 @@ export function MessagesTimeline({
       ))}
       {(responseBlocks.length > 0 || call.error) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <MessageCard role="assistant" title="response" content={responseBlocks} />
+          <MessageCard role="assistant" title={OBSERVER_UI_COPY.response} content={responseBlocks} />
           {call.error && (
             <div
               style={{
@@ -448,7 +449,7 @@ export function MessagesTimeline({
         </div>
       )}
       {messages.length === 0 && responseBlocks.length === 0 && !call.error && (
-        <div style={{ color: 'var(--fg-subtle)', fontSize: 13 }}>等待该 call 的消息快照…</div>
+        <div style={{ color: 'var(--fg-subtle)', fontSize: 13 }}>{OBSERVER_UI_COPY.waitingMessageSnapshot}</div>
       )}
     </div>
   )

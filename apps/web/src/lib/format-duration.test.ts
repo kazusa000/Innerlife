@@ -9,7 +9,7 @@ test('formatDurationMs renders short and long durations compactly', () => {
 })
 
 test('formatDurationLabel returns running state or formatted duration', () => {
-  assert.equal(formatDurationLabel(1000, null), 'running…')
+  assert.equal(formatDurationLabel(1000, null), '运行中…')
   assert.equal(formatDurationLabel(1000, 2200), '1.2s')
   assert.equal(formatDurationLabel(null, null), null)
 })

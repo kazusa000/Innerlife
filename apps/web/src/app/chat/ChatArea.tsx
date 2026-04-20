@@ -397,7 +397,7 @@ export function ChatArea({ sessionId, agentModules }: Props) {
         setObserverTurn((prev) => ({ ...prev, status: 'error' }))
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: `Connection error: ${err}` },
+          { role: 'assistant', content: `连接错误：${err}` },
         ])
       }
     } finally {
@@ -413,14 +413,14 @@ export function ChatArea({ sessionId, agentModules }: Props) {
         <header className="chat-header">
           <div className="chat-header-title">
             <span className="dot" aria-hidden />
-            <h1>Conversation</h1>
+            <h1>对话</h1>
           </div>
           <button
             onClick={() => setObserverOpen((o) => !o)}
-            title="Toggle Observer"
+            title="切换观测器"
             className={`btn btn-ghost${observerOpen ? ' is-active' : ''}`}
           >
-            Observer
+            观测器
           </button>
         </header>
 
@@ -428,9 +428,9 @@ export function ChatArea({ sessionId, agentModules }: Props) {
           {messages.length === 0 && (
             <div className="thread-empty">
               <div className="thread-empty-glyph" aria-hidden />
-              <p className="thread-empty-title">Say hello</p>
+              <p className="thread-empty-title">打个招呼</p>
               <p className="thread-empty-sub">
-                Start with anything — a thought, a question, a quiet check-in.
+                从任何一句话开始都行，可以是想法、问题，或者一句轻轻的问候。
               </p>
             </div>
           )}
@@ -444,7 +444,7 @@ export function ChatArea({ sessionId, agentModules }: Props) {
           {currentTools.map((tool, i) => (
             <div key={i} className="tool-call">
               <div className="tool-head">
-                <span className="tool-badge">tool</span>
+                <span className="tool-badge">工具</span>
                 <code>
                   {tool.toolName}
                   <span className="tool-input">
@@ -469,7 +469,7 @@ export function ChatArea({ sessionId, agentModules }: Props) {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Type a message…"
+              placeholder="输入消息…"
               disabled={isStreaming}
               className="composer-input"
             />
@@ -478,7 +478,7 @@ export function ChatArea({ sessionId, agentModules }: Props) {
               onClick={isStreaming ? handleStop : undefined}
               disabled={!isStreaming && !input.trim()}
               className={`composer-send${isStreaming ? ' is-stop' : ''}`}
-              aria-label={isStreaming ? 'Stop' : 'Send'}
+              aria-label={isStreaming ? '停止' : '发送'}
             >
               {isStreaming ? (
                 <span className="stop-glyph" aria-hidden />

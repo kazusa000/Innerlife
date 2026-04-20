@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import type { LiveCall } from './observer-types'
 import { formatDurationLabel } from '../../lib/format-duration'
+import { OBSERVER_UI_COPY } from '../../lib/ui-copy'
 import { formatJson, formatMetric, getMetadata, getRelationshipVector, readString } from './observer-utils'
 import { CALL_ACCENTS, CodeBlock, CollapsibleSection, DetailList, Pill } from './observer-ui'
 
@@ -42,12 +43,12 @@ export function RelationshipCallCardMultiDim({ call }: { call: LiveCall }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <strong style={{ color: 'var(--fg)', fontSize: 14 }}>relationship.delta</strong>
-          <Pill label="model" value={call.model} />
-          {duration ? <Pill label="duration" value={duration} /> : null}
+          <strong style={{ color: 'var(--fg)', fontSize: 14 }}>关系.变化量</strong>
+          <Pill label={OBSERVER_UI_COPY.model} value={call.model} />
+          {duration ? <Pill label={OBSERVER_UI_COPY.duration} value={duration} /> : null}
           <Pill
-            label="stop"
-            value={call.stopReason ?? (call.finished ? 'end_turn' : 'pending')}
+            label={OBSERVER_UI_COPY.stop}
+            value={call.stopReason ?? (call.finished ? 'end_turn' : OBSERVER_UI_COPY.pending)}
             accent={CALL_ACCENTS.relationship.color}
           />
         </div>
@@ -63,7 +64,7 @@ export function RelationshipCallCardMultiDim({ call }: { call: LiveCall }) {
             gap: 12,
           }}
         >
-          <CollapsibleSection title="Before" accent={CALL_ACCENTS.relationship.color} defaultOpen>
+          <CollapsibleSection title={OBSERVER_UI_COPY.before} accent={CALL_ACCENTS.relationship.color} defaultOpen>
             <DetailList
               rows={[
                 { label: 'trust', value: before ? formatMetric(before.trust) : '无' },
@@ -74,7 +75,7 @@ export function RelationshipCallCardMultiDim({ call }: { call: LiveCall }) {
             />
           </CollapsibleSection>
 
-          <CollapsibleSection title="After" accent={CALL_ACCENTS.relationship.color} defaultOpen>
+          <CollapsibleSection title={OBSERVER_UI_COPY.after} accent={CALL_ACCENTS.relationship.color} defaultOpen>
             <DetailList
               rows={[
                 { label: 'trust', value: after ? formatMetric(after.trust) : '无' },
@@ -85,20 +86,20 @@ export function RelationshipCallCardMultiDim({ call }: { call: LiveCall }) {
             />
           </CollapsibleSection>
 
-          <CollapsibleSection title="Delta" accent={CALL_ACCENTS.relationship.color} defaultOpen>
+          <CollapsibleSection title={OBSERVER_UI_COPY.delta} accent={CALL_ACCENTS.relationship.color} defaultOpen>
             <DetailList
               rows={[
                 { label: 'trust', value: delta ? formatMetric(delta.trust) : '无' },
                 { label: 'affinity', value: delta ? formatMetric(delta.affinity) : '无' },
                 { label: 'familiarity', value: delta ? formatMetric(delta.familiarity) : '无' },
                 { label: 'respect', value: delta ? formatMetric(delta.respect) : '无' },
-                { label: 'trigger', value: trigger ?? '无' },
+                { label: OBSERVER_UI_COPY.trigger, value: trigger ?? '无' },
               ]}
             />
           </CollapsibleSection>
 
           <CollapsibleSection title="原 prompt" accent={CALL_ACCENTS.relationship.color}>
-            <CodeBlock value={call.systemPrompt || '(empty)'} />
+            <CodeBlock value={call.systemPrompt || '（空）'} />
           </CollapsibleSection>
           <CollapsibleSection title="原 response" accent={CALL_ACCENTS.relationship.color}>
             <CodeBlock value={formatJson(call.response ?? null)} />
