@@ -37,10 +37,10 @@
 - [x] 聊天页抽屉新增 relationship 可见入口；当前 turn 触发关系分析时，能看到关系 call 的模型输入/输出与 delta
 - [x] 主对话 tab 中如果本轮注入了 relationship fragment，锚点区和正文都能看到该 fragment
 - [x] 当 agent 配置 `relationship.scheme = noop` 或本轮没触发关系分析时，tab 仍保持一致的空状态，不报错、不闪退
-- [ ] 至少手动浏览器验证 2 个场景：
-- [ ] 场景 1：连续两轮让关系明显升高或降低，Observer 中可见 `delta` 与 `trigger`
-- [ ] 场景 2：切到无 relationship 或 `noop` agent，Observer 保持稳定且不显示脏数据
-- [ ] `typecheck + 测试通过不等于任务完成，UI 必须人工浏览器验证`
+- [x] 至少手动浏览器验证 2 个场景：
+- [x] 场景 1：连续两轮让关系明显升高或降低，Observer 中可见 `delta` 与 `trigger`
+- [x] 场景 2：切到无 relationship 或 `noop` agent，Observer 保持稳定且不显示脏数据
+- [x] `typecheck + 测试通过不等于任务完成，UI 必须人工浏览器验证`
 
 ## 非目标（明确不做）
 
@@ -80,3 +80,4 @@
 - **Code review**: 通过。task 分支已补齐与当前 `master` 的基线同步，避免把后续 memory/tools 改动回退到旧状态。
 - **Re-verified**: `npm test --workspace @mas/core --workspace @mas/db --workspace @mas/systems`；`node --import tsx --test apps/web/src/app/chat/ObserverDrawer.test.tsx apps/web/src/lib/call-renderers.test.tsx`；`npm --ignore-scripts run typecheck --workspace @mas/core --workspace @mas/db --workspace @mas/observer --workspace @mas/systems --workspace @mas/web`。
 - **Blocking**: 任务卡要求的两条浏览器手动验证仍未完成，因此暂不归档，不更新 `STATUS.md`。
+- **Resolved**: 用户已确认补完上述浏览器手动验证，因此这张卡可以进入 merge / archive 流程。
