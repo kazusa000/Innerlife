@@ -1,6 +1,6 @@
 # G1 — Daemon v1
 
-**状态**: pending
+**状态**: done
 **前置依赖**: 无
 **预计规模**: medium
 
