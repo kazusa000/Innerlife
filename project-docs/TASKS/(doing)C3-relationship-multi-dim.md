@@ -113,3 +113,11 @@ relationships {
 - 更新 relationship 的分析调用沿用 emotion / memory 的 pending-analysis 模式，不要让 system 直接持有 provider
 - prompt fragment 建议 `priority` 介于 personality 和 memory 之间，避免压过性格但又早于价值观；具体数值由执行 agent结合现有顺序选一个稳定值，并在 Completion Note 里披露
 - 未来不管 `relationship` 增加 `simple` 还是别的 scheme，管理入口仍然是 `/agent/[id]/relationships`；但那不意味着要复用这张卡里的数据 shape 或 UI 语义
+
+## 审核意见（2026-04-20, coordinator）
+
+- 结论：FAIL，已从 `master` 回退，任务退回 `(doing)`。
+- `counterpartType` 当前任务范围只允许 `user`，但实现把 `'agent'` 也作为合法值暴露到了 schema / repository，超出这张卡的范围。
+- “prompt 注入有效”这一完成标准要求看到高低关系状态下的可观察回答差异；当前 Completion Note 明确写了没有做真实模型层面的对比，这条标准不能算达成。
+- `scheme: noop` 只测到了 registry 不实例化系统，还没有直接证明“不写表、不注入 fragment”。
+- 回来时请重新勾选完成标准，并在 Completion Note 里明确说明是如何验证“回答风格差异”的；如果你认为这条标准本身要改，先回到 task 卡里改清楚再实现。
