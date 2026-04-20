@@ -61,6 +61,11 @@ export interface MemoryTimeRange {
   end: Date
 }
 
+export interface MemoryReasoningConfig {
+  enabled?: boolean
+  effort?: 'none' | 'low' | 'medium' | 'high'
+}
+
 export interface MemoryQueryResult {
   keywords: string[]
   timeRange: MemoryTimeRange | null
@@ -70,6 +75,7 @@ export interface PendingMemoryWrite {
   kind: 'sqlite'
   system: string
   model?: string | null
+  reasoning?: MemoryReasoningConfig
   prompt: string
   sourceText: string
   parse(responseText: string): MemoryWriteResult
@@ -80,6 +86,7 @@ export interface PendingMemoryQuery {
   kind: 'sqlite'
   system: string
   model?: string | null
+  reasoning?: MemoryReasoningConfig
   prompt: string
   inputText: string
   parse(responseText: string): MemoryQueryResult

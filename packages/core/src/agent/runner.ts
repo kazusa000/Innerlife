@@ -536,6 +536,7 @@ async function runPendingMemoryWrite(
       model: pending.model ?? config.model,
       systemPrompt: pending.prompt,
       messages,
+      reasoning: pending.reasoning,
       signal,
     })
     const result = pending.parse(extractContentText(response.content))
@@ -634,6 +635,7 @@ async function runPendingMemoryQuery(
       model: pending.model ?? config.model,
       systemPrompt: pending.prompt,
       messages,
+      reasoning: pending.reasoning,
       signal,
     })
     query = pending.parse(extractContentText(response.content))

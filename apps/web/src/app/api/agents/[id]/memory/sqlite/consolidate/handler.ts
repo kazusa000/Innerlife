@@ -77,6 +77,7 @@ export async function consolidateSqliteMemories(
       model,
       systemPrompt,
       messages,
+      reasoning: { effort: 'none' },
     })
     const actions = parseMemoryConsolidationResponse(
       response.content

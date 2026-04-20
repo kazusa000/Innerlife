@@ -82,6 +82,7 @@ test('OpenRouterProvider sendMessage maps tool transcripts and parses tool calls
       model: 'openai/gpt-4.1-mini',
       systemPrompt: 'You are helpful.',
       messages,
+      reasoning: { effort: 'none' },
       tools: [
         {
           name: 'web_fetch',
@@ -99,6 +100,7 @@ test('OpenRouterProvider sendMessage maps tool transcripts and parses tool calls
 
     assert.equal(seen.url, 'https://openrouter.ai/api/v1/chat/completions')
     assert.equal((seen.body as { model: string }).model, 'openai/gpt-4.1-mini')
+    assert.deepEqual((seen.body as { reasoning?: unknown }).reasoning, { effort: 'none' })
     assert.deepEqual((seen.body as { messages: unknown[] }).messages, [
       { role: 'system', content: 'You are helpful.' },
       { role: 'user', content: '抓一下 example.com' },
@@ -140,17 +142,22 @@ test('OpenRouterProvider sendMessage maps tool transcripts and parses tool calls
 
 test('OpenRouterProvider streamMessage yields text deltas, tool deltas, and final usage', async () => {
   const originalFetch = globalThis.fetch
+  const seen: { body?: unknown } = {}
 
-  globalThis.fetch = (async () => createSseResponse([
-    ': OPENROUTER PROCESSING\n\n',
-    'data: {"choices":[{"delta":{"content":"你"}}]}\n\n',
-    'data: {"choices":[{"delta":{"content":"好"}}]}\n\n',
-    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"web_fetch","arguments":""}}]}}]}\n\n',
-    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"url\\":"}}]}}]}\n\n',
-    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"https://example.com\\"}"}}]}}]}\n\n',
-    'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":9,"completion_tokens":4}}\n\n',
-    'data: [DONE]\n\n',
-  ])) as typeof fetch
+  globalThis.fetch = (async (_input, init) => {
+    seen.body = init?.body ? JSON.parse(String(init.body)) : undefined
+
+    return createSseResponse([
+      ': OPENROUTER PROCESSING\n\n',
+      'data: {"choices":[{"delta":{"content":"你"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"好"}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"web_fetch","arguments":""}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"url\\":"}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"https://example.com\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":9,"completion_tokens":4}}\n\n',
+      'data: [DONE]\n\n',
+    ])
+  }) as typeof fetch
 
   try {
     const provider = new OpenRouterProvider('or-key', 'https://openrouter.ai/api/v1')
@@ -160,10 +167,12 @@ test('OpenRouterProvider streamMessage yields text deltas, tool deltas, and fina
       model: 'openai/gpt-4.1-mini',
       systemPrompt: 'You are helpful.',
       messages: [{ role: 'user', content: [{ type: 'text', text: '你好' }] }],
+      reasoning: { effort: 'none' },
     })) {
       events.push(event)
     }
 
+    assert.deepEqual((seen.body as { reasoning?: unknown }).reasoning, { effort: 'none' })
     assert.deepEqual(events, [
       { type: 'text_delta', text: '你' },
       { type: 'text_delta', text: '好' },

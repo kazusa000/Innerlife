@@ -3,6 +3,11 @@ import type { ContentBlock, Message, ToolDefinition } from '../types'
 export const PROVIDER_NAMES = ['anthropic', 'openrouter'] as const
 export type ProviderName = (typeof PROVIDER_NAMES)[number]
 
+export interface LLMReasoningConfig {
+  enabled?: boolean
+  effort?: 'none' | 'low' | 'medium' | 'high'
+}
+
 export interface LLMRequest {
   model: string
   systemPrompt: string
@@ -10,6 +15,7 @@ export interface LLMRequest {
   tools?: ToolDefinition[]
   maxTokens?: number
   temperature?: number
+  reasoning?: LLMReasoningConfig
   signal?: AbortSignal
 }
 

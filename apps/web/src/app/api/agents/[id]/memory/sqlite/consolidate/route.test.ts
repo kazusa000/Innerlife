@@ -101,9 +101,18 @@ function addAgentOneMemory(input: {
   })
 }
 
-function createProvider(responseText: string): Pick<LLMProvider, 'sendMessage'> {
+function createProvider(
+  responseText: string,
+  seen?: { params?: { reasoning?: unknown; model?: string } },
+): Pick<LLMProvider, 'sendMessage'> {
   return {
-    async sendMessage() {
+    async sendMessage(params) {
+      if (seen) {
+        seen.params = {
+          reasoning: params.reasoning,
+          model: params.model,
+        }
+      }
       return {
         content: [{ type: 'text' as const, text: responseText }],
         stopReason: 'end_turn' as const,
@@ -297,6 +306,7 @@ test('consolidateSqliteMemories returns a report and emits consolidate observer 
 
     const starts: Array<{ kind: string; systemPrompt: string }> = []
     const ends: Array<{ metadata?: Record<string, unknown> }> = []
+    const seen: { params?: { reasoning?: unknown; model?: string } } = {}
     const response = await consolidateSqliteMemories('agent-1', {
       provider: createProvider(JSON.stringify({
         actions: [
@@ -316,7 +326,7 @@ test('consolidateSqliteMemories returns a report and emits consolidate observer 
             importance: 0.8,
           },
         ],
-      })),
+      }), seen),
       resolveObserver() {
         return {
           onLLMCallStart(payload) {
@@ -342,7 +352,7 @@ test('consolidateSqliteMemories returns a report and emits consolidate observer 
       merged: 1,
     })
     assert.equal(starts[0]?.kind, 'memory')
-    assert.match(starts[0]?.systemPrompt ?? '', /bilingual/i)
+    assert.match(starts[0]?.systemPrompt ?? '', /简体中文/)
     assert.deepEqual(ends[0]?.metadata, {
       phase: 'consolidate',
       report: {
@@ -352,6 +362,10 @@ test('consolidateSqliteMemories returns a report and emits consolidate observer 
         rewritten: 1,
         merged: 1,
       },
+    })
+    assert.deepEqual(seen.params, {
+      model: 'memory-model',
+      reasoning: { effort: 'none' },
     })
     assert.equal(rows.length, 3)
     assert.ok(rows.some((memory) => memory.summary === '用户习惯夜间编码'))

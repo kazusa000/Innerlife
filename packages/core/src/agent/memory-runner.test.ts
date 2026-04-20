@@ -124,6 +124,7 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
 
     const observerStarts: Array<{ kind: string; model: string }> = []
     const observerEnds: Array<{ metadata?: unknown }> = []
+    const requests: Array<{ systemPrompt: string; model: string; reasoning?: unknown }> = []
     const observer: RunAgentObserver = {
       onLLMCallStart(payload) {
         observerStarts.push({ kind: payload.kind, model: payload.model })
@@ -135,6 +136,11 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
     }
 
     const provider = new FakeProvider(async function* (params) {
+      requests.push({
+        systemPrompt: params.systemPrompt,
+        model: params.model,
+        reasoning: params.reasoning,
+      })
       if (isMemoryRetrievePrompt(params.systemPrompt)) {
         yield {
           type: 'message_complete',
@@ -213,6 +219,22 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
       { kind: 'turn', model: 'fake-model' },
       { kind: 'memory', model: 'memory-model' },
     ])
+    assert.deepEqual(
+      requests.map((request) => ({
+        model: request.model,
+        reasoning: request.reasoning,
+        kind: isMemoryRetrievePrompt(request.systemPrompt)
+          ? 'retrieve'
+          : request.systemPrompt.includes('严格返回只有以下键的 JSON') || request.systemPrompt.includes('strict JSON')
+            ? 'summarize'
+            : 'turn',
+      })),
+      [
+        { kind: 'retrieve', model: 'memory-model', reasoning: { effort: 'none' } },
+        { kind: 'turn', model: 'fake-model', reasoning: undefined },
+        { kind: 'summarize', model: 'memory-model', reasoning: { effort: 'none' } },
+      ],
+    )
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
       keywords: ['猫', '我猫叫什么'],
