@@ -3,7 +3,7 @@
 > 这个文件用大白话记录系统**目前能做什么**。由 Coordinator 在 TASK 归档到 `TASKS/done/` 之后统一更新。
 > 不写未来计划（路线图见 `DESIGN.md §11`）。
 
-最后更新：2026-04-19（B9 Observer 抽屉 Tab 化）
+最后更新：2026-04-20（C3 Relationship multi-dim + D4 Memory 管理入口）
 
 ---
 
@@ -26,7 +26,7 @@
 - 默认会自动创建一个虚拟人，无会话时自动建一个
 - **回复可随时中断**：流式回复途中点"停止"按钮立即取消这一轮，正在跑的 bash / fetch / LLM stream 全链路终止；已流出来的文本保留并尾部标记 `—（中断）`
 - **除 bash 外新增三件套工具**：`file_read`（读文件，超 100KB 自动裁剪）、`file_write`（create / overwrite / append 三种模式，自动建父目录）、`web_fetch`（30s 超时、HTML 去噪转纯文本）
-- **创建/编辑虚拟人表单的"模块配置"分区已上线**：当前包含 **性格** 与 **价值观** 两块；提交时写入 `agents.modules.{personality,values}` JSON
+- **创建/编辑虚拟人表单的"模块配置"分区已上线**：当前包含 **性格 / 价值观 / 记忆** 三块；提交时写入 `agents.modules.{personality,values,memory}` JSON
 - **开启 `OBSERVER_ENABLED=1` 后可观测 AI 每轮内部**：聊天页观测抽屉现在是 3 个 tab（**主对话 / 记忆 / 情绪**）。主对话 tab 按当前 turn 聚合主对话 llm call，并支持在同一轮多个 call 之间切换；展开后可按锚点查看性格 / 价值观 / 情绪 / 记忆 fragments、messages 时间线（含 compaction 内联）、tools schema 和 final system prompt。记忆 / 情绪 tab 会按当前 agent 的 scheme 渲染系统内部 call：当前已支持 `memory:sqlite` 的 `retrieve` / `summarize` / `consolidate` 与 `emotion:dimensional` 的 `delta`；本轮没触发时 tab 保留但显示空状态。独立 `/observer` 页事后回放 + 清空保留不动
 - **工具自动注册**：`packages/core/src/tools/*.ts` 里导出 `export const XxxTool: Tool = {...}`，启动前（`predev/prebuild/prestart`）扫描生成 `generated.ts`，`registry.getDefaultTools()` 统一供给 chat 路由；加新工具只需加文件，不再改注册数组
 - **模块化 AgentSystem 基座**：`@mas/systems` 包定义 `TurnContext` + `AgentSystem` 接口与四个生命周期钩子（`beforeTurn` / `beforeLLM` / `afterLLM` / `afterTurn`）；runner 按 `priority` 拼接各系统 prompt fragments；系统抛错只 yield `system_error`、不中断主流程
@@ -34,7 +34,8 @@
 - **价值观系统（values:priority-list）**：表单可增删 + 上移/下移的字符串列表；`beforeLLM` 以 `priority: 50` 渲染成 "Values (in priority order)" 段落；空列表不注入
 - **上下文压缩（compaction:summary）**：消息数 > 40 或粗略 token 估算超阈值时，runner 调一次 LLM 把早期消息摘要成一条 `system` message，保留最近 20 条原文；DB 不删原消息。摘要 prompt 强制包含关键事实 / 用户偏好 / 未解决任务；连续多轮压缩会保留之前的 summary 作为下一轮输入。Observer 用 `kind: 'compaction'` 标记并展示 trigger / before / after 对比
 - **情绪系统（emotion:dimensional）**：mood / energy / stress 三轴；`beforeTurn` 加载该 (agent, session) 最新状态，`beforeLLM` 注入"当前情绪"段落（priority 20），`afterLLM` 让同一 LLM 分析本轮情绪变化产 delta，`afterTurn` 衰减回基线 + apply delta + append 一条 `emotion_states`。表单可开关 + 设 baseline；Observer 用 `kind: 'emotion'` 标记，详情页显示最新状态 + delta + trigger
-- **记忆系统（memory:sqlite）**：`beforeTurn` 先让 LLM 把用户输入扩成 4-8 个中英双语关键词（失败回退到本地 tokenizer），再按 `agentId` 跨 session 关键词检索 → `beforeLLM` 渲染 "Relevant memories" 段落（priority 30）→ `afterTurn` 让 LLM 总结本轮成 `{summary, tags, importance}` 落 `memories` 表（summarize prompt 强制 tags 中英双语覆盖，支持跨语言召回）。手动触发 `POST /api/agents/:id/memory/sqlite/consolidate` 可让 LLM 整理该 agent 最多 100 条记忆（keep / rewrite / merge 三种 op，合并保留最早 `createdAt`，整个写回在一个事务里）。表单暂无 UI（D4 task 单独做），开启需手动改 `agents.modules.memory.scheme = "sqlite"`。Observer 用 `kind: 'memory'` 标记，`metadata.phase` 区分 `retrieve` / `summarize` / `consolidate`
+- **关系系统（relationship:multi-dim）**：trust / affinity / familiarity / respect 四轴；`beforeTurn` 读取该 agent 对默认用户的最新关系，没有就用 baseline；`beforeLLM` 注入关系 prompt fragment（priority 40）；`afterLLM` 走 pending-analysis；`afterTurn` 衰减回 baseline、clip 到 `0..1` 后写入 `relationships` 表并追加 history。当前只支持 `user ↔ agent`，还没有 `/agent/[id]/relationships` 管理页或图谱 UI
+- **记忆系统（memory:sqlite）**：`beforeTurn` 先让 LLM 把用户输入扩成 4-8 个中英双语关键词（失败回退到本地 tokenizer），再按 `agentId` 跨 session 关键词检索 → `beforeLLM` 渲染 "Relevant memories" 段落（priority 30）→ `afterTurn` 让 LLM 总结本轮成 `{summary, tags, importance}` 落 `memories` 表（summarize prompt 强制 tags 中英双语覆盖，支持跨语言召回）。手动触发 `POST /api/agents/:id/memory/sqlite/consolidate` 可让 LLM 整理该 agent 最多 100 条记忆（keep / rewrite / merge 三种 op，合并保留最早 `createdAt`，整个写回在一个事务里）。首页表单现在可直接配置 `memory.scheme = noop | sqlite`，每个 agent 也有固定 `/agent/[id]/memory` 入口；当前已实现 `memory:sqlite` 的列表 / 搜索 / 删除 / consolidate 管理页，并对 `noop` / 未实现 scheme 显示空状态或占位态。Observer 用 `kind: 'memory'` 标记，`metadata.phase` 区分 `retrieve` / `summarize` / `consolidate`
 
 ---
 
@@ -103,5 +104,5 @@ cd apps/web && npx next dev --turbopack
 
 为了避免误解，列一下"看起来该有但其实还没做"的：
 
-- ❌ **性格 / 价值观 / 情绪 / 记忆已接入**（C1 / C4 / C2 / D1）；关系 / 感知系统尚未实现（C3 / D2-D4 task）
+- ❌ **性格 / 价值观 / 情绪 / 关系 / 记忆已接入**；感知系统尚未实现，`relationship` 也还没有统一管理入口 / 图谱 UI
 - ❌ 没有 daemon 后台常驻，关掉 dev server 就停了
