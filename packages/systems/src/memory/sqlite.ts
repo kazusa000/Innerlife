@@ -12,62 +12,6 @@ import type {
 const DEFAULT_RETRIEVE_TOP_K = 5
 const DEFAULT_MIN_TERM_LENGTH = 2
 const MAX_MEMORY_CONTENT_CHARS = 500
-const LATIN_STOPWORDS = new Set([
-  'a',
-  'an',
-  'and',
-  'are',
-  'did',
-  'do',
-  'does',
-  'for',
-  'how',
-  'i',
-  'is',
-  'it',
-  'me',
-  'my',
-  'of',
-  'or',
-  'the',
-  'to',
-  'was',
-  'what',
-  'when',
-  'where',
-  'who',
-  'why',
-  'you',
-  'your',
-])
-const CJK_STOPWORDS = new Set([
-  '了',
-  '他',
-  '们',
-  '你',
-  '叫',
-  '吗',
-  '啊',
-  '啥',
-  '呢',
-  '和',
-  '在',
-  '她',
-  '它',
-  '就',
-  '我',
-  '是',
-  '有',
-  '的',
-  '什',
-  '要',
-  '说',
-  '谁',
-  '这',
-  '那',
-  '都',
-  '么',
-])
 
 interface MemoryModuleConfig {
   summarizeModel: string | null
@@ -251,44 +195,6 @@ function buildSourceText(ctx: TurnContext): string {
     `User: ${userText || '(empty)'}`,
     `Assistant: ${assistantText || '(empty)'}`,
   ].join('\n'), MAX_MEMORY_CONTENT_CHARS)
-}
-
-function containsCjk(text: string): boolean {
-  return /[\u3400-\u9fff]/u.test(text)
-}
-
-function tokenizeText(text: string, minTermLength: number): string[] {
-  const matches = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
-  const tokens = new Set<string>()
-
-  for (const match of matches) {
-    if (!match) {
-      continue
-    }
-
-    if (containsCjk(match)) {
-      for (const char of Array.from(match)) {
-        if (CJK_STOPWORDS.has(char)) {
-          continue
-        }
-        tokens.add(char)
-      }
-
-      if (match.length >= minTermLength && !CJK_STOPWORDS.has(match)) {
-        tokens.add(match)
-      }
-
-      continue
-    }
-
-    if (match.length < minTermLength || LATIN_STOPWORDS.has(match)) {
-      continue
-    }
-
-    tokens.add(match)
-  }
-
-  return [...tokens]
 }
 
 function extractJson(text: string): unknown {
@@ -515,24 +421,19 @@ export class MemorySqliteSystem implements AgentSystem {
 
   private readonly summarizeModel: string | null
   private readonly retrieveTopK: number
-  private readonly minTermLength: number
 
   constructor(config?: unknown) {
     const resolved = readConfig(config)
     this.summarizeModel = resolved.summarizeModel
     this.retrieveTopK = resolved.retrieveTopK
-    this.minTermLength = resolved.minTermLength
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
-    const fallback = tokenizeText(ctx.input.text, this.minTermLength)
-
     const pending: PendingMemoryQuery = {
       kind: 'sqlite',
       system: this.name,
       prompt: buildRetrievePrompt(),
       inputText: buildRetrieveInputText(ctx.input.text),
-      fallback,
       parse: parseMemoryQueryResponse,
       retrieve: async (query) => memoryRepo.findRelevantMemories({
         agentId: ctx.agentId,

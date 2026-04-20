@@ -208,8 +208,6 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
     assert.deepEqual(observerStarts.map((call) => call.kind), ['memory', 'turn', 'memory'])
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
-      source: 'llm',
-      fallbackKeywords: ['猫', '我猫叫什么'],
       keywords: ['猫', '我猫叫什么'],
       timeRange: null,
       hitCount: 1,
@@ -349,8 +347,6 @@ test('runAgent uses LLM-expanded memory keywords instead of tokenizer results', 
     assert.deepEqual(observerStarts.map((call) => call.kind), ['memory', 'turn', 'memory'])
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
-      source: 'llm',
-      fallbackKeywords: ['name'],
       keywords: ['name', '名字'],
       timeRange: null,
       hitCount: 1,
@@ -375,8 +371,8 @@ test('runAgent uses LLM-expanded memory keywords instead of tokenizer results', 
   }
 })
 
-test('runAgent falls back to tokenizer keywords and emits system_error when memory query call throws', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-query-fallback-'))
+test('runAgent emits system_error and skips memory retrieval when memory query call throws', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-query-error-'))
   const dbPath = join(dir, 'test.db')
 
   try {
@@ -431,7 +427,7 @@ test('runAgent falls back to tokenizer keywords and emits system_error when memo
         return
       }
 
-      assert.match(params.systemPrompt, /Relevant memories/)
+      assert.equal(params.systemPrompt, 'test')
       yield {
         type: 'message_complete',
         response: {
@@ -473,21 +469,8 @@ test('runAgent falls back to tokenizer keywords and emits system_error when memo
     assert.equal(events.at(-1)?.type, 'complete')
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
-      source: 'fallback',
-      fallbackKeywords: ['猫', '我猫叫什么'],
-      keywords: ['猫', '我猫叫什么'],
+      keywords: [],
       timeRange: null,
-      hitCount: 1,
-      memoryIds: ['fallback-memory'],
-      hits: [
-        {
-          id: 'fallback-memory',
-          summary: '用户养了一只叫橘子的猫',
-          tags: ['猫', 'pet'],
-          importance: 0.9,
-          matchedTerms: ['猫'],
-        },
-      ],
     })
     assert.equal(observerEnds[0]?.error, 'memory query failed')
   } finally {
@@ -516,7 +499,6 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
           system: 'memory:sqlite',
           prompt: 'You prepare a memory retrieval query for sqlite-based agent memories.',
           inputText: ctx.input.text,
-          fallback: ['cat'],
           parse() {
             return {
               keywords: ['cat'],
@@ -578,15 +560,16 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
   assert.equal(events.at(-1)?.type, 'complete')
   assert.deepEqual(observerEnds[0]?.metadata, {
     phase: 'retrieve',
-    source: 'llm',
-    fallbackKeywords: ['cat'],
     keywords: ['cat'],
     timeRange: null,
+    hitCount: 0,
+    memoryIds: [],
+    hits: [],
   })
   assert.equal(observerEnds[0]?.error, 'memory retrieve failed')
 })
 
-test('runAgent falls back to tokenizer keywords when memory query returns invalid JSON or empty keywords', async () => {
+test('runAgent emits system_error without fallback retrieval when memory query returns invalid JSON or empty keywords', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-query-invalid-'))
   const dbPath = join(dir, 'test.db')
 
@@ -657,7 +640,7 @@ test('runAgent falls back to tokenizer keywords when memory query returns invali
         return
       }
 
-      assert.match(params.systemPrompt, /Relevant memories/)
+      assert.equal(params.systemPrompt, 'test')
       yield {
         type: 'message_complete',
         response: {
@@ -704,36 +687,18 @@ test('runAgent falls back to tokenizer keywords when memory query returns invali
 
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
-      source: 'fallback',
-      fallbackKeywords: ['猫', '我猫叫什么'],
-      keywords: ['猫', '我猫叫什么'],
+      keywords: [],
       timeRange: null,
-      hitCount: 1,
-      memoryIds: ['invalid-memory'],
-      hits: [
-        {
-          id: 'invalid-memory',
-          summary: '用户养了一只叫橘子的猫',
-          tags: ['猫', 'pet'],
-          importance: 0.9,
-          matchedTerms: ['猫'],
-        },
-      ],
     })
     assert.equal((observerEnds[3]?.metadata as { phase?: string })?.phase, 'retrieve')
-    assert.equal((observerEnds[3]?.metadata as { source?: string })?.source, 'fallback')
-    assert.deepEqual(
-      (observerEnds[3]?.metadata as { fallbackKeywords?: string[] })?.fallbackKeywords,
-      ['猫', '我猫叫什么'],
-    )
     assert.deepEqual(
       (observerEnds[3]?.metadata as { keywords?: string[] })?.keywords,
-      ['猫', '我猫叫什么'],
+      [],
     )
-    assert.equal((observerEnds[3]?.metadata as { hitCount?: number })?.hitCount, 2)
+    assert.equal((observerEnds[3]?.metadata as { hitCount?: number })?.hitCount, undefined)
     assert.deepEqual(
       ((observerEnds[3]?.metadata as { memoryIds?: string[] })?.memoryIds ?? []).includes('invalid-memory'),
-      true,
+      false,
     )
   } finally {
     resetDb()

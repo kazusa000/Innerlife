@@ -121,7 +121,6 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
         metadata: {
           phase: 'retrieve',
           keywords: ['cat'],
-          fallbackKeywords: ['pet'],
           timeRange: {
             start: '2026-04-20T13:55:00.000Z',
             end: '2026-04-20T14:00:00.000Z',

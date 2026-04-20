@@ -82,7 +82,6 @@ export interface PendingMemoryQuery {
   model?: string | null
   prompt: string
   inputText: string
-  fallback: string[]
   parse(responseText: string): MemoryQueryResult
   retrieve(query: MemoryQueryResult): Promise<MemoryRecord[]> | MemoryRecord[]
 }

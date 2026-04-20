@@ -217,10 +217,6 @@ export function getMemoryKeywords(call: LiveCall): string[] {
   return readStringArray(getMetadata(call)?.keywords)
 }
 
-export function getMemoryFallbackKeywords(call: LiveCall): string[] {
-  return readStringArray(getMetadata(call)?.fallbackKeywords)
-}
-
 export function getMemoryTimeRange(call: LiveCall): MemoryTimeRange | null {
   const timeRange = getMetadata(call)?.timeRange
   if (!isRecord(timeRange)) {

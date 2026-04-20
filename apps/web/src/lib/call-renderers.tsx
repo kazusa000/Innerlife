@@ -331,7 +331,6 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
   const record = readRecord(metadata)
   const phase = readText(record?.phase) ?? 'unknown'
   const keywords = readTextArray(record?.keywords)
-  const fallbackKeywords = readTextArray(record?.fallbackKeywords)
   const timeRange = readRecord(record?.timeRange)
   const timeRangeStart = readText(timeRange?.start)
   const timeRangeEnd = readText(timeRange?.end)
@@ -346,7 +345,7 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
         <>
           <MemorySection title="Keywords">
             <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
-              {JSON.stringify({ keywords, fallbackKeywords }, null, 2)}
+              {JSON.stringify({ keywords }, null, 2)}
             </pre>
           </MemorySection>
           <MemorySection title="Time range">

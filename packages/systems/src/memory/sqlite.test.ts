@@ -225,7 +225,7 @@ test('memory sqlite retrieval hits mixed bilingual tags for both Chinese and Eng
     await system.beforeTurn?.(chineseCtx)
     const chineseHits = await chineseCtx.pendingMemoryQuery?.retrieve(
       {
-        keywords: chineseCtx.pendingMemoryQuery?.fallback ?? [],
+        keywords: ['名字'],
         timeRange: null,
       },
     )
@@ -235,7 +235,7 @@ test('memory sqlite retrieval hits mixed bilingual tags for both Chinese and Eng
     await system.beforeTurn?.(englishCtx)
     const englishHits = await englishCtx.pendingMemoryQuery?.retrieve(
       {
-        keywords: englishCtx.pendingMemoryQuery?.fallback ?? [],
+        keywords: ['name'],
         timeRange: null,
       },
     )

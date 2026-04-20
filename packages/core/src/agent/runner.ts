@@ -614,16 +614,15 @@ async function runPendingMemoryQuery(
   let response: LLMResponse | undefined
   let queryError: Error | undefined
   let retrieveError: Error | undefined
-  let source: 'llm' | 'fallback' = 'llm'
   let query = {
-    keywords: [...pending.fallback],
+    keywords: [] as string[],
     timeRange: null as PendingMemoryQuery['parse'] extends (responseText: string) => infer T
       ? T extends { timeRange: infer R }
         ? R
         : null
       : null,
   }
-  let memories: NonNullable<TurnContext['state']['memories']> | undefined
+  let memories: NonNullable<TurnContext['state']['memories']> = []
 
   try {
     response = await provider.sendMessage({
@@ -635,35 +634,32 @@ async function runPendingMemoryQuery(
     query = pending.parse(extractContentText(response.content))
   } catch (err) {
     queryError = err instanceof Error ? err : new Error(String(err))
-    source = 'fallback'
-    query = {
-      keywords: [...pending.fallback],
-      timeRange: null,
-    }
   }
 
   ctx.state.memoryRetrievalKeywords = query.keywords
   ctx.state.memoryRetrievalTimeRange = query.timeRange
+  ctx.state.memories = []
 
-  try {
-    memories = await pending.retrieve(query)
-    ctx.state.memories = memories
-    const hits = memories.map((memory) => serializeMemoryHit(memory, query.keywords))
-    ctx.turnMetadata.memory = {
-      hitCount: memories.length,
-      keywords: [...query.keywords],
-      fallbackKeywords: [...pending.fallback],
-      timeRange: query.timeRange
-        ? {
-            start: query.timeRange.start.toISOString(),
-            end: query.timeRange.end.toISOString(),
-          }
-        : null,
-      memoryIds: memories.map((memory) => memory.id),
-      hits,
+  if (!queryError && (query.keywords.length > 0 || query.timeRange)) {
+    try {
+      memories = await pending.retrieve(query)
+      ctx.state.memories = memories
+      const hits = memories.map((memory) => serializeMemoryHit(memory, query.keywords))
+      ctx.turnMetadata.memory = {
+        hitCount: memories.length,
+        keywords: [...query.keywords],
+        timeRange: query.timeRange
+          ? {
+              start: query.timeRange.start.toISOString(),
+              end: query.timeRange.end.toISOString(),
+            }
+          : null,
+        memoryIds: memories.map((memory) => memory.id),
+        hits,
+      }
+    } catch (err) {
+      retrieveError = err instanceof Error ? err : new Error(String(err))
     }
-  } catch (err) {
-    retrieveError = err instanceof Error ? err : new Error(String(err))
   }
 
   const error =
@@ -672,8 +668,6 @@ async function runPendingMemoryQuery(
       : queryError ?? retrieveError
   const metadata: Record<string, unknown> = {
     phase: 'retrieve',
-    source,
-    fallbackKeywords: [...pending.fallback],
     keywords: [...query.keywords],
     timeRange: query.timeRange
       ? {
@@ -683,7 +677,7 @@ async function runPendingMemoryQuery(
       : null,
   }
 
-  if (memories) {
+  if (!queryError && (query.keywords.length > 0 || query.timeRange)) {
     const hits = memories.map((memory) => serializeMemoryHit(memory, query.keywords))
     metadata.hitCount = memories.length
     metadata.memoryIds = memories.map((memory) => memory.id)

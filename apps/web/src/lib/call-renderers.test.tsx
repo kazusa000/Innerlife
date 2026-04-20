@@ -10,7 +10,6 @@ test('MemoryView renders retrieve time range metadata', () => {
       metadata: {
         phase: 'retrieve',
         keywords: ['修bug'],
-        fallbackKeywords: ['bug'],
         timeRange: {
           start: '2026-04-20T13:55:00.000Z',
           end: '2026-04-20T14:00:00.000Z',
