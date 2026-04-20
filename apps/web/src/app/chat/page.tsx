@@ -30,6 +30,7 @@ function ChatPageInner() {
   const [agent, setAgent] = useState<Agent | null>(null)
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [isResettingContext, setIsResettingContext] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -85,11 +86,37 @@ function ChatPageInner() {
     }
   }, [agentId])
 
+  async function handleResetContext() {
+    if (!agentId || isResettingContext) {
+      return
+    }
+
+    setIsResettingContext(true)
+    try {
+      const sessionRes = await fetch(`/api/agents/${agentId}/active-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reset: true }),
+      })
+      if (!sessionRes.ok) {
+        throw new Error('failed to reset context')
+      }
+      const sessionData = await sessionRes.json() as { session: { id: string } }
+      setCurrentId(sessionData.session.id)
+    } catch {
+      // Keep current session if reset fails.
+    } finally {
+      setIsResettingContext(false)
+    }
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
       <Sidebar
         agentName={agent?.name}
         onBack={() => router.push('/')}
+        onResetContext={handleResetContext}
+        isResetting={isResettingContext}
       />
       {loaded && currentId ? (
         <ChatArea

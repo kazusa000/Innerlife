@@ -109,3 +109,34 @@ test('resolveActiveSession returns 404 for unknown agents', async () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('resolveActiveSession with reset creates a fresh active session and archives older ones', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-active-session-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const older = sessionRepo.createSession('agent-1', 'older')
+    const latest = sessionRepo.createSession('agent-1', 'latest')
+    getRawSqlite().exec(`
+      UPDATE sessions SET updated_at = 1713500000000 WHERE id = '${older.id}';
+      UPDATE sessions SET updated_at = 1713600000000 WHERE id = '${latest.id}';
+    `)
+
+    const response = resolveActiveSession('agent-1', { reset: true })
+    const body = await response.json()
+    const sessions = sessionRepo.listSessionsByAgent('agent-1')
+
+    assert.equal(response.status, 200)
+    assert.equal(body.session.agentId, 'agent-1')
+    assert.notEqual(body.session.id, latest.id)
+    assert.equal(sessionRepo.getLatestActiveSessionByAgent('agent-1')?.id, body.session.id)
+    assert.equal(sessions.filter((session) => session.status === 'active').length, 1)
+    assert.equal(sessionRepo.getSession(older.id)?.status, 'archived')
+    assert.equal(sessionRepo.getSession(latest.id)?.status, 'archived')
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

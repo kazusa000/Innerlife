@@ -35,6 +35,18 @@ export function getLatestActiveSessionByAgent(agentId: string) {
     .get()
 }
 
+export function archiveActiveSessionsByAgent(agentId: string) {
+  const db = getDb()
+  db
+    .update(sessions)
+    .set({
+      status: 'archived',
+      updatedAt: new Date(),
+    })
+    .where(and(eq(sessions.agentId, agentId), eq(sessions.status, 'active')))
+    .run()
+}
+
 export function listAllSessions() {
   const db = getDb()
   return db.select().from(sessions).orderBy(desc(sessions.updatedAt)).all()

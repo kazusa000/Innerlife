@@ -3,6 +3,8 @@
 interface Props {
   agentName?: string
   onBack?: () => void
+  onResetContext?: () => void
+  isResetting?: boolean
 }
 
 function gradientFor(seed: string) {
@@ -19,7 +21,7 @@ function initials(name: string) {
   return s.toUpperCase()
 }
 
-export function Sidebar({ agentName, onBack }: Props) {
+export function Sidebar({ agentName, onBack, onResetContext, isResetting = false }: Props) {
   return (
     <aside className="sidebar">
       {agentName && (
@@ -67,6 +69,16 @@ export function Sidebar({ agentName, onBack }: Props) {
         <p className="rail-note-body">
           进入聊天时会自动解析当前 active session。网页端不再提供新建、切换或删除 session。
         </p>
+        {onResetContext && (
+          <button
+            type="button"
+            className="context-reset-btn"
+            onClick={onResetContext}
+            disabled={isResetting}
+          >
+            {isResetting ? '正在清除上下文…' : '清除上下文'}
+          </button>
+        )}
       </div>
 
       <style jsx>{`
@@ -203,6 +215,30 @@ export function Sidebar({ agentName, onBack }: Props) {
           color: var(--fg-muted);
           font-size: 12px;
           line-height: 1.55;
+        }
+        .context-reset-btn {
+          width: 100%;
+          margin-top: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.06);
+          color: var(--fg);
+          border-radius: 12px;
+          padding: 11px 12px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition:
+            background var(--dur) var(--ease),
+            border-color var(--dur) var(--ease),
+            opacity var(--dur) var(--ease);
+        }
+        .context-reset-btn:hover:not(:disabled) {
+          background: rgba(255, 255, 255, 0.1);
+          border-color: rgba(255, 255, 255, 0.18);
+        }
+        .context-reset-btn:disabled {
+          opacity: 0.6;
+          cursor: wait;
         }
       `}</style>
     </aside>
