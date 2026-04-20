@@ -205,49 +205,53 @@ export async function* runAgent(
     if (response.stopReason !== 'tool_use') {
       ctx.pendingMemoryWrite = undefined
 
-      const emotion = await runPendingEmotionAnalysis(
-        ctx.pendingEmotionAnalysis,
-        config,
-        provider,
-        observer,
-        signal,
-      )
+      yield* runSystemPhase(selectSystemsByType(systems, 'memory'), 'afterTurn', ctx)
 
-      if (emotion.event) {
-        yield emotion.event
-      }
+      const [emotion, relationship, memoryWrite] = await Promise.all([
+        runPendingEmotionAnalysis(
+          ctx.pendingEmotionAnalysis,
+          config,
+          provider,
+          observer,
+          signal,
+        ),
+        runPendingRelationshipAnalysis(
+          ctx.pendingRelationshipAnalysis,
+          config,
+          provider,
+          observer,
+          signal,
+        ),
+        runPendingMemoryWrite(
+          ctx.pendingMemoryWrite,
+          config,
+          provider,
+          observer,
+          signal,
+        ),
+      ])
 
       if (emotion.analysis) {
         ctx.emotionAnalysis = emotion.analysis
-      }
-
-      const relationship = await runPendingRelationshipAnalysis(
-        ctx.pendingRelationshipAnalysis,
-        config,
-        provider,
-        observer,
-        signal,
-      )
-
-      if (relationship.event) {
-        yield relationship.event
       }
 
       if (relationship.analysis) {
         ctx.relationshipAnalysis = relationship.analysis
       }
 
-      yield* runSystemPhase(systems, 'afterTurn', ctx)
-      const memoryWrite = await runPendingMemoryWrite(
-        ctx.pendingMemoryWrite,
-        config,
-        provider,
-        observer,
-        signal,
-      )
+      if (emotion.event) {
+        yield emotion.event
+      }
+
+      if (relationship.event) {
+        yield relationship.event
+      }
+
       if (memoryWrite.event) {
         yield memoryWrite.event
       }
+
+      yield* runSystemPhase(rejectSystemsByType(systems, 'memory'), 'afterTurn', ctx)
       yield { type: 'complete', response }
       return
     }
@@ -1010,4 +1014,12 @@ async function* runSystemPhase(
       yield result
     }
   }
+}
+
+function selectSystemsByType(systems: AgentSystem[], type: AgentSystem['type']): AgentSystem[] {
+  return systems.filter((system) => system.type === type)
+}
+
+function rejectSystemsByType(systems: AgentSystem[], type: AgentSystem['type']): AgentSystem[] {
+  return systems.filter((system) => system.type !== type)
 }

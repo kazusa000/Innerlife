@@ -734,3 +734,137 @@ test('runAgent emits system_error without fallback retrieval when memory query r
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('runAgent executes post-turn emotion, relationship, and memory LLM calls in parallel', async () => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  const persisted: string[] = []
+  let maxConcurrentPostTurnCalls = 0
+  let activePostTurnCalls = 0
+
+  const systems: AgentSystem[] = [
+    {
+      name: 'memory:sqlite',
+      type: 'memory',
+      async afterTurn(ctx) {
+        ctx.pendingMemoryWrite = {
+          kind: 'sqlite',
+          system: 'memory:sqlite',
+          model: 'memory-model',
+          prompt: 'memory summary prompt',
+          sourceText: 'User: 你好\nAssistant: 你好呀',
+          parse() {
+            return {
+              summary: '用户打了招呼',
+              tags: ['打招呼'],
+              importance: 0.4,
+            }
+          },
+          async persist() {
+            persisted.push('memory')
+          },
+        }
+      },
+    },
+    {
+      name: 'emotion:dimensional',
+      type: 'emotion',
+      async afterLLM(ctx) {
+        ctx.pendingEmotionAnalysis = {
+          kind: 'dimensional',
+          model: 'emotion-model',
+          systemPrompt: 'emotion prompt',
+          messages: [{ role: 'user', content: [{ type: 'text', text: 'emotion input' }] }],
+          currentState: { mood: 0, energy: 0, stress: 0 },
+          baseline: { mood: 0, energy: 0, stress: 0 },
+          decayPerTurn: 0.1,
+        }
+      },
+      async afterTurn(ctx) {
+        if (ctx.emotionAnalysis) {
+          persisted.push('emotion')
+        }
+      },
+    },
+    {
+      name: 'relationship:multi-dim',
+      type: 'relationship',
+      async afterLLM(ctx) {
+        ctx.pendingRelationshipAnalysis = {
+          kind: 'multi-dim',
+          model: 'relationship-model',
+          systemPrompt: 'relationship prompt',
+          messages: [{ role: 'user', content: [{ type: 'text', text: 'relationship input' }] }],
+          currentState: { trust: 0.5, affinity: 0.5, familiarity: 0.1, respect: 0.5 },
+          baseline: { trust: 0.5, affinity: 0.5, familiarity: 0.1, respect: 0.5 },
+          decayPerTurn: 0.1,
+        }
+      },
+      async afterTurn(ctx) {
+        if (ctx.relationshipAnalysis) {
+          persisted.push('relationship')
+        }
+      },
+    },
+  ]
+
+  const provider: LLMProvider = {
+    name: 'parallel-fake',
+    async *streamMessage(params) {
+      assert.equal(params.systemPrompt, 'test')
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: '主回复完成' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 8, outputTokens: 4 },
+        },
+      }
+    },
+    async sendMessage(params) {
+      activePostTurnCalls += 1
+      maxConcurrentPostTurnCalls = Math.max(maxConcurrentPostTurnCalls, activePostTurnCalls)
+      await sleep(20)
+      activePostTurnCalls -= 1
+
+      if (params.systemPrompt === 'emotion prompt') {
+        return {
+          content: [{ type: 'text', text: '{"mood_delta":0.1,"energy_delta":0,"stress_delta":0,"trigger":"greeting"}' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 3, outputTokens: 3 },
+        }
+      }
+
+      if (params.systemPrompt === 'relationship prompt') {
+        return {
+          content: [{ type: 'text', text: '{"trust_delta":0.05,"affinity_delta":0.04,"familiarity_delta":0.02,"respect_delta":0.01,"trigger":"greeting"}' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 3, outputTokens: 3 },
+        }
+      }
+
+      if (params.systemPrompt === 'memory summary prompt') {
+        return {
+          content: [{ type: 'text', text: '{"summary":"用户打了招呼","tags":["打招呼"],"importance":0.4}' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 3, outputTokens: 3 },
+        }
+      }
+
+      throw new Error(`Unexpected systemPrompt: ${params.systemPrompt}`)
+    },
+  }
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig(),
+    [createTextMessage('user', '你好')],
+    provider,
+    systems,
+  )) {
+    events.push(event)
+  }
+
+  assert.equal(events.at(-1)?.type, 'complete')
+  assert.equal(maxConcurrentPostTurnCalls, 3)
+  assert.deepEqual(new Set(persisted), new Set(['emotion', 'relationship', 'memory']))
+})
