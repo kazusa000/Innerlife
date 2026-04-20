@@ -83,20 +83,6 @@ export interface EmotionStateVector {
   stress: number
 }
 
-export interface RelationshipDimensions {
-  trust: number
-  affinity: number
-  familiarity: number
-  respect: number
-}
-
-export interface RelationshipHistoryEntry {
-  summary: string
-  trigger: string | null
-  delta: RelationshipDimensions
-  createdAt: string
-}
-
 export interface PendingEmotionAnalysis {
   kind: 'dimensional'
   model?: string | null
@@ -109,22 +95,6 @@ export interface PendingEmotionAnalysis {
 
 export interface EmotionAnalysisResult {
   delta: EmotionStateVector
-  trigger: string | null
-  rawResponse: string
-}
-
-export interface PendingRelationshipAnalysis {
-  kind: 'multi-dim'
-  model?: string | null
-  systemPrompt: string
-  messages: ConversationMessage[]
-  currentState: RelationshipDimensions
-  baseline: RelationshipDimensions
-  decayPerTurn: number
-}
-
-export interface RelationshipAnalysisResult {
-  delta: RelationshipDimensions
   trigger: string | null
   rawResponse: string
 }
@@ -150,9 +120,7 @@ export interface TurnContext {
   pendingMemoryQuery?: PendingMemoryQuery
   pendingMemoryWrite?: PendingMemoryWrite
   pendingEmotionAnalysis?: PendingEmotionAnalysis
-  pendingRelationshipAnalysis?: PendingRelationshipAnalysis
   emotionAnalysis?: EmotionAnalysisResult
-  relationshipAnalysis?: RelationshipAnalysisResult
   response?: {
     content: unknown[]
     stopReason: string

@@ -3,7 +3,6 @@ import { DimensionalEmotionSystem } from './emotion'
 import { MemorySqliteSystem } from './memory'
 import { HelloWorldSystem, NoopSystem } from './noop'
 import { BigFivePersonalitySystem } from './personality'
-import { MultiDimRelationshipSystem } from './relationship'
 import { ValuesPriorityListSystem } from './values'
 import type { AgentModules, AgentSystem, SystemRegistry } from './types'
 
@@ -27,10 +26,6 @@ export const systemRegistry: SystemRegistry = {
   personality: {
     noop: () => new NoopSystem('personality'),
     'big-five': (config) => new BigFivePersonalitySystem(config),
-  },
-  relationship: {
-    noop: () => new NoopSystem('relationship'),
-    'multi-dim': (config) => new MultiDimRelationshipSystem(config),
   },
   values: {
     noop: () => new NoopSystem('values'),

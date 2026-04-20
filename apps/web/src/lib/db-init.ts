@@ -89,22 +89,9 @@ export function initDb() {
       trigger TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
-    CREATE TABLE IF NOT EXISTS relationships (
-      id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL REFERENCES agents(id),
-      counterpart_type TEXT NOT NULL,
-      counterpart_id TEXT NOT NULL,
-      dimensions TEXT NOT NULL,
-      history TEXT NOT NULL,
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
-    );
     CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id, started_at);
     CREATE INDEX IF NOT EXISTS idx_llm_calls_user_msg ON llm_calls(user_message_id, turn_index);
     CREATE INDEX IF NOT EXISTS idx_emotion_states_session ON emotion_states(session_id, created_at);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_relationships_agent_counterpart
-      ON relationships(agent_id, counterpart_type, counterpart_id);
-    CREATE INDEX IF NOT EXISTS idx_relationships_agent_updated_at
-      ON relationships(agent_id, updated_at);
   `)
   const columns = sqlite.pragma("table_info('agents')") as Array<{ name: string }>
   if (!columns.some((column) => column.name === 'modules')) {
@@ -127,21 +114,6 @@ export function initDb() {
       trigger TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
-  `)
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS relationships (
-      id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL REFERENCES agents(id),
-      counterpart_type TEXT NOT NULL,
-      counterpart_id TEXT NOT NULL,
-      dimensions TEXT NOT NULL,
-      history TEXT NOT NULL,
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_relationships_agent_counterpart
-      ON relationships(agent_id, counterpart_type, counterpart_id);
-    CREATE INDEX IF NOT EXISTS idx_relationships_agent_updated_at
-      ON relationships(agent_id, updated_at);
   `)
   initialized = true
 }
