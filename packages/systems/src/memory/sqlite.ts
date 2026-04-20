@@ -123,15 +123,16 @@ function buildRetrievePrompt(): string {
     '你要为 sqlite 记忆系统准备一份语义检索查询。',
     '你会收到电脑当前的本地时间，以及用户最新一条消息。',
     '请严格返回如下 JSON 结构：',
-    '{"retrieval_query": string, "time_range": {"start": string, "end": string} | null, "focus": string | null}',
-    'retrieval_query 必须是更适合语义检索的自然语言改写，而不是关键词列表。',
-    'retrieval_query 要保留稳定主题、对象、事件和关系，去掉不必要的口语壳子。',
+    '{"retrieval_query": string | null, "time_range": {"start": string, "end": string} | null, "focus": string | null}',
+    'retrieval_query 表示更适合语义检索的自然语言改写，而不是关键词列表。',
+    '如果用户问题里存在稳定主题、对象、事件或关系锚点，就把这些锚点保留在 retrieval_query 里，去掉不必要的口语壳子。',
+    '如果用户主要是在回顾某个时间段内发生了什么，而没有明显的主题锚点，可以返回 "retrieval_query": null。',
     '如果用户表达了时间相关意图，请基于当前本地时间把它翻译成绝对的 time_range。',
     '如果用户没有表达时间相关意图，返回 "time_range": null。',
     '如果时间意图过于模糊、无法安全判断，也返回 "time_range": null。',
     'focus 是可选的短语，用来标记这次回忆的核心关注点；没有明显 focus 就返回 null。',
-    '如果用户主要是在问某个时间段内发生了什么，retrieval_query 应聚焦“那段时间内发生的互动或事件”，不要把时间词本身堆成关键词。',
-    '例子：如果用户说“昨天发生了什么”，可以返回 {"retrieval_query":"昨天和用户之间发生的事情","time_range":{"start":"...","end":"..."},"focus":"昨天发生的事"}。',
+    '例子：如果用户说“昨天发生了什么”，可以返回 {"retrieval_query":null,"time_range":{"start":"...","end":"..."},"focus":"昨天发生的事"}。',
+    '例子：如果用户说“你昨天在修什么 bug”，可以返回 {"retrieval_query":"用户昨天提到的 bug 修复内容","time_range":{"start":"...","end":"..."},"focus":"bug 修复"}。',
     '例子：如果用户说“你记得我叫什么吗”，可以返回 {"retrieval_query":"用户告诉过我的名字","time_range":null,"focus":"名字"}。',
     '"start" 和 "end" 必须是 ISO 8601 datetime 字符串。',
     '不要输出 markdown、代码块或任何额外说明。',
@@ -312,7 +313,9 @@ function parseMemoryQueryResponse(responseText: string): MemoryQueryResult {
   }
 
   const record = parsed as Record<string, unknown>
-  const retrievalQuery = typeof record.retrieval_query === 'string' ? record.retrieval_query.trim() : ''
+  const retrievalQuery = typeof record.retrieval_query === 'string' && record.retrieval_query.trim()
+    ? record.retrieval_query.trim()
+    : null
   const timeRange = parseTimeRange(record.time_range)
   const focus = typeof record.focus === 'string' && record.focus.trim()
     ? record.focus.trim()
@@ -461,6 +464,7 @@ export class MemorySqliteSystem implements AgentSystem {
       parse: parseMemoryQueryResponse,
       retrieve: async (query) => {
         const queryTexts = [ctx.input.text, query.retrievalQuery]
+          .filter((text): text is string => typeof text === 'string')
           .map((text) => text.trim())
           .filter(Boolean)
         const queryEmbeddings = await this.embedder.embed(queryTexts, {

@@ -628,7 +628,11 @@ async function runPendingMemoryQuery(
   let queryError: Error | undefined
   let retrieveError: Error | undefined
   let query = {
-    retrievalQuery: '',
+    retrievalQuery: null as PendingMemoryQuery['parse'] extends (responseText: string) => infer T
+      ? T extends { retrievalQuery: infer R }
+        ? R
+        : null
+      : null,
     timeRange: null as PendingMemoryQuery['parse'] extends (responseText: string) => infer T
       ? T extends { timeRange: infer R }
         ? R

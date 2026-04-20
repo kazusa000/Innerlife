@@ -71,7 +71,7 @@ export interface MemoryReasoningConfig {
 }
 
 export interface MemoryQueryResult {
-  retrievalQuery: string
+  retrievalQuery: string | null
   timeRange: MemoryTimeRange | null
   focus: string | null
 }

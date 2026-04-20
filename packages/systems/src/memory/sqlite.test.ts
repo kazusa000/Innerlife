@@ -235,7 +235,7 @@ test('memory sqlite system parses and persists display summary plus retrieval te
   }
 })
 
-test('memory sqlite query parse returns retrieval query, optional time range, and optional focus', { concurrency: false }, async () => {
+test('memory sqlite query parse allows pure time recall without retrieval query', { concurrency: false }, async () => {
   const system = new MemorySqliteSystem({
     retrieveTopK: 5,
     embedder: createEmbedder({}),
@@ -245,7 +245,7 @@ test('memory sqlite query parse returns retrieval query, optional time range, an
   await system.beforeTurn?.(ctx)
 
   const parsed = ctx.pendingMemoryQuery?.parse(JSON.stringify({
-    retrieval_query: '刚才和用户之间发生的互动',
+    retrieval_query: null,
     time_range: {
       start: '2026-04-20T13:55:00+02:00',
       end: '2026-04-20T14:00:00+02:00',
@@ -254,11 +254,39 @@ test('memory sqlite query parse returns retrieval query, optional time range, an
   }))
 
   assert.deepEqual(parsed, {
-    retrievalQuery: '刚才和用户之间发生的互动',
+    retrievalQuery: null,
     timeRange: {
       start: new Date('2026-04-20T13:55:00+02:00'),
       end: new Date('2026-04-20T14:00:00+02:00'),
     },
     focus: '刚才在做什么',
+  })
+})
+
+test('memory sqlite query parse keeps semantic retrieval query when time and topic both matter', { concurrency: false }, async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('你昨天在修什么 bug')
+
+  await system.beforeTurn?.(ctx)
+
+  const parsed = ctx.pendingMemoryQuery?.parse(JSON.stringify({
+    retrieval_query: '用户昨天提到的 bug 修复内容',
+    time_range: {
+      start: '2026-04-19T00:00:00+02:00',
+      end: '2026-04-19T23:59:59+02:00',
+    },
+    focus: 'bug 修复',
+  }))
+
+  assert.deepEqual(parsed, {
+    retrievalQuery: '用户昨天提到的 bug 修复内容',
+    timeRange: {
+      start: new Date('2026-04-19T00:00:00+02:00'),
+      end: new Date('2026-04-19T23:59:59+02:00'),
+    },
+    focus: 'bug 修复',
   })
 })

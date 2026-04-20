@@ -290,6 +290,139 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
   }
 })
 
+test('runAgent supports pure time-range recall without a retrieval query', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+    const existingMemory = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: '用户昨天晚饭吃了番茄鸡蛋面。',
+      displaySummary: '用户昨晚吃了番茄鸡蛋面',
+      retrievalText: '用户昨晚晚饭吃了番茄鸡蛋面，还加了很多胡椒。',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
+      tags: ['晚饭', '番茄鸡蛋面'],
+      importance: 0.8,
+      createdAt: new Date('2026-04-19T18:30:00.000Z'),
+    })
+
+    const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
+    const provider = new FakeProvider(async function* (params) {
+      if (isMemoryRetrievePrompt(params.systemPrompt)) {
+        yield {
+          type: 'message_complete',
+          response: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  retrieval_query: null,
+                  time_range: {
+                    start: '2026-04-19T00:00:00.000Z',
+                    end: '2026-04-19T23:59:59.000Z',
+                  },
+                  focus: '昨天发生的事',
+                }),
+              },
+            ],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 5, outputTokens: 4 },
+          },
+        }
+        return
+      }
+
+      if (params.systemPrompt.includes('"display_summary": string')) {
+        yield {
+          type: 'message_complete',
+          response: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  display_summary: '用户昨天提到自己昨晚吃了番茄鸡蛋面',
+                  retrieval_text: '用户昨天提到自己昨晚吃了很多胡椒的番茄鸡蛋面。',
+                  tags: ['晚饭', '番茄鸡蛋面', '胡椒'],
+                  importance: 0.7,
+                }),
+              },
+            ],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 6, outputTokens: 8 },
+          },
+        }
+        return
+      }
+
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: '你昨天提到晚饭吃了番茄鸡蛋面。' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 12, outputTokens: 5 },
+        },
+      }
+    })
+
+    const observer: RunAgentObserver = {
+      onLLMCallStart() {
+        return 'call'
+      },
+      onLLMCallEnd(_callId, payload) {
+        observerEnds.push({ metadata: payload.metadata, error: payload.error })
+      },
+    }
+
+    const events = []
+    for await (const event of runAgent(
+      createConfig(),
+      [createTextMessage('user', '昨天发生了什么')],
+      provider,
+      createSystems({
+        memory: {
+          scheme: 'sqlite',
+          summarizeModel: 'memory-model',
+          embeddingModel: 'qwen/qwen3-embedding-0.6b',
+          retrieveTopK: 5,
+          embedder: createEmbedder({
+            '昨天发生了什么': [0, 1],
+            '用户昨天提到自己昨晚吃了很多胡椒的番茄鸡蛋面。': [1, 0],
+          }),
+        },
+      }),
+      observer,
+    )) {
+      events.push(event)
+    }
+
+    assert.equal(events.at(-1)?.type, 'complete')
+    const retrieveMetadata = observerEnds[0]?.metadata as {
+      retrievalQuery?: string | null
+      focus?: string | null
+      hitCount?: number
+      memoryIds?: string[]
+      timeRange?: { start: string; end: string } | null
+    }
+    assert.equal(retrieveMetadata?.retrievalQuery ?? null, null)
+    assert.equal(retrieveMetadata?.focus, '昨天发生的事')
+    assert.equal(retrieveMetadata?.hitCount, 1)
+    assert.deepEqual(retrieveMetadata?.memoryIds, [existingMemory.id])
+    assert.deepEqual(retrieveMetadata?.timeRange, {
+      start: '2026-04-19T00:00:00.000Z',
+      end: '2026-04-19T23:59:59.000Z',
+    })
+    assert.equal(observerEnds[0]?.error, undefined)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('runAgent emits system_error and skips memory retrieval when memory query call throws', async () => {
   const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
   const observer: RunAgentObserver = {
@@ -371,7 +504,7 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
   assert.equal(events.at(-1)?.type, 'complete')
   assert.deepEqual(observerEnds[0]?.metadata, {
     phase: 'retrieve',
-    retrievalQuery: '',
+    retrievalQuery: null,
     focus: null,
     timeRange: null,
   })
@@ -573,12 +706,12 @@ test('runAgent emits system_error without fallback retrieval when memory query r
 
   assert.deepEqual(observerEnds[0]?.metadata, {
     phase: 'retrieve',
-    retrievalQuery: '',
+    retrievalQuery: null,
     focus: null,
     timeRange: null,
   })
   assert.equal((observerEnds[3]?.metadata as { phase?: string })?.phase, 'retrieve')
-  assert.equal((observerEnds[3]?.metadata as { retrievalQuery?: string })?.retrievalQuery, '')
+  assert.equal((observerEnds[3]?.metadata as { retrievalQuery?: string | null })?.retrievalQuery ?? null, null)
   assert.equal((observerEnds[3]?.metadata as { hitCount?: number })?.hitCount, undefined)
 })
 
