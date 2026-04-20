@@ -89,3 +89,14 @@ export function getLatestEmotionStateBySession(sessionId: string) {
 
   return row ? mapEmotionState(row) : undefined
 }
+
+export function listRecentEmotionStatesByAgent(agentId: string, limit = 10) {
+  const db = getDb()
+  return db.select()
+    .from(emotionStates)
+    .where(eq(emotionStates.agentId, agentId))
+    .orderBy(desc(emotionStates.createdAt), desc(emotionStates.id))
+    .limit(limit)
+    .all()
+    .map(mapEmotionState)
+}
