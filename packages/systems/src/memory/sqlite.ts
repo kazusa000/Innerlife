@@ -128,10 +128,13 @@ function buildRetrievePrompt(): string {
     '如果用户问题里存在稳定主题、对象、事件或关系锚点，就把这些锚点保留在 retrieval_query 里，去掉不必要的口语壳子。',
     '如果用户主要是在回顾某个时间段内发生了什么，而没有明显的主题锚点，可以返回 "retrieval_query": null。',
     '如果用户表达了时间相关意图，请基于当前本地时间把它翻译成绝对的 time_range。',
+    '当用户说“刚刚”“刚才”“前面”“上一句”这类近期回顾时，time_range 应该是覆盖最近一小段时间的短时间窗口，而不是单一时间点。',
+    '不要把“刚刚”理解成只有当前这一秒；如果用户在回顾最近说过的话，time_range 应该覆盖足以包含刚才那段对话的时间窗口。',
     '如果用户没有表达时间相关意图，返回 "time_range": null。',
     '如果时间意图过于模糊、无法安全判断，也返回 "time_range": null。',
     'focus 是可选的短语，用来标记这次回忆的核心关注点；没有明显 focus 就返回 null。',
     '例子：如果用户说“昨天发生了什么”，可以返回 {"retrieval_query":null,"time_range":{"start":"...","end":"..."},"focus":"昨天发生的事"}。',
+    '例子：如果用户说“我刚刚和你说了什么”，重点是回忆最近一小段时间内用户说过的话，而不是生成空泛的检索改写；这时应该返回覆盖最近几分钟的短时间窗口，而不是单点时间，例如 {"retrieval_query":null,"time_range":{"start":"当前时间前几分钟","end":"当前时间"},"focus":"用户刚刚说过的话"}。',
     '例子：如果用户说“你昨天在修什么 bug”，可以返回 {"retrieval_query":"用户昨天提到的 bug 修复内容","time_range":{"start":"...","end":"..."},"focus":"bug 修复"}。',
     '例子：如果用户说“你记得我叫什么吗”，可以返回 {"retrieval_query":"用户告诉过我的名字","time_range":null,"focus":"名字"}。',
     '"start" 和 "end" 必须是 ISO 8601 datetime 字符串。',
@@ -144,13 +147,20 @@ function renderMemoryFragment(memories: MemoryRecord[]): string | null {
     return null
   }
 
+  const [primaryMemory, ...secondaryMemories] = memories
+
   return [
     '以下是本轮回复可直接依赖的相关记忆：',
     '把这些内容视为你这一轮可用的回忆。',
     '如果用户在询问先前互动、过去事实或最近发生的事情，而且这些记忆相关，就直接基于这些记忆回答。',
+    '如果用户是在回顾“我刚刚说了什么”“我们刚刚聊了什么”“我之前提到过什么”这类内容，优先直接复述命中的相关记忆。',
+    '优先从最新、最相关的命中开始回答；如果前面的记忆已经能回答，就不要被更旧的记忆带偏。',
+    '只有当最相关记忆不足以回答时，才参考下面的补充记忆。',
     '如果答案已经包含在这些记忆里，不要再声称自己记不住，或声称自己没有记忆能力。',
+    '不要先说“这是第一次对话”或“没有历史记录”，除非这些记忆本身就明确支持这个结论。',
     '如果这些记忆仍然不足以回答，就明确说你不确定，不要编造细节。',
-    ...memories.map((memory) => `- ${memory.displaySummary}`),
+    `最相关记忆（优先回答）：${primaryMemory.displaySummary}`,
+    ...secondaryMemories.map((memory) => `补充记忆：${memory.displaySummary}`),
   ].join('\n')
 }
 
@@ -278,6 +288,21 @@ function parseMemoryWriteResponse(responseText: string): MemoryWriteResult {
   }
 }
 
+function parseDateWithPrecision(value: string, side: 'start' | 'end'): Date {
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return date
+  }
+
+  const hasFractionalSeconds = /\.\d+(?:Z|[+-]\d{2}:\d{2})?$/.test(value)
+  if (side === 'end' && !hasFractionalSeconds) {
+    date.setMilliseconds(999)
+  }
+
+  return date
+}
+
 function parseTimeRange(value: unknown): MemoryQueryResult['timeRange'] {
   if (value == null) {
     return null
@@ -287,8 +312,8 @@ function parseTimeRange(value: unknown): MemoryQueryResult['timeRange'] {
   }
 
   const record = value as Record<string, unknown>
-  const start = typeof record.start === 'string' ? new Date(record.start) : null
-  const end = typeof record.end === 'string' ? new Date(record.end) : null
+  const start = typeof record.start === 'string' ? parseDateWithPrecision(record.start, 'start') : null
+  const end = typeof record.end === 'string' ? parseDateWithPrecision(record.end, 'end') : null
 
   if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     throw new Error('Memory query call returned an invalid time_range')
@@ -463,7 +488,12 @@ export class MemorySqliteSystem implements AgentSystem {
       inputText: buildRetrieveInputText(ctx.input.text),
       parse: parseMemoryQueryResponse,
       retrieve: async (query) => {
-        const queryTexts = [ctx.input.text, query.retrievalQuery]
+        const usePureTimeRecall = query.timeRange && !query.retrievalQuery
+        const useLatestUtteranceRecall =
+          usePureTimeRecall
+          && typeof query.focus === 'string'
+          && query.focus.includes('说过的话')
+        const queryTexts = (usePureTimeRecall ? [] : [ctx.input.text, query.retrievalQuery])
           .filter((text): text is string => typeof text === 'string')
           .map((text) => text.trim())
           .filter(Boolean)
@@ -475,7 +505,7 @@ export class MemorySqliteSystem implements AgentSystem {
         return memoryRepo.findRelevantMemories({
           agentId: ctx.agentId,
           queryEmbeddings,
-          topK: this.retrieveTopK,
+          topK: useLatestUtteranceRecall ? 1 : this.retrieveTopK,
           timeRange: query.timeRange,
         })
       },

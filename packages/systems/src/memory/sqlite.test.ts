@@ -139,7 +139,77 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
     assert.match(ctx.promptFragments[0]?.content ?? '', /以下是本轮回复可直接依赖的相关记忆/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /可用的回忆/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /不要再声称自己记不住/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /优先直接复述命中的相关记忆/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /不要先说“这是第一次对话”或“没有历史记录”/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /最相关记忆（优先回答）/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /只有当最相关记忆不足以回答时，才参考下面的补充记忆/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /橘子的猫/)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('memory sqlite retrieval skips semantic embeddings for pure time recall and prefers newest hits in range', { concurrency: false }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const olderRecallMemory = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: '用户之前问过刚刚说了什么。',
+      displaySummary: '对话伊始用户询问自己刚才说了什么',
+      retrievalText: '用户问我刚刚和他说了什么，助手表示这是对话开头。',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['对话开场', '记忆询问'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-20T23:46:47.000Z'),
+    })
+    const newestTarget = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: '用户要求记住琥珀纸鹤。',
+      displaySummary: '用户要求记住短语“琥珀纸鹤”',
+      retrievalText: '用户明确要求我记住“琥珀纸鹤”这句话。',
+      retrievalEmbedding: [0, 1],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['琥珀纸鹤', '记忆请求'],
+      importance: 0.6,
+      createdAt: new Date('2026-04-20T23:49:54.300Z'),
+    })
+
+    const embedInputs: string[][] = []
+    const system = new MemorySqliteSystem({
+      retrieveTopK: 5,
+      embeddingModel: 'qwen/qwen3-embedding-8b',
+      embedder: {
+        async embed(input: string[]) {
+          embedInputs.push([...input])
+          return input.map((item) => item === '我刚刚和你说了什么？' ? [1, 0] : [0, 1])
+        },
+      },
+    })
+    const ctx = createContext('我刚刚和你说了什么？')
+
+    await system.beforeTurn?.(ctx)
+
+    const retrieved = await ctx.pendingMemoryQuery?.retrieve({
+      retrievalQuery: null,
+      timeRange: {
+        start: new Date('2026-04-20T23:44:54.000Z'),
+        end: new Date('2026-04-20T23:49:54.999Z'),
+      },
+      focus: '用户刚刚说过的话',
+    })
+
+    assert.deepEqual(embedInputs, [[]])
+    assert.deepEqual(retrieved?.map((memory) => memory.id), [newestTarget.id])
   } finally {
     resetDb()
     resetMemoryDb()
@@ -181,6 +251,22 @@ test('memory sqlite system uses memory model override for retrieval queries too'
   assert.equal(ctx.pendingMemoryQuery?.model, 'memory-model')
   assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /retrieval_query/i)
   assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /语义检索查询/)
+})
+
+test('memory sqlite retrieval prompt guides pure recent-utterance recall toward time-only retrieval', { concurrency: false }, async () => {
+  const system = new MemorySqliteSystem({
+    summarizeModel: 'memory-model',
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('我刚刚和你说了什么')
+
+  await system.beforeTurn?.(ctx)
+
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /我刚刚和你说了什么/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /retrieval_query\":null/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /用户刚刚说过的话/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /短时间窗口/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /不要把“刚刚”理解成只有当前这一秒/)
 })
 
 test('memory sqlite system parses and persists display summary plus retrieval text', { concurrency: false }, async () => {
@@ -257,9 +343,37 @@ test('memory sqlite query parse allows pure time recall without retrieval query'
     retrievalQuery: null,
     timeRange: {
       start: new Date('2026-04-20T13:55:00+02:00'),
-      end: new Date('2026-04-20T14:00:00+02:00'),
+      end: new Date('2026-04-20T14:00:00.999+02:00'),
     },
     focus: '刚才在做什么',
+  })
+})
+
+test('memory sqlite query parse expands second-precision end timestamps to include the full second', { concurrency: false }, async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('我刚刚和你说了什么')
+
+  await system.beforeTurn?.(ctx)
+
+  const parsed = ctx.pendingMemoryQuery?.parse(JSON.stringify({
+    retrieval_query: null,
+    time_range: {
+      start: '2026-04-20T23:45:07+02:00',
+      end: '2026-04-20T23:48:07+02:00',
+    },
+    focus: '用户刚刚说过的话',
+  }))
+
+  assert.deepEqual(parsed, {
+    retrievalQuery: null,
+    timeRange: {
+      start: new Date('2026-04-20T23:45:07+02:00'),
+      end: new Date('2026-04-20T23:48:07.999+02:00'),
+    },
+    focus: '用户刚刚说过的话',
   })
 })
 
@@ -285,7 +399,7 @@ test('memory sqlite query parse keeps semantic retrieval query when time and top
     retrievalQuery: '用户昨天提到的 bug 修复内容',
     timeRange: {
       start: new Date('2026-04-19T00:00:00+02:00'),
-      end: new Date('2026-04-19T23:59:59+02:00'),
+      end: new Date('2026-04-19T23:59:59.999+02:00'),
     },
     focus: 'bug 修复',
   })

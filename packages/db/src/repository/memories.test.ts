@@ -197,6 +197,55 @@ test('findRelevantMemories keeps time-range candidates even when semantic simila
   }
 })
 
+test('findRelevantMemories prefers newest memories for pure time-range recall without semantic query', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapMemoryDb(dbPath)
+
+    const olderButImportant = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User said they love tomato egg noodles.',
+      displaySummary: '用户最喜欢番茄鸡蛋面',
+      retrievalText: '用户说自己最喜欢吃番茄鸡蛋面。',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['番茄鸡蛋面', '喜好'],
+      importance: 0.95,
+      createdAt: new Date('2026-04-20T23:35:00.000Z'),
+    })
+    const newest = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User asked to remember the phrase blue balloon.',
+      displaySummary: '用户要求记住“蓝色热气球”这一表述。',
+      retrievalText: '用户明确要求记住“蓝色热气球”这句话。',
+      retrievalEmbedding: vector([0.5, 0.5]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['蓝色热气球', '记忆请求'],
+      importance: 0.6,
+      createdAt: new Date('2026-04-20T23:42:18.000Z'),
+    })
+
+    const results = findRelevantMemories({
+      agentId: 'agent-1',
+      queryEmbeddings: [],
+      topK: 5,
+      timeRange: {
+        start: new Date('2026-04-20T23:32:00.000Z'),
+        end: new Date('2026-04-20T23:43:00.000Z'),
+      },
+    })
+
+    assert.deepEqual(results.map((memory) => memory.id), [newest.id, olderButImportant.id])
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('applyConsolidationPlan keeps, rewrites, and merges memories in one transaction', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
   const dbPath = join(dir, 'memory.db')
