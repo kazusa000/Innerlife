@@ -414,67 +414,107 @@ export default function HomePage() {
 
             return (
               <article key={agent.id} className="card persona">
-                <div
-                  className="avatar"
-                  style={{ backgroundImage: gradientFor(agent.id) }}
-                >
-                  {initials(agent.name)}
+                <div className="persona-stage">
+                  <div
+                    className="avatar avatar-hero"
+                    style={{ backgroundImage: gradientFor(agent.id) }}
+                  >
+                    {initials(agent.name)}
+                  </div>
+
+                  <div className="persona-body">
+                    <div className="persona-head">
+                      <div className="persona-id">
+                        <div className="persona-badges">
+                          <span className="provider-pill">{agent.provider}</span>
+                          <span className="model-pill">
+                            {MODEL_LABELS[agent.model] ?? agent.model}
+                          </span>
+                        </div>
+                        <h3 className="persona-name">{agent.name}</h3>
+                        <p className="persona-meta">Control-ready virtual companion</p>
+                      </div>
+
+                      <div className="persona-admin">
+                        <button className="admin-chip" onClick={() => startEdit(agent)}>
+                          Edit persona
+                        </button>
+                        <button
+                          className="admin-chip admin-chip-danger"
+                          onClick={() => handleDelete(agent.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+
+                    {agent.description && (
+                      <p className="persona-desc">{agent.description}</p>
+                    )}
+                  </div>
                 </div>
 
-                <div className="persona-body">
-                  <div className="persona-head">
+                <div className="scheme-pills scheme-pills-elevated">
+                  <span className="scheme-pill">性格 · {formatSchemeLabel(schemes.personality)}</span>
+                  <span className="scheme-pill">情绪 · {formatSchemeLabel(schemes.emotion)}</span>
+                  <span className="scheme-pill">关系 · {formatSchemeLabel(schemes.relationship)}</span>
+                  <span className="scheme-pill">记忆 · {formatSchemeLabel(schemes.memory)}</span>
+                </div>
+
+                <div className="persona-console">
+                  <div className="console-head">
                     <div>
-                      <h3 className="persona-name">{agent.name}</h3>
-                      <p className="persona-meta">
-                        {agent.provider} · {MODEL_LABELS[agent.model] ?? agent.model}
-                      </p>
+                      <p className="console-label">Control Deck</p>
+                      <h4 className="console-title">Manage this persona from one dock</h4>
                     </div>
-                    <span className="model-pill">
-                      {MODEL_LABELS[agent.model] ?? agent.model}
-                    </span>
-                  </div>
-
-                  {agent.description && (
-                    <p className="persona-desc">{agent.description}</p>
-                  )}
-
-                  <div className="scheme-pills">
-                    <span className="scheme-pill">性格: {formatSchemeLabel(schemes.personality)}</span>
-                    <span className="scheme-pill">情绪: {formatSchemeLabel(schemes.emotion)}</span>
-                    <span className="scheme-pill">关系: {formatSchemeLabel(schemes.relationship)}</span>
-                    <span className="scheme-pill">记忆: {formatSchemeLabel(schemes.memory)}</span>
-                  </div>
-
-                  <div className="persona-actions">
                     <button
-                      className="btn btn-primary"
+                      className="btn btn-primary console-chat"
                       onClick={() => handleChat(agent.id)}
                     >
-                      Chat
-                    </button>
-                    <button className="btn" onClick={() => startEdit(agent)}>
-                      Edit
-                    </button>
-                    <button
-                      className="btn btn-danger"
-                      onClick={() => handleDelete(agent.id)}
-                    >
-                      Delete
+                      Open Chat
                     </button>
                   </div>
 
-                  <div className="manager-actions">
-                    <button className="btn btn-secondary" onClick={() => openManager(agent.id, 'personality')}>
-                      Personality
+                  <div className="manager-grid">
+                    <button
+                      className="manager-tile"
+                      onClick={() => openManager(agent.id, 'personality')}
+                    >
+                      <span className="manager-index">01</span>
+                      <span className="manager-copy">
+                        <strong>Personality</strong>
+                        <small>Traits, voice, background</small>
+                      </span>
                     </button>
-                    <button className="btn btn-secondary" onClick={() => openManager(agent.id, 'emotion')}>
-                      Emotion
+                    <button
+                      className="manager-tile"
+                      onClick={() => openManager(agent.id, 'emotion')}
+                    >
+                      <span className="manager-index">02</span>
+                      <span className="manager-copy">
+                        <strong>Emotion</strong>
+                        <small>State, baseline, drift</small>
+                      </span>
                     </button>
-                    <button className="btn btn-secondary" onClick={() => openManager(agent.id, 'relationships')}>
-                      Relationship
+                    <button
+                      className="manager-tile"
+                      onClick={() => openManager(agent.id, 'relationships')}
+                    >
+                      <span className="manager-index">03</span>
+                      <span className="manager-copy">
+                        <strong>Relationship</strong>
+                        <small>Bond, trust, history</small>
+                      </span>
                     </button>
-                    <button className="btn btn-secondary" onClick={() => openManager(agent.id, 'memory')}>
-                      Memory
+                    <button
+                      className="manager-tile"
+                      onClick={() => openManager(agent.id, 'memory')}
+                    >
+                      <span className="manager-index">04</span>
+                      <span className="manager-copy">
+                        <strong>Memory</strong>
+                        <small>Archive, search, consolidate</small>
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -678,40 +718,73 @@ export default function HomePage() {
         .grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-          gap: 16px;
+          gap: 18px;
         }
         .persona {
-          padding: 20px;
+          padding: 22px;
           display: flex;
+          flex-direction: column;
+          gap: 18px;
+          position: relative;
+          overflow: hidden;
+        }
+        .persona::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(circle at top right, rgba(236, 72, 153, 0.16), transparent 34%),
+            radial-gradient(circle at bottom left, rgba(129, 140, 248, 0.18), transparent 30%);
+          pointer-events: none;
+        }
+        .persona-stage {
+          position: relative;
+          display: grid;
+          grid-template-columns: 74px minmax(0, 1fr);
           gap: 16px;
-          align-items: flex-start;
+          align-items: start;
+          z-index: 1;
         }
         .avatar {
-          width: 52px;
-          height: 52px;
-          border-radius: 16px;
           display: flex;
           align-items: center;
           justify-content: center;
           font-family: var(--font-display);
-          font-size: 18px;
           font-weight: 500;
           color: rgba(255, 255, 255, 0.95);
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
           flex-shrink: 0;
         }
+        .avatar-hero {
+          width: 74px;
+          height: 74px;
+          border-radius: 24px;
+          font-size: 24px;
+          border: 1px solid rgba(255, 255, 255, 0.22);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.2),
+            0 18px 38px -24px rgba(0, 0, 0, 0.9);
+        }
         .persona-body {
           min-width: 0;
-          flex: 1;
           display: flex;
           flex-direction: column;
-          gap: 14px;
+          gap: 12px;
         }
         .persona-head {
           display: flex;
           align-items: flex-start;
           justify-content: space-between;
-          gap: 12px;
+          gap: 16px;
+        }
+        .persona-id {
+          min-width: 0;
+        }
+        .persona-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 10px;
         }
         .persona-name {
           font-size: 22px;
@@ -725,6 +798,22 @@ export default function HomePage() {
           color: var(--fg-subtle);
           font-size: 12px;
           line-height: 1.5;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+        }
+        .provider-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 10px;
+          border-radius: 999px;
+          background: rgba(236, 72, 153, 0.12);
+          border: 1px solid rgba(236, 72, 153, 0.28);
+          color: #ffd1eb;
+          font-size: 10px;
+          line-height: 1;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
         }
         .model-pill {
           flex-shrink: 0;
@@ -732,45 +821,171 @@ export default function HomePage() {
           line-height: 1;
           padding: 8px 10px;
           border-radius: 999px;
-          color: var(--fg-subtle);
+          color: #ececff;
           border: 1px solid var(--border);
-          background: rgba(255, 255, 255, 0.04);
-          max-width: 170px;
+          background: rgba(255, 255, 255, 0.07);
+          max-width: 220px;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+        }
+        .persona-admin {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+        .admin-chip {
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.04);
+          color: var(--fg);
+          padding: 8px 12px;
+          font-size: 11px;
+          line-height: 1;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          cursor: pointer;
+        }
+        .admin-chip-danger {
+          color: #ffc2c2;
+          border-color: rgba(248, 113, 113, 0.18);
+          background: rgba(248, 113, 113, 0.08);
         }
         .persona-desc {
           color: var(--fg-muted);
           line-height: 1.65;
           font-size: 14px;
+          max-width: 44ch;
         }
         .scheme-pills {
           display: flex;
           flex-wrap: wrap;
           gap: 8px;
         }
+        .scheme-pills-elevated {
+          position: relative;
+          z-index: 1;
+        }
         .scheme-pill {
-          padding: 6px 10px;
+          padding: 7px 11px;
           border-radius: 999px;
-          border: 1px solid rgba(129, 140, 248, 0.22);
-          background: rgba(129, 140, 248, 0.08);
+          border: 1px solid rgba(129, 140, 248, 0.26);
+          background: rgba(9, 9, 12, 0.32);
           color: var(--fg);
           font-size: 11px;
           line-height: 1;
+          letter-spacing: 0.04em;
         }
-        .persona-actions,
-        .manager-actions {
+        .persona-console {
+          position: relative;
+          z-index: 1;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 24px;
+          padding: 16px;
+          background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
+            rgba(4, 6, 14, 0.52);
           display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
+          flex-direction: column;
+          gap: 14px;
         }
-        .btn-secondary {
+        .console-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        .console-label {
+          margin: 0 0 5px;
+          font-size: 10px;
+          line-height: 1;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: var(--fg-subtle);
+        }
+        .console-title {
+          font-size: 16px;
+          line-height: 1.3;
+          color: var(--fg);
+        }
+        .console-chat {
+          min-width: 122px;
+        }
+        .manager-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+        .manager-tile {
+          display: grid;
+          grid-template-columns: 34px minmax(0, 1fr);
+          gap: 12px;
+          align-items: center;
+          width: 100%;
+          padding: 13px 14px;
+          border-radius: 18px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
           background: rgba(255, 255, 255, 0.04);
+          color: var(--fg);
+          text-align: left;
+          cursor: pointer;
+          transition:
+            transform 180ms ease,
+            border-color 180ms ease,
+            background 180ms ease;
+        }
+        .manager-tile:hover {
+          transform: translateY(-1px);
+          border-color: rgba(236, 72, 153, 0.28);
+          background: rgba(236, 72, 153, 0.08);
+        }
+        .manager-index {
+          width: 34px;
+          height: 34px;
+          border-radius: 12px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(129, 140, 248, 0.14);
+          border: 1px solid rgba(129, 140, 248, 0.26);
+          color: #dfe2ff;
+          font-size: 11px;
+          font-family: var(--font-display);
+        }
+        .manager-copy {
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+        }
+        .manager-copy strong {
+          font-size: 14px;
+          color: var(--fg);
+        }
+        .manager-copy small {
+          color: var(--fg-muted);
+          font-size: 12px;
+          line-height: 1.35;
         }
         @media (max-width: 760px) {
           .modules-panel {
             grid-template-columns: 1fr;
+          }
+          .manager-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+        @media (max-width: 640px) {
+          .persona-stage {
+            grid-template-columns: 1fr;
+          }
+          .persona-head {
+            flex-direction: column;
+          }
+          .persona-admin {
+            justify-content: flex-start;
           }
         }
       `}</style>
