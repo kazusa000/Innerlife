@@ -1,4 +1,5 @@
 export { getDb, getRawSqlite, resetDb } from './client'
+export { getMemoryDb, getMemoryRawSqlite, resetMemoryDb } from './memory-client'
 export * as schema from './schema'
 export * as agentRepo from './repository/agents'
 export * as sessionRepo from './repository/sessions'

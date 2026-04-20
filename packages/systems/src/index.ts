@@ -40,11 +40,14 @@ export {
 export {
   buildMemoryConsolidationPrompt,
   buildMemoryConsolidationSourceText,
+  createOpenRouterMemoryEmbedder,
+  DEFAULT_MEMORY_EMBEDDING_MODEL,
   isSqliteMemoryConfig,
   MemorySqliteSystem,
   parseMemoryConsolidationResponse,
   resolveMemorySqliteConfig,
 } from './memory'
+export type { MemoryEmbedder } from './memory'
 export { NoopSystem, HelloWorldSystem } from './noop'
 export {
   DEFAULT_BASELINE as DEFAULT_RELATIONSHIP_BASELINE,

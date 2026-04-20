@@ -7,7 +7,8 @@ import { OBSERVER_UI_COPY, translateMemoryPhase } from '../../lib/ui-copy'
 import {
   getCallPhase,
   getMemoryHits,
-  getMemoryKeywords,
+  getMemoryFocus,
+  getMemoryRetrievalQuery,
   getMemoryReport,
   getMemoryTimeRange,
   getMemoryWritten,
@@ -19,7 +20,8 @@ import { CALL_ACCENTS, CodeBlock, CollapsibleSection, DetailList, Pill, TagPills
 export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
   const phase = getCallPhase(call) ?? 'unknown'
   const duration = formatDurationLabel(call.startedAt, call.finishedAt)
-  const keywords = getMemoryKeywords(call)
+  const retrievalQuery = getMemoryRetrievalQuery(call)
+  const focus = getMemoryFocus(call)
   const timeRange = getMemoryTimeRange(call)
   const hits = getMemoryHits(call)
   const written = getMemoryWritten(call)
@@ -75,7 +77,8 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
               <CollapsibleSection title={OBSERVER_UI_COPY.keywords} accent={CALL_ACCENTS.memory.color} defaultOpen>
                 <DetailList
                   rows={[
-                    { label: OBSERVER_UI_COPY.keywords, value: <TagPills values={keywords} accent={CALL_ACCENTS.memory.color} /> },
+                    { label: '检索改写', value: retrievalQuery ?? '无' },
+                    { label: '聚焦点', value: focus ?? '无' },
                     {
                       label: OBSERVER_UI_COPY.timeRange,
                       value: timeRange ? (
@@ -116,7 +119,6 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                             { label: '记忆 ID', value: hit.id },
                             { label: '摘要', value: hit.summary },
                             { label: '重要性', value: formatImportance(hit.importance) },
-                            { label: '命中词', value: <TagPills values={hit.matchedTerms} accent={CALL_ACCENTS.memory.color} /> },
                             { label: '标签', value: <TagPills values={hit.tags} accent={CALL_ACCENTS.memory.color} /> },
                           ]}
                         />
@@ -134,6 +136,7 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                 rows={[
                   ...(written?.id ? [{ label: '写入 ID', value: written.id }] : []),
                   { label: '摘要', value: written?.summary ?? '无' },
+                  { label: '检索文本', value: written?.retrievalText ?? '无' },
                   { label: '重要性', value: written ? formatImportance(written.importance) : '无' },
                   { label: '标签', value: <TagPills values={written?.tags ?? []} accent={CALL_ACCENTS.memory.color} /> },
                 ]}

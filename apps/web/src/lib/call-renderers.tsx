@@ -331,7 +331,8 @@ function MemorySection({
 export function MemoryView({ metadata }: { metadata: unknown }) {
   const record = readRecord(metadata)
   const phase = readText(record?.phase) ?? 'unknown'
-  const keywords = readTextArray(record?.keywords)
+  const retrievalQuery = readText(record?.retrievalQuery)
+  const focus = readText(record?.focus)
   const timeRange = readRecord(record?.timeRange)
   const timeRangeStart = readText(timeRange?.start)
   const timeRangeEnd = readText(timeRange?.end)
@@ -346,7 +347,7 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
         <>
           <MemorySection title={OBSERVER_UI_COPY.keywords}>
             <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
-              {JSON.stringify({ keywords }, null, 2)}
+              {JSON.stringify({ retrievalQuery, focus }, null, 2)}
             </pre>
           </MemorySection>
           <MemorySection title={OBSERVER_UI_COPY.timeRange}>

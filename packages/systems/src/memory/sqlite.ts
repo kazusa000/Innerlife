@@ -8,15 +8,20 @@ import type {
   PendingMemoryWrite,
   TurnContext,
 } from '../types'
+import {
+  createOpenRouterMemoryEmbedder,
+  DEFAULT_MEMORY_EMBEDDING_MODEL,
+  type MemoryEmbedder,
+} from './embeddings'
 
 const DEFAULT_RETRIEVE_TOP_K = 5
-const DEFAULT_MIN_TERM_LENGTH = 2
 const MAX_MEMORY_CONTENT_CHARS = 500
 
 interface MemoryModuleConfig {
   summarizeModel: string | null
+  embeddingModel: string
   retrieveTopK: number
-  minTermLength: number
+  embedder: MemoryEmbedder
 }
 
 export interface MemoryConsolidationKeepAction {
@@ -27,7 +32,8 @@ export interface MemoryConsolidationKeepAction {
 export interface MemoryConsolidationRewriteAction {
   op: 'rewrite'
   id: string
-  summary: string
+  displaySummary: string
+  retrievalText: string
   tags: string[]
   importance: number
 }
@@ -35,7 +41,8 @@ export interface MemoryConsolidationRewriteAction {
 export interface MemoryConsolidationMergeAction {
   op: 'merge'
   sourceIds: string[]
-  summary: string
+  displaySummary: string
+  retrievalText: string
   tags: string[]
   importance: number
 }
@@ -45,40 +52,51 @@ export type MemoryConsolidationAction =
   | MemoryConsolidationRewriteAction
   | MemoryConsolidationMergeAction
 
-const TAG_GUIDANCE = [
-  'tags 尽量提供至少 4 个简短、可复用的中文关键词。',
-  'summary 和 tags 默认使用简体中文。',
-  '除非是专有名词、代码标识符或固定英文术语，否则不要输出英文标签。',
+const WRITE_GUIDANCE = [
+  'display_summary 用简体中文，写成简洁、稳定、适合展示给模型看的记忆摘要。',
+  'retrieval_text 用自然语言完整描述可检索的事实、场景或事件，不要写成标签列表。',
+  'tags 默认使用简体中文；除非是专有名词、代码标识符或固定英文术语，否则不要输出英文标签。',
+  'tags 至少提供 4 个简短、可复用的中文标签。',
 ].join('\n')
 
 function readConfig(config: unknown): MemoryModuleConfig {
+  const embedder = createOpenRouterMemoryEmbedder()
+
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     return {
       summarizeModel: null,
+      embeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
       retrieveTopK: DEFAULT_RETRIEVE_TOP_K,
-      minTermLength: DEFAULT_MIN_TERM_LENGTH,
+      embedder,
     }
   }
 
   const record = config as Record<string, unknown>
-  const retrieveTopK = typeof record.retrieveTopK === 'number' && record.retrieveTopK > 0
-    ? Math.floor(record.retrieveTopK)
-    : DEFAULT_RETRIEVE_TOP_K
-  const minTermLength = typeof record.minTermLength === 'number' && record.minTermLength > 0
-    ? Math.floor(record.minTermLength)
-    : DEFAULT_MIN_TERM_LENGTH
 
   return {
     summarizeModel: typeof record.summarizeModel === 'string'
       ? record.summarizeModel.trim() || null
       : null,
-    retrieveTopK,
-    minTermLength,
+    embeddingModel: typeof record.embeddingModel === 'string'
+      ? record.embeddingModel.trim() || DEFAULT_MEMORY_EMBEDDING_MODEL
+      : DEFAULT_MEMORY_EMBEDDING_MODEL,
+    retrieveTopK: typeof record.retrieveTopK === 'number' && record.retrieveTopK > 0
+      ? Math.floor(record.retrieveTopK)
+      : DEFAULT_RETRIEVE_TOP_K,
+    embedder:
+      record.embedder && typeof record.embedder === 'object' && 'embed' in record.embedder
+        ? record.embedder as MemoryEmbedder
+        : embedder,
   }
 }
 
-export function resolveMemorySqliteConfig(config: unknown): MemoryModuleConfig {
-  return readConfig(config)
+export function resolveMemorySqliteConfig(config: unknown) {
+  const resolved = readConfig(config)
+  return {
+    summarizeModel: resolved.summarizeModel,
+    embeddingModel: resolved.embeddingModel,
+    retrieveTopK: resolved.retrieveTopK,
+  }
 }
 
 export function isSqliteMemoryConfig(config: unknown): boolean {
@@ -92,36 +110,29 @@ function buildSummaryPrompt(): string {
   return [
     '你负责把一轮已经完成的对话整理成后续可用的长期记忆。',
     '只允许使用提供的本轮对话文本，不要补充不存在的信息。',
-    '请使用简体中文总结，并严格返回只有以下键的 JSON：',
-    '{"summary": string, "tags": string[], "importance": number}',
-    'summary 需要是简洁、可复用的中文记忆摘要。',
+    '请严格返回只有以下键的 JSON：',
+    '{"display_summary": string, "retrieval_text": string, "tags": string[], "importance": number}',
+    WRITE_GUIDANCE,
     'importance 必须是 0 到 1 之间的数字。',
-    TAG_GUIDANCE,
     '不要输出 markdown、代码块或任何额外说明。',
   ].join('\n')
 }
 
 function buildRetrievePrompt(): string {
   return [
-    '你要为 sqlite 记忆系统准备一份检索查询。',
+    '你要为 sqlite 记忆系统准备一份语义检索查询。',
     '你会收到电脑当前的本地时间，以及用户最新一条消息。',
-    '请把理解拆成两个通道：',
-    '- time_range 用来回答“用户指的是哪段时间”。',
-    '- keywords 用来提取稳定的话题锚点，这些锚点很可能出现在记忆 summary 或 tags 里。',
     '请严格返回如下 JSON 结构：',
-    '{"keywords": string[], "time_range": {"start": string, "end": string} | null}',
-    'keywords 应该是稳定的话题锚点，例如名字、人物、地点、项目、对象、顾虑、活动、承诺或事件。',
-    'keywords 可以为空。',
-    'keywords 使用与用户消息一致的语言。',
-    '只保留那些即使去掉时间表达也依然成立的主题概念。',
-    '优先选择话题锚点，不要返回句子碎片、提问脚手架或泛泛的回忆词。',
-    '如果用户表达了时间相关意图，请基于提供的当前本地时间，把它翻译成绝对的 time_range。',
+    '{"retrieval_query": string, "time_range": {"start": string, "end": string} | null, "focus": string | null}',
+    'retrieval_query 必须是更适合语义检索的自然语言改写，而不是关键词列表。',
+    'retrieval_query 要保留稳定主题、对象、事件和关系，去掉不必要的口语壳子。',
+    '如果用户表达了时间相关意图，请基于当前本地时间把它翻译成绝对的 time_range。',
     '如果用户没有表达时间相关意图，返回 "time_range": null。',
     '如果时间意图过于模糊、无法安全判断，也返回 "time_range": null。',
-    '如果用户主要是在追问某个时间段内发生了什么，但没有点名具体话题，那么返回空的 keywords，并依赖 time_range。',
-    '例子：如果用户说“昨天发生了什么”，返回 {"keywords":[],"time_range":{"start":"...","end":"..."}}。',
-    '例子：如果用户说“昨天我们聊数据库迁移了吗”，返回 {"keywords":["数据库迁移"],"time_range":{"start":"...","end":"..."}}。',
-    '例子：如果用户说“你记得我叫什么吗”，返回 {"keywords":["名字"],"time_range":null}。',
+    'focus 是可选的短语，用来标记这次回忆的核心关注点；没有明显 focus 就返回 null。',
+    '如果用户主要是在问某个时间段内发生了什么，retrieval_query 应聚焦“那段时间内发生的互动或事件”，不要把时间词本身堆成关键词。',
+    '例子：如果用户说“昨天发生了什么”，可以返回 {"retrieval_query":"昨天和用户之间发生的事情","time_range":{"start":"...","end":"..."},"focus":"昨天发生的事"}。',
+    '例子：如果用户说“你记得我叫什么吗”，可以返回 {"retrieval_query":"用户告诉过我的名字","time_range":null,"focus":"名字"}。',
     '"start" 和 "end" 必须是 ISO 8601 datetime 字符串。',
     '不要输出 markdown、代码块或任何额外说明。',
   ].join('\n')
@@ -133,12 +144,12 @@ function renderMemoryFragment(memories: MemoryRecord[]): string | null {
   }
 
   return [
-    '以下是本轮回复可直接依赖的相关记忆（按重要性从高到低）：',
+    '以下是本轮回复可直接依赖的相关记忆：',
     '把这些内容视为你这一轮可用的回忆。',
     '如果用户在询问先前互动、过去事实或最近发生的事情，而且这些记忆相关，就直接基于这些记忆回答。',
     '如果答案已经包含在这些记忆里，不要再声称自己记不住，或声称自己没有记忆能力。',
     '如果这些记忆仍然不足以回答，就明确说你不确定，不要编造细节。',
-    ...memories.map((memory) => `- ${memory.summary}`),
+    ...memories.map((memory) => `- ${memory.displaySummary}`),
   ].join('\n')
 }
 
@@ -189,7 +200,7 @@ function formatLocalIsoDateTime(date: Date): string {
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${formatOffset(localMinutes)}`
 }
 
-function buildRetrieveInputText(userText: string, now = new Date()): string {
+function buildRetrieveInputText(userText: string, now = new Date()) {
   return [
     `当前本地时间：${formatLocalIsoDateTime(now)}`,
     `用户消息：${userText}`,
@@ -234,7 +245,7 @@ function normalizeTags(tags: unknown): string[] {
   return [...new Set(
     tags
       .filter((tag): tag is string => typeof tag === 'string')
-      .map(tag => tag.trim())
+      .map((tag) => tag.trim())
       .filter(Boolean),
   )]
 }
@@ -251,18 +262,18 @@ function parseMemoryWriteResponse(responseText: string): MemoryWriteResult {
   }
 
   const record = parsed as Record<string, unknown>
-  const summary = typeof record.summary === 'string' ? record.summary.trim() : ''
-  if (!summary) {
-    throw new Error('Memory summarize call returned an empty summary')
+  const displaySummary = typeof record.display_summary === 'string' ? record.display_summary.trim() : ''
+  const retrievalText = typeof record.retrieval_text === 'string' ? record.retrieval_text.trim() : ''
+
+  if (!displaySummary || !retrievalText) {
+    throw new Error('Memory summarize call returned missing display_summary or retrieval_text')
   }
 
-  const tags = normalizeTags(record.tags)
-  const importance = normalizeImportance(record.importance)
-
   return {
-    summary,
-    tags,
-    importance,
+    displaySummary,
+    retrievalText,
+    tags: normalizeTags(record.tags),
+    importance: normalizeImportance(record.importance),
   }
 }
 
@@ -270,7 +281,6 @@ function parseTimeRange(value: unknown): MemoryQueryResult['timeRange'] {
   if (value == null) {
     return null
   }
-
   if (typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Memory query call returned an invalid time_range')
   }
@@ -282,7 +292,6 @@ function parseTimeRange(value: unknown): MemoryQueryResult['timeRange'] {
   if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     throw new Error('Memory query call returned an invalid time_range')
   }
-
   if (start.getTime() > end.getTime()) {
     throw new Error('Memory query call returned an inverted time_range')
   }
@@ -292,7 +301,6 @@ function parseTimeRange(value: unknown): MemoryQueryResult['timeRange'] {
 
 function parseMemoryQueryResponse(responseText: string): MemoryQueryResult {
   let parsed: unknown
-
   try {
     parsed = extractJson(responseText)
   } catch {
@@ -304,26 +312,18 @@ function parseMemoryQueryResponse(responseText: string): MemoryQueryResult {
   }
 
   const record = parsed as Record<string, unknown>
-  const keywords = Array.isArray(record.keywords)
-    ? [...new Set(
-        record.keywords
-          .filter((keyword): keyword is string => typeof keyword === 'string')
-          .map(keyword => keyword.trim())
-          .filter(Boolean),
-      )]
-    : []
+  const retrievalQuery = typeof record.retrieval_query === 'string' ? record.retrieval_query.trim() : ''
   const timeRange = parseTimeRange(record.time_range)
+  const focus = typeof record.focus === 'string' && record.focus.trim()
+    ? record.focus.trim()
+    : null
 
-  if (keywords.length === 0 && !timeRange) {
-    throw new Error('Memory query call returned neither keywords nor time_range')
+  if (!retrievalQuery && !timeRange) {
+    throw new Error('Memory query call returned neither retrieval_query nor time_range')
   }
 
-  return {
-    keywords,
-    timeRange,
-  }
+  return { retrievalQuery, timeRange, focus }
 }
-
 
 export function buildMemoryConsolidationPrompt(): string {
   return [
@@ -332,13 +332,13 @@ export function buildMemoryConsolidationPrompt(): string {
     '请严格返回如下 JSON 结构：',
     '{"actions": Array<keep|rewrite|merge>}',
     'keep 动作：{"op":"keep","id":"memory-id"}',
-    'rewrite 动作：{"op":"rewrite","id":"memory-id","summary":string,"tags":string[],"importance":number}',
-    'merge 动作：{"op":"merge","sourceIds":string[],"summary":string,"tags":string[],"importance":number}',
+    'rewrite 动作：{"op":"rewrite","id":"memory-id","display_summary":string,"retrieval_text":string,"tags":string[],"importance":number}',
+    'merge 动作：{"op":"merge","sourceIds":string[],"display_summary":string,"retrieval_text":string,"tags":string[],"importance":number}',
     '除非内容重复，或者可以改写得更清晰，否则尽量保留事实。',
     '同一个 memory id 最多只能出现在一个动作里。',
     'merge 时 sourceIds 至少要包含 2 个 id。',
+    WRITE_GUIDANCE,
     'importance 必须是 0 到 1 之间的数字。',
-    TAG_GUIDANCE,
     '不要输出 markdown、代码块或任何额外说明。',
   ].join('\n')
 }
@@ -349,7 +349,8 @@ export function buildMemoryConsolidationSourceText(memories: MemoryRecord[]): st
     JSON.stringify(
       memories.map((memory) => ({
         id: memory.id,
-        summary: memory.summary,
+        display_summary: memory.displaySummary,
+        retrieval_text: memory.retrievalText,
         tags: memory.tags,
         importance: memory.importance,
         createdAt: memory.createdAt.toISOString(),
@@ -389,14 +390,16 @@ export function parseMemoryConsolidationResponse(responseText: string): MemoryCo
 
     if (op === 'rewrite') {
       const id = typeof record.id === 'string' ? record.id.trim() : ''
-      const summary = typeof record.summary === 'string' ? record.summary.trim() : ''
-      if (!id || !summary) {
+      const displaySummary = typeof record.display_summary === 'string' ? record.display_summary.trim() : ''
+      const retrievalText = typeof record.retrieval_text === 'string' ? record.retrieval_text.trim() : ''
+      if (!id || !displaySummary || !retrievalText) {
         throw new Error(`Memory consolidate rewrite action ${index} is missing fields`)
       }
       return {
         op,
         id,
-        summary,
+        displaySummary,
+        retrievalText,
         tags: normalizeTags(record.tags),
         importance: normalizeImportance(record.importance),
       }
@@ -407,18 +410,20 @@ export function parseMemoryConsolidationResponse(responseText: string): MemoryCo
         ? [...new Set(
             record.sourceIds
               .filter((id): id is string => typeof id === 'string')
-              .map(id => id.trim())
+              .map((id) => id.trim())
               .filter(Boolean),
           )]
         : []
-      const summary = typeof record.summary === 'string' ? record.summary.trim() : ''
-      if (sourceIds.length < 2 || !summary) {
+      const displaySummary = typeof record.display_summary === 'string' ? record.display_summary.trim() : ''
+      const retrievalText = typeof record.retrieval_text === 'string' ? record.retrieval_text.trim() : ''
+      if (sourceIds.length < 2 || !displaySummary || !retrievalText) {
         throw new Error(`Memory consolidate merge action ${index} is missing fields`)
       }
       return {
         op,
         sourceIds,
-        summary,
+        displaySummary,
+        retrievalText,
         tags: normalizeTags(record.tags),
         importance: normalizeImportance(record.importance),
       }
@@ -433,12 +438,16 @@ export class MemorySqliteSystem implements AgentSystem {
   type = 'memory'
 
   private readonly summarizeModel: string | null
+  private readonly embeddingModel: string
   private readonly retrieveTopK: number
+  private readonly embedder: MemoryEmbedder
 
   constructor(config?: unknown) {
     const resolved = readConfig(config)
     this.summarizeModel = resolved.summarizeModel
+    this.embeddingModel = resolved.embeddingModel
     this.retrieveTopK = resolved.retrieveTopK
+    this.embedder = resolved.embedder
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
@@ -450,12 +459,22 @@ export class MemorySqliteSystem implements AgentSystem {
       prompt: buildRetrievePrompt(),
       inputText: buildRetrieveInputText(ctx.input.text),
       parse: parseMemoryQueryResponse,
-      retrieve: async (query) => memoryRepo.findRelevantMemories({
-        agentId: ctx.agentId,
-        terms: query.keywords,
-        topK: this.retrieveTopK,
-        timeRange: query.timeRange,
-      }),
+      retrieve: async (query) => {
+        const queryTexts = [ctx.input.text, query.retrievalQuery]
+          .map((text) => text.trim())
+          .filter(Boolean)
+        const queryEmbeddings = await this.embedder.embed(queryTexts, {
+          model: this.embeddingModel,
+          inputType: 'search_query',
+        })
+
+        return memoryRepo.findRelevantMemories({
+          agentId: ctx.agentId,
+          queryEmbeddings,
+          topK: this.retrieveTopK,
+          timeRange: query.timeRange,
+        })
+      },
     }
 
     ctx.pendingMemoryQuery = pending
@@ -489,16 +508,24 @@ export class MemorySqliteSystem implements AgentSystem {
       prompt: buildSummaryPrompt(),
       sourceText,
       parse: parseMemoryWriteResponse,
-      persist: async (result) => (
-        memoryRepo.addMemory({
+      persist: async (result) => {
+        const [retrievalEmbedding] = await this.embedder.embed([result.retrievalText], {
+          model: this.embeddingModel,
+          inputType: 'search_document',
+        })
+
+        return memoryRepo.addMemory({
           agentId: ctx.agentId,
           sessionId: ctx.sessionId,
-          content: sourceText,
-          summary: result.summary,
+          sourceText,
+          displaySummary: result.displaySummary,
+          retrievalText: result.retrievalText,
+          retrievalEmbedding: retrievalEmbedding ?? [],
+          retrievalModel: this.embeddingModel,
           tags: result.tags,
           importance: result.importance,
         })
-      ),
+      },
     }
 
     ctx.pendingMemoryWrite = pending

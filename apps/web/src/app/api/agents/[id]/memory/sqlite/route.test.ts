@@ -3,13 +3,16 @@ import test from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { agentRepo, getDb, getRawSqlite, memoryRepo, resetDb } from '@mas/db'
+import { agentRepo, getDb, getMemoryDb, getRawSqlite, memoryRepo, resetDb, resetMemoryDb } from '@mas/db'
 import { deleteSqliteMemory } from './[memoryId]/handler'
 import { listSqliteMemories, updateSqliteMemorySettings } from './handler'
 
-function bootstrapDb(dbPath: string) {
+function bootstrapDb(dbPath: string, memoryDbPath: string) {
+  process.env.MAS_MEMORY_DB_PATH = memoryDbPath
   resetDb()
+  resetMemoryDb()
   getDb(dbPath)
+  getMemoryDb(memoryDbPath)
   getRawSqlite().exec(`
     CREATE TABLE agents (
       id TEXT PRIMARY KEY,
@@ -32,18 +35,6 @@ function bootstrapDb(dbPath: string) {
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
-    CREATE TABLE memories (
-      id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL REFERENCES agents(id),
-      session_id TEXT NOT NULL REFERENCES sessions(id),
-      content TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      tags TEXT NOT NULL,
-      importance REAL NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
-    );
-    CREATE INDEX idx_memories_agent_created_at ON memories(agent_id, created_at);
-    CREATE INDEX idx_memories_agent_id ON memories(agent_id);
   `)
   getRawSqlite().exec(`
     INSERT INTO agents (id, name, model, modules)
@@ -66,8 +57,11 @@ function addMemory(input: {
   return memoryRepo.addMemory({
     agentId: input.agentId,
     sessionId: input.sessionId,
-    content: input.summary,
-    summary: input.summary,
+    sourceText: input.summary,
+    displaySummary: input.summary,
+    retrievalText: input.summary,
+    retrievalEmbedding: [1, 0],
+    retrievalModel: 'qwen/qwen3-embedding-0.6b',
     tags: input.tags,
     importance: 0.6,
     createdAt: new Date(input.createdAt),
@@ -77,9 +71,10 @@ function addMemory(input: {
 test('listSqliteMemories returns 404 when the agent does not exist', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     const response = listSqliteMemories('missing-agent')
 
@@ -87,6 +82,7 @@ test('listSqliteMemories returns 404 when the agent does not exist', async () =>
     assert.deepEqual(await response.json(), { error: 'Not found' })
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -94,9 +90,10 @@ test('listSqliteMemories returns 404 when the agent does not exist', async () =>
 test('listSqliteMemories returns 400 when the agent memory scheme is not sqlite', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     const response = listSqliteMemories('agent-2')
 
@@ -104,6 +101,7 @@ test('listSqliteMemories returns 400 when the agent memory scheme is not sqlite'
     assert.deepEqual(await response.json(), { error: 'Agent memory scheme must be sqlite' })
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -111,9 +109,10 @@ test('listSqliteMemories returns 400 when the agent memory scheme is not sqlite'
 test('listSqliteMemories returns latest-first rows and filters by summary or tags', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     const latest = addMemory({
       agentId: 'agent-1',
@@ -148,6 +147,7 @@ test('listSqliteMemories returns latest-first rows and filters by summary or tag
     assert.deepEqual((await tagResponse.json()).memories.map((memory: { id: string }) => memory.id), [latest.id])
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -155,9 +155,10 @@ test('listSqliteMemories returns latest-first rows and filters by summary or tag
 test('updateSqliteMemorySettings trims and persists memory model override', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     const response = updateSqliteMemorySettings('agent-1', '  qwen/qwen-2.5-7b-instruct  ')
 
@@ -175,6 +176,7 @@ test('updateSqliteMemorySettings trims and persists memory model override', asyn
     })
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -182,9 +184,10 @@ test('updateSqliteMemorySettings trims and persists memory model override', asyn
 test('updateSqliteMemorySettings clears override when passed empty text', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     const response = updateSqliteMemorySettings('agent-1', '   ')
 
@@ -201,6 +204,7 @@ test('updateSqliteMemorySettings clears override when passed empty text', async 
     })
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -208,9 +212,10 @@ test('updateSqliteMemorySettings clears override when passed empty text', async 
 test('deleteSqliteMemory removes only memories owned by the given agent', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     const ownMemory = addMemory({
       agentId: 'agent-1',
@@ -238,6 +243,7 @@ test('deleteSqliteMemory removes only memories owned by the given agent', async 
     assert.ok(memoryRepo.getMemory(foreignMemory.id))
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })

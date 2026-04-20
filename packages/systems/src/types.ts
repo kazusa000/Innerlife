@@ -43,15 +43,19 @@ export interface MemoryRecord {
   id: string
   agentId: string
   sessionId: string
-  content: string
-  summary: string
+  sourceText: string
+  displaySummary: string
+  retrievalText: string
+  retrievalEmbedding: number[]
+  retrievalModel: string
   tags: string[]
   importance: number
   createdAt: Date
 }
 
 export interface MemoryWriteResult {
-  summary: string
+  displaySummary: string
+  retrievalText: string
   tags: string[]
   importance: number
 }
@@ -67,8 +71,9 @@ export interface MemoryReasoningConfig {
 }
 
 export interface MemoryQueryResult {
-  keywords: string[]
+  retrievalQuery: string
   timeRange: MemoryTimeRange | null
+  focus: string | null
 }
 
 export interface PendingMemoryWrite {

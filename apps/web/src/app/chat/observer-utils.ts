@@ -42,12 +42,12 @@ export interface MemoryHit {
   summary: string
   tags: string[]
   importance: number
-  matchedTerms: string[]
 }
 
 export interface MemoryWritten {
   id?: string
   summary: string
+  retrievalText?: string
   tags: string[]
   importance: number
 }
@@ -196,7 +196,6 @@ export function getMemoryHits(call: LiveCall): MemoryHit[] {
       summary,
       tags: readStringArray(hit.tags),
       importance,
-      matchedTerms: readStringArray(hit.matchedTerms),
     }]
   })
 }
@@ -216,6 +215,7 @@ export function getMemoryWritten(call: LiveCall): MemoryWritten | null {
   return {
     id: readString(written.id) ?? undefined,
     summary,
+    retrievalText: readString(written.retrievalText) ?? undefined,
     tags: readStringArray(written.tags),
     importance,
   }
@@ -236,8 +236,12 @@ export function getMemoryReport(call: LiveCall): MemoryReport | null {
   }
 }
 
-export function getMemoryKeywords(call: LiveCall): string[] {
-  return readStringArray(getMetadata(call)?.keywords)
+export function getMemoryRetrievalQuery(call: LiveCall): string | null {
+  return readString(getMetadata(call)?.retrievalQuery)
+}
+
+export function getMemoryFocus(call: LiveCall): string | null {
+  return readString(getMetadata(call)?.focus)
 }
 
 export function getMemoryTimeRange(call: LiveCall): MemoryTimeRange | null {

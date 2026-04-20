@@ -23,7 +23,15 @@ export function listSqliteMemories(agentId: string, query?: string) {
     scheme: 'sqlite',
     query: query?.trim() ?? '',
     summarizeModel: memoryConfig.summarizeModel,
-    memories,
+    memories: memories.map((memory) => ({
+      id: memory.id,
+      sessionId: memory.sessionId,
+      summary: memory.displaySummary,
+      retrievalText: memory.retrievalText,
+      tags: memory.tags,
+      importance: memory.importance,
+      createdAt: memory.createdAt.toISOString(),
+    })),
   })
 }
 

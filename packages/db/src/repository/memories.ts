@@ -1,14 +1,15 @@
-import { and, asc, desc, eq, gte, lte, or, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
-import { getDb, getRawSqlite } from '../client'
-import { memories } from '../schema'
+import { getMemoryRawSqlite } from '../memory-client'
 
 export interface MemoryRecord {
   id: string
   agentId: string
   sessionId: string
-  content: string
-  summary: string
+  sourceText: string
+  displaySummary: string
+  retrievalText: string
+  retrievalEmbedding: number[]
+  retrievalModel: string
   tags: string[]
   importance: number
   createdAt: Date
@@ -22,7 +23,10 @@ export interface MemoryConsolidationKeepAction {
 export interface MemoryConsolidationRewriteAction {
   op: 'rewrite'
   id: string
-  summary: string
+  displaySummary: string
+  retrievalText: string
+  retrievalEmbedding?: number[]
+  retrievalModel?: string | null
   tags: string[]
   importance: number
 }
@@ -30,7 +34,10 @@ export interface MemoryConsolidationRewriteAction {
 export interface MemoryConsolidationMergeAction {
   op: 'merge'
   sourceIds: string[]
-  summary: string
+  displaySummary: string
+  retrievalText: string
+  retrievalEmbedding?: number[]
+  retrievalModel?: string | null
   tags: string[]
   importance: number
 }
@@ -48,11 +55,25 @@ export interface MemoryConsolidationReport {
   merged: number
 }
 
+type MemoryRow = {
+  id: string
+  agent_id: string
+  session_id: string
+  source_text: string
+  display_summary: string
+  retrieval_text: string
+  retrieval_embedding: string
+  retrieval_model: string
+  tags: string
+  importance: number
+  created_at: number
+}
+
 function normalizeTags(tags: string[]): string[] {
   return [...new Set(
     tags
       .filter((tag): tag is string => typeof tag === 'string')
-      .map(tag => tag.trim())
+      .map((tag) => tag.trim())
       .filter(Boolean),
   )]
 }
@@ -61,172 +82,204 @@ function parseTags(tags: string): string[] {
   try {
     const parsed = JSON.parse(tags) as unknown
     return Array.isArray(parsed)
-      ? parsed.filter((tag): tag is string => typeof tag === 'string').map(tag => tag.trim()).filter(Boolean)
+      ? parsed.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean)
       : []
   } catch {
     return []
   }
 }
 
-function mapMemory(row: typeof memories.$inferSelect): MemoryRecord {
-  return {
-    ...row,
-    tags: parseTags(row.tags),
+function parseEmbedding(embedding: string): number[] {
+  try {
+    const parsed = JSON.parse(embedding) as unknown
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+      : []
+  } catch {
+    return []
   }
+}
+
+function mapMemory(row: MemoryRow): MemoryRecord {
+  return {
+    id: row.id,
+    agentId: row.agent_id,
+    sessionId: row.session_id,
+    sourceText: row.source_text,
+    displaySummary: row.display_summary,
+    retrievalText: row.retrieval_text,
+    retrievalEmbedding: parseEmbedding(row.retrieval_embedding),
+    retrievalModel: row.retrieval_model,
+    tags: parseTags(row.tags),
+    importance: row.importance,
+    createdAt: new Date(row.created_at),
+  }
+}
+
+function selectMemories(whereSql: string, ...values: unknown[]) {
+  const sqlite = getMemoryRawSqlite()
+  return sqlite.prepare(`
+    SELECT
+      id,
+      agent_id,
+      session_id,
+      source_text,
+      display_summary,
+      retrieval_text,
+      retrieval_embedding,
+      retrieval_model,
+      tags,
+      importance,
+      created_at
+    FROM memories
+    ${whereSql}
+  `).all(...values).map((row) => mapMemory(row as MemoryRow))
 }
 
 export function addMemory(data: {
   agentId: string
   sessionId: string
-  content: string
-  summary: string
+  sourceText: string
+  displaySummary: string
+  retrievalText: string
+  retrievalEmbedding: number[]
+  retrievalModel: string
   tags: string[]
   importance: number
   createdAt?: Date
 }) {
-  const db = getDb()
+  const sqlite = getMemoryRawSqlite()
   const id = randomUUID()
 
-  db.insert(memories)
-    .values({
+  sqlite.prepare(`
+    INSERT INTO memories (
       id,
-      ...data,
-      tags: JSON.stringify(normalizeTags(data.tags)),
-      createdAt: data.createdAt ?? new Date(),
-    })
-    .run()
+      agent_id,
+      session_id,
+      source_text,
+      display_summary,
+      retrieval_text,
+      retrieval_embedding,
+      retrieval_model,
+      tags,
+      importance,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    data.agentId,
+    data.sessionId,
+    data.sourceText,
+    data.displaySummary.trim(),
+    data.retrievalText.trim(),
+    JSON.stringify(data.retrievalEmbedding),
+    data.retrievalModel,
+    JSON.stringify(normalizeTags(data.tags)),
+    normalizeImportance(data.importance),
+    (data.createdAt ?? new Date()).getTime(),
+  )
 
   return getMemory(id)!
 }
 
 export function getMemory(id: string) {
-  const db = getDb()
-  const memory = db.select().from(memories).where(eq(memories.id, id)).get()
-  return memory ? mapMemory(memory) : undefined
+  const rows = selectMemories('WHERE id = ?', id)
+  return rows[0]
 }
 
 export function listMemoriesByAgent(agentId: string) {
-  const db = getDb()
-  return db
-    .select()
-    .from(memories)
-    .where(eq(memories.agentId, agentId))
-    .orderBy(desc(memories.createdAt))
-    .all()
-    .map(mapMemory)
+  return selectMemories('WHERE agent_id = ? ORDER BY created_at DESC', agentId)
 }
 
 export function listSqliteMemoriesByAgent(agentId: string, query?: string) {
   const normalizedQuery = query?.trim().toLowerCase()
-  const db = getDb()
-  const scope = eq(memories.agentId, agentId)
 
   if (!normalizedQuery) {
-    return db
-      .select()
-      .from(memories)
-      .where(scope)
-      .orderBy(desc(memories.createdAt))
-      .all()
-      .map(mapMemory)
+    return listMemoriesByAgent(agentId)
   }
 
   const wildcard = `%${normalizedQuery}%`
-
-  return db
-    .select()
-    .from(memories)
-    .where(and(
-      scope,
-      or(
-        sql`lower(${memories.summary}) like ${wildcard}`,
-        sql`lower(${memories.tags}) like ${wildcard}`,
-      )!,
-    ))
-    .orderBy(desc(memories.createdAt))
-    .all()
-    .map(mapMemory)
+  return selectMemories(
+    `WHERE agent_id = ?
+       AND (
+         lower(display_summary) LIKE ?
+         OR lower(tags) LIKE ?
+       )
+     ORDER BY created_at DESC`,
+    agentId,
+    wildcard,
+    wildcard,
+  )
 }
 
 export function listMemoriesByAgentOldestFirst(agentId: string) {
-  const db = getDb()
-  return db
-    .select()
-    .from(memories)
-    .where(eq(memories.agentId, agentId))
-    .orderBy(asc(memories.createdAt))
-    .all()
-    .map(mapMemory)
+  return selectMemories('WHERE agent_id = ? ORDER BY created_at ASC', agentId)
 }
 
 export function deleteSqliteMemoryByAgent(agentId: string, memoryId: string) {
-  const db = getDb()
-  const result = db
-    .delete(memories)
-    .where(and(
-      eq(memories.agentId, agentId),
-      eq(memories.id, memoryId),
-    ))
-    .run()
+  const sqlite = getMemoryRawSqlite()
+  const result = sqlite.prepare(`
+    DELETE FROM memories
+    WHERE agent_id = ? AND id = ?
+  `).run(agentId, memoryId)
 
   return result.changes > 0
 }
 
 export function findRelevantMemories(input: {
   agentId: string
-  terms: string[]
+  queryEmbeddings: number[][]
   topK: number
   timeRange?: {
     start: Date
     end: Date
   } | null
 }) {
-  const normalizedTerms = [...new Set(
-    input.terms
-      .filter((term): term is string => typeof term === 'string')
-      .map(term => term.trim().toLowerCase())
-      .filter(Boolean),
-  )]
-  const timeRange = input.timeRange ?? null
+  const queryEmbeddings = input.queryEmbeddings
+    .filter((embedding): embedding is number[] => Array.isArray(embedding) && embedding.length > 0)
+    .map((embedding) => embedding.filter((value): value is number => typeof value === 'number' && Number.isFinite(value)))
+    .filter((embedding) => embedding.length > 0)
+  const conditions = ['agent_id = ?']
+  const values: unknown[] = [input.agentId]
 
-  if (normalizedTerms.length === 0 && !timeRange) {
+  if (input.timeRange) {
+    conditions.push('created_at >= ?')
+    conditions.push('created_at <= ?')
+    values.push(input.timeRange.start.getTime(), input.timeRange.end.getTime())
+  }
+
+  if (queryEmbeddings.length === 0 && !input.timeRange) {
     return []
   }
 
-  const db = getDb()
-  const conditions = [eq(memories.agentId, input.agentId)]
+  const candidates = selectMemories(`WHERE ${conditions.join(' AND ')}`, ...values)
 
-  if (normalizedTerms.length > 0) {
-    const filters = normalizedTerms.map((term) =>
-      sql`lower(${memories.tags}) like ${`%${term}%`}`,
-    )
-    conditions.push(or(...filters)!)
-  }
-
-  if (timeRange) {
-    conditions.push(gte(memories.createdAt, timeRange.start))
-    conditions.push(lte(memories.createdAt, timeRange.end))
-  }
-
-  return db
-    .select()
-    .from(memories)
-    .where(and(...conditions))
-    .orderBy(desc(memories.importance), desc(memories.createdAt))
-    .limit(input.topK)
-    .all()
-    .map(mapMemory)
+  return candidates
+    .map((memory) => ({
+      memory,
+      similarity: queryEmbeddings.length > 0
+        ? Math.max(...queryEmbeddings.map((queryEmbedding) => cosineSimilarity(queryEmbedding, memory.retrievalEmbedding)))
+        : 0,
+    }))
+    .filter(({ similarity }) => queryEmbeddings.length === 0 || similarity > 0)
+    .sort((left, right) => {
+      if (right.similarity !== left.similarity) {
+        return right.similarity - left.similarity
+      }
+      if (right.memory.importance !== left.memory.importance) {
+        return right.memory.importance - left.memory.importance
+      }
+      return right.memory.createdAt.getTime() - left.memory.createdAt.getTime()
+    })
+    .slice(0, input.topK)
+    .map(({ memory }) => memory)
 }
 
 function normalizeImportance(value: number): number {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.5
 }
 
-function requireMemory(
-  byId: Map<string, MemoryRecord>,
-  id: string,
-  agentId: string,
-): MemoryRecord {
+function requireMemory(byId: Map<string, MemoryRecord>, id: string, agentId: string): MemoryRecord {
   const memory = byId.get(id)
   if (!memory) {
     throw new Error(`Memory ${id} was not found for agent ${agentId}`)
@@ -238,8 +291,7 @@ export function applyConsolidationPlan(input: {
   agentId: string
   actions: MemoryConsolidationAction[]
 }): MemoryConsolidationReport {
-  const db = getDb()
-  const sqlite = getRawSqlite()
+  const sqlite = getMemoryRawSqlite()
 
   const transaction = sqlite.transaction((payload: typeof input): MemoryConsolidationReport => {
     const existing = listMemoriesByAgentOldestFirst(payload.agentId)
@@ -262,24 +314,29 @@ export function applyConsolidationPlan(input: {
       }
 
       if (action.op === 'rewrite') {
-        requireMemory(byId, action.id, payload.agentId)
+        const existingMemory = requireMemory(byId, action.id, payload.agentId)
         if (consumedIds.has(action.id)) {
           throw new Error(`Memory ${action.id} was referenced more than once`)
         }
         consumedIds.add(action.id)
-        db.update(memories)
-          .set({
-            summary: action.summary.trim(),
-            tags: JSON.stringify(normalizeTags(action.tags)),
-            importance: normalizeImportance(action.importance),
-          })
-          .where(eq(memories.id, action.id))
-          .run()
+        sqlite.prepare(`
+          UPDATE memories
+          SET display_summary = ?, retrieval_text = ?, retrieval_embedding = ?, retrieval_model = ?, tags = ?, importance = ?
+          WHERE id = ?
+        `).run(
+          action.displaySummary.trim(),
+          action.retrievalText.trim(),
+          JSON.stringify(action.retrievalEmbedding ?? existingMemory.retrievalEmbedding),
+          action.retrievalModel ?? existingMemory.retrievalModel,
+          JSON.stringify(normalizeTags(action.tags)),
+          normalizeImportance(action.importance),
+          action.id,
+        )
         rewritten += 1
         continue
       }
 
-      const sourceIds = [...new Set(action.sourceIds.map(id => id.trim()).filter(Boolean))]
+      const sourceIds = [...new Set(action.sourceIds.map((id) => id.trim()).filter(Boolean))]
       if (sourceIds.length < 2) {
         throw new Error('Merge actions require at least 2 source ids')
       }
@@ -297,23 +354,37 @@ export function applyConsolidationPlan(input: {
       const oldest = sourceRecords.reduce((currentOldest, candidate) =>
         candidate.createdAt.getTime() < currentOldest.createdAt.getTime() ? candidate : currentOldest,
       )
-      const mergedId = randomUUID()
 
-      db.insert(memories)
-        .values({
-          id: mergedId,
-          agentId: payload.agentId,
-          sessionId: oldest.sessionId,
-          content: sourceRecords.map((memory) => memory.content).join('\n---\n'),
-          summary: action.summary.trim(),
-          tags: JSON.stringify(normalizeTags(action.tags)),
-          importance: normalizeImportance(action.importance),
-          createdAt: oldest.createdAt,
-        })
-        .run()
+      sqlite.prepare(`
+        INSERT INTO memories (
+          id,
+          agent_id,
+          session_id,
+          source_text,
+          display_summary,
+          retrieval_text,
+          retrieval_embedding,
+          retrieval_model,
+          tags,
+          importance,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        randomUUID(),
+        payload.agentId,
+        oldest.sessionId,
+        sourceRecords.map((memory) => memory.sourceText).join('\n---\n'),
+        action.displaySummary.trim(),
+        action.retrievalText.trim(),
+        JSON.stringify(action.retrievalEmbedding ?? averageEmbeddings(sourceRecords.map((memory) => memory.retrievalEmbedding))),
+        action.retrievalModel ?? oldest.retrievalModel,
+        JSON.stringify(normalizeTags(action.tags)),
+        normalizeImportance(action.importance),
+        oldest.createdAt.getTime(),
+      )
 
       for (const id of sourceIds) {
-        db.delete(memories).where(eq(memories.id, id)).run()
+        sqlite.prepare('DELETE FROM memories WHERE id = ?').run(id)
       }
 
       after = after - sourceIds.length + 1
@@ -332,4 +403,50 @@ export function applyConsolidationPlan(input: {
   })
 
   return transaction(input)
+}
+
+function cosineSimilarity(left: number[], right: number[]): number {
+  if (left.length === 0 || right.length === 0 || left.length !== right.length) {
+    return 0
+  }
+
+  let dot = 0
+  let leftNorm = 0
+  let rightNorm = 0
+  for (let index = 0; index < left.length; index += 1) {
+    const leftValue = left[index]!
+    const rightValue = right[index]!
+    dot += leftValue * rightValue
+    leftNorm += leftValue * leftValue
+    rightNorm += rightValue * rightValue
+  }
+
+  if (leftNorm === 0 || rightNorm === 0) {
+    return 0
+  }
+
+  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm))
+}
+
+function averageEmbeddings(embeddings: number[][]): number[] {
+  const valid = embeddings.filter((embedding) => embedding.length > 0)
+  if (valid.length === 0) {
+    return []
+  }
+
+  const dimension = valid[0]!.length
+  const totals = new Array<number>(dimension).fill(0)
+  let count = 0
+
+  for (const embedding of valid) {
+    if (embedding.length !== dimension) {
+      continue
+    }
+    count += 1
+    for (let index = 0; index < dimension; index += 1) {
+      totals[index] += embedding[index]!
+    }
+  }
+
+  return count === 0 ? [] : totals.map((total) => total / count)
 }

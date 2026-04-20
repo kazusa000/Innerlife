@@ -3,7 +3,14 @@ import test from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { getDb, getRawSqlite, resetDb } from '@mas/db'
+import {
+  getDb,
+  getMemoryDb,
+  getRawSqlite,
+  memoryRepo,
+  resetDb,
+  resetMemoryDb,
+} from '@mas/db'
 import { createSystems, type AgentSystem } from '@mas/systems'
 import { runAgent, type RunAgentObserver } from './runner'
 import type { AgentConfig } from './types'
@@ -35,9 +42,12 @@ class FakeProvider implements LLMProvider {
   }
 }
 
-function bootstrapDb(dbPath: string) {
+function bootstrapDb(dbPath: string, memoryDbPath: string) {
+  process.env.MAS_MEMORY_DB_PATH = memoryDbPath
   resetDb()
+  resetMemoryDb()
   getDb(dbPath)
+  getMemoryDb(memoryDbPath)
   getRawSqlite().exec(`
     CREATE TABLE agents (
       id TEXT PRIMARY KEY,
@@ -60,18 +70,6 @@ function bootstrapDb(dbPath: string) {
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
-    CREATE TABLE memories (
-      id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL REFERENCES agents(id),
-      session_id TEXT NOT NULL REFERENCES sessions(id),
-      content TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      tags TEXT NOT NULL,
-      importance REAL NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
-    );
-    CREATE INDEX idx_memories_agent_created_at ON memories(agent_id, created_at);
-    CREATE INDEX idx_memories_agent_id ON memories(agent_id);
   `)
   getRawSqlite().exec(`
     INSERT INTO agents (id, name, model) VALUES ('agent-1', 'Agent One', 'claude-sonnet-4-6');
@@ -99,28 +97,36 @@ function createTextMessage(role: Message['role'], text: string): Message {
 }
 
 function isMemoryRetrievePrompt(systemPrompt: string): boolean {
-  return systemPrompt.includes('sqlite 记忆系统准备一份检索查询')
+  return systemPrompt.includes('sqlite 记忆系统准备一份语义检索查询')
 }
 
-test('runAgent records memory retrieval metadata and writes a memory row after turn', async () => {
+function createEmbedder(map: Record<string, number[]>) {
+  return {
+    async embed(input: string[]) {
+      return input.map((item) => map[item] ?? [0, 0])
+    },
+  }
+}
+
+test('runAgent records embedding retrieval metadata and writes a memory row after turn', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
-  const dbPath = join(dir, 'test.db')
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
-    getRawSqlite().exec(`
-      INSERT INTO memories (id, agent_id, session_id, content, summary, tags, importance, created_at)
-      VALUES (
-        'existing-memory',
-        'agent-1',
-        'session-1',
-        '用户说自己的猫叫橘子',
-        '用户养了一只叫橘子的猫',
-        '["猫","橘子","宠物"]',
-        0.9,
-        unixepoch('now') * 1000
-      );
-    `)
+    bootstrapDb(dbPath, memoryDbPath)
+    const existingMemory = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: '用户说自己的猫叫橘子',
+      displaySummary: '用户养了一只叫橘子的猫',
+      retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
+      tags: ['猫', '橘子', '宠物'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-17T10:00:00.000Z'),
+    })
 
     const observerStarts: Array<{ kind: string; model: string }> = []
     const observerEnds: Array<{ metadata?: unknown }> = []
@@ -141,6 +147,7 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
         model: params.model,
         reasoning: params.reasoning,
       })
+
       if (isMemoryRetrievePrompt(params.systemPrompt)) {
         yield {
           type: 'message_complete',
@@ -149,7 +156,9 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
               {
                 type: 'text',
                 text: JSON.stringify({
-                  keywords: ['猫', '我猫叫什么'],
+                  retrieval_query: '用户告诉过我的猫叫什么名字',
+                  time_range: null,
+                  focus: '猫的名字',
                 }),
               },
             ],
@@ -160,7 +169,7 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
         return
       }
 
-      if (params.systemPrompt.includes('严格返回只有以下键的 JSON')) {
+      if (params.systemPrompt.includes('"display_summary": string')) {
         yield {
           type: 'message_complete',
           response: {
@@ -168,7 +177,8 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
               {
                 type: 'text',
                 text: JSON.stringify({
-                  summary: '用户养了一只叫橘子的猫',
+                  display_summary: '用户养了一只叫橘子的猫',
+                  retrieval_text: '用户曾告诉我，他养了一只名叫橘子的猫',
                   tags: ['猫', '橘子', '宠物'],
                   importance: 0.9,
                 }),
@@ -201,8 +211,13 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
         memory: {
           scheme: 'sqlite',
           summarizeModel: 'memory-model',
+          embeddingModel: 'qwen/qwen3-embedding-0.6b',
           retrieveTopK: 5,
-          minTermLength: 2,
+          embedder: createEmbedder({
+            '我猫叫什么': [1, 0],
+            '用户告诉过我的猫叫什么名字': [1, 0],
+            '用户曾告诉我，他养了一只名叫橘子的猫': [1, 0],
+          }),
         },
       }),
       observer,
@@ -222,7 +237,7 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
         reasoning: request.reasoning,
         kind: isMemoryRetrievePrompt(request.systemPrompt)
           ? 'retrieve'
-          : request.systemPrompt.includes('严格返回只有以下键的 JSON')
+          : request.systemPrompt.includes('"display_summary": string')
             ? 'summarize'
             : 'turn',
       })),
@@ -234,17 +249,17 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
     )
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
-      keywords: ['猫', '我猫叫什么'],
+      retrievalQuery: '用户告诉过我的猫叫什么名字',
+      focus: '猫的名字',
       timeRange: null,
       hitCount: 1,
-      memoryIds: ['existing-memory'],
+      memoryIds: [existingMemory.id],
       hits: [
         {
-          id: 'existing-memory',
+          id: existingMemory.id,
           summary: '用户养了一只叫橘子的猫',
           tags: ['猫', '橘子', '宠物'],
           importance: 0.9,
-          matchedTerms: ['猫'],
         },
       ],
     })
@@ -252,257 +267,115 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
       ((observerEnds[1]?.metadata as { memory?: { hitCount: number } })?.memory?.hitCount ?? 0),
       1,
     )
-    const rows = getRawSqlite()
-      .prepare('SELECT id, summary, tags, importance FROM memories WHERE agent_id = ? ORDER BY rowid')
-      .all('agent-1') as Array<{ id: string; summary: string; tags: string; importance: number }>
+
+    const rows = memoryRepo.listMemoriesByAgent('agent-1')
     assert.equal(rows.length, 2)
     assert.deepEqual(observerEnds[2]?.metadata, {
       phase: 'summarize',
       written: {
-        id: rows[1]!.id,
+        id: rows[0]!.id,
         summary: '用户养了一只叫橘子的猫',
+        retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
         tags: ['猫', '橘子', '宠物'],
         importance: 0.9,
       },
     })
-    assert.deepEqual(JSON.parse(rows[1]!.tags), ['猫', '橘子', '宠物'])
-    assert.equal(rows[1]!.summary, '用户养了一只叫橘子的猫')
-    assert.equal(rows[1]!.importance, 0.9)
+    assert.equal(rows[0]!.displaySummary, '用户养了一只叫橘子的猫')
+    assert.equal(rows[0]!.retrievalText, '用户曾告诉我，他养了一只名叫橘子的猫')
+    assert.deepEqual(rows[0]!.retrievalEmbedding, [1, 0])
   } finally {
     resetDb()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('runAgent uses LLM-expanded memory keywords instead of tokenizer results', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-query-llm-'))
-  const dbPath = join(dir, 'test.db')
-
-  try {
-    bootstrapDb(dbPath)
-    getRawSqlite().exec(`
-      INSERT INTO memories (id, agent_id, session_id, content, summary, tags, importance, created_at)
-      VALUES (
-        'name-memory',
-        'agent-1',
-        'session-1',
-        '用户说自己的名字是王家骏',
-        '用户名字叫王家骏',
-        '["名字","name"]',
-        0.9,
-        unixepoch('now') * 1000
-      );
-    `)
-
-    const observerStarts: Array<{ kind: string }> = []
-    const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
-    const observer: RunAgentObserver = {
-      onLLMCallStart(payload) {
-        observerStarts.push({ kind: payload.kind })
-        return `call-${observerStarts.length}`
-      },
-      onLLMCallEnd(_callId, payload) {
-        observerEnds.push({ metadata: payload.metadata, error: payload.error })
-      },
-    }
-
-    const provider = new FakeProvider(async function* (params) {
-      if (isMemoryRetrievePrompt(params.systemPrompt)) {
-        yield {
-          type: 'message_complete',
-          response: {
-            content: [{ type: 'text', text: JSON.stringify({ keywords: ['name', '名字'] }) }],
-            stopReason: 'end_turn',
-            usage: { inputTokens: 4, outputTokens: 5 },
-          },
-        }
-        return
-      }
-
-      if (params.systemPrompt.includes('严格返回只有以下键的 JSON')) {
-        yield {
-          type: 'message_complete',
-          response: {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  summary: '用户名字叫王家骏',
-                  tags: ['名字', 'name'],
-                  importance: 0.95,
-                }),
-              },
-            ],
-            stopReason: 'end_turn',
-            usage: { inputTokens: 4, outputTokens: 6 },
-          },
-        }
-        return
-      }
-
-      assert.match(params.systemPrompt, /以下是本轮回复可直接依赖的相关记忆/)
-      yield {
-        type: 'message_complete',
-        response: {
-          content: [{ type: 'text', text: '你叫王家骏。' }],
-          stopReason: 'end_turn',
-          usage: { inputTokens: 8, outputTokens: 4 },
-        },
-      }
-    })
-
-    const events = []
-    for await (const event of runAgent(
-      createConfig(),
-      [createTextMessage('user', `what's my name`)],
-      provider,
-      createSystems({
-        memory: {
-          scheme: 'sqlite',
-          summarizeModel: 'memory-model',
-          retrieveTopK: 5,
-          minTermLength: 2,
-        },
-      }),
-      observer,
-    )) {
-      events.push(event)
-    }
-
-    assert.equal(events.at(-1)?.type, 'complete')
-    assert.deepEqual(observerStarts.map((call) => call.kind), ['memory', 'turn', 'memory'])
-    assert.deepEqual(observerEnds[0]?.metadata, {
-      phase: 'retrieve',
-      keywords: ['name', '名字'],
-      timeRange: null,
-      hitCount: 1,
-      memoryIds: ['name-memory'],
-      hits: [
-        {
-          id: 'name-memory',
-          summary: '用户名字叫王家骏',
-          tags: ['名字', 'name'],
-          importance: 0.9,
-          matchedTerms: ['name', '名字'],
-        },
-      ],
-    })
-    assert.equal(
-      ((observerEnds[1]?.metadata as { memory?: { keywords?: string[] } })?.memory?.keywords ?? [])[0],
-      'name',
-    )
-  } finally {
-    resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
 
 test('runAgent emits system_error and skips memory retrieval when memory query call throws', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-query-error-'))
-  const dbPath = join(dir, 'test.db')
+  const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
+  const observer: RunAgentObserver = {
+    onLLMCallStart() {
+      return 'call-1'
+    },
+    onLLMCallEnd(_callId, payload) {
+      observerEnds.push({ metadata: payload.metadata, error: payload.error })
+    },
+  }
 
-  try {
-    bootstrapDb(dbPath)
-    getRawSqlite().exec(`
-      INSERT INTO memories (id, agent_id, session_id, content, summary, tags, importance, created_at)
-      VALUES (
-        'fallback-memory',
-        'agent-1',
-        'session-1',
-        '用户说自己的猫叫橘子',
-        '用户养了一只叫橘子的猫',
-        '["猫","pet"]',
-        0.9,
-        unixepoch('now') * 1000
-      );
-    `)
-
-    const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
-    const observer: RunAgentObserver = {
-      onLLMCallStart() {
-        return 'call-1'
-      },
-      onLLMCallEnd(_callId, payload) {
-        observerEnds.push({ metadata: payload.metadata, error: payload.error })
-      },
+  const provider = new FakeProvider(async function* (params) {
+    if (isMemoryRetrievePrompt(params.systemPrompt)) {
+      throw new Error('memory query failed')
     }
 
-    const provider = new FakeProvider(async function* (params) {
-      if (isMemoryRetrievePrompt(params.systemPrompt)) {
-        throw new Error('memory query failed')
-      }
-
-      if (params.systemPrompt.includes('严格返回只有以下键的 JSON')) {
-        yield {
-          type: 'message_complete',
-          response: {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  summary: '用户养了一只叫橘子的猫',
-                  tags: ['猫', 'pet'],
-                  importance: 0.8,
-                }),
-              },
-            ],
-            stopReason: 'end_turn',
-            usage: { inputTokens: 4, outputTokens: 6 },
-          },
-        }
-        return
-      }
-
-      assert.equal(params.systemPrompt, 'test')
+    if (params.systemPrompt.includes('"display_summary": string')) {
       yield {
         type: 'message_complete',
         response: {
-          content: [{ type: 'text', text: '你的猫叫橘子。' }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                display_summary: '用户养了一只叫橘子的猫',
+                retrieval_text: '用户曾告诉我，他养了一只名叫橘子的猫',
+                tags: ['猫', 'pet'],
+                importance: 0.8,
+              }),
+            },
+          ],
           stopReason: 'end_turn',
-          usage: { inputTokens: 7, outputTokens: 4 },
+          usage: { inputTokens: 4, outputTokens: 6 },
         },
       }
-    })
-
-    const events = []
-    for await (const event of runAgent(
-      createConfig(),
-      [createTextMessage('user', '我猫叫什么')],
-      provider,
-      createSystems({
-        memory: {
-          scheme: 'sqlite',
-          summarizeModel: 'memory-model',
-          retrieveTopK: 5,
-          minTermLength: 2,
-        },
-      }),
-      observer,
-    )) {
-      events.push(
-        event.type === 'system_error'
-          ? { type: 'system_error', system: event.system, phase: event.phase, error: event.error.message }
-          : event,
-      )
+      return
     }
 
-    assert.deepEqual(events[0], {
-      type: 'system_error',
-      system: 'memory:sqlite',
-      phase: 'beforeTurn',
-      error: 'memory query failed',
-    })
-    assert.equal(events.at(-1)?.type, 'complete')
-    assert.deepEqual(observerEnds[0]?.metadata, {
-      phase: 'retrieve',
-      keywords: [],
-      timeRange: null,
-    })
-    assert.equal(observerEnds[0]?.error, 'memory query failed')
-  } finally {
-    resetDb()
-    rmSync(dir, { recursive: true, force: true })
+    assert.equal(params.systemPrompt, 'test')
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [{ type: 'text', text: '你的猫叫橘子。' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 7, outputTokens: 4 },
+      },
+    }
+  })
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig(),
+    [createTextMessage('user', '我猫叫什么')],
+    provider,
+    createSystems({
+      memory: {
+        scheme: 'sqlite',
+        summarizeModel: 'memory-model',
+        embeddingModel: 'qwen/qwen3-embedding-0.6b',
+        retrieveTopK: 5,
+        embedder: createEmbedder({}),
+      },
+    }),
+    observer,
+  )) {
+    events.push(
+      event.type === 'system_error'
+        ? { type: 'system_error', system: event.system, phase: event.phase, error: event.error.message }
+        : event,
+    )
   }
+
+  assert.deepEqual(events[0], {
+    type: 'system_error',
+    system: 'memory:sqlite',
+    phase: 'beforeTurn',
+    error: 'memory query failed',
+  })
+  assert.equal(events.at(-1)?.type, 'complete')
+  assert.deepEqual(observerEnds[0]?.metadata, {
+    phase: 'retrieve',
+    retrievalQuery: '',
+    focus: null,
+    timeRange: null,
+  })
+  assert.equal(observerEnds[0]?.error, 'memory query failed')
 })
 
 test('runAgent emits system_error and continues when memory retrieval throws', async () => {
@@ -523,12 +396,13 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
         ctx.pendingMemoryQuery = {
           kind: 'sqlite',
           system: 'memory:sqlite',
-          prompt: '你要为 sqlite 记忆系统准备一份检索查询。',
+          prompt: '你要为 sqlite 记忆系统准备一份语义检索查询。',
           inputText: ctx.input.text,
           parse() {
             return {
-              keywords: ['cat'],
+              retrievalQuery: '用户关于猫说过的话',
               timeRange: null,
+              focus: '猫',
             }
           },
           retrieve() {
@@ -543,7 +417,7 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
       yield {
         type: 'message_complete',
         response: {
-          content: [{ type: 'text', text: JSON.stringify({ keywords: ['cat'] }) }],
+          content: [{ type: 'text', text: JSON.stringify({ retrieval_query: '用户关于猫说过的话', time_range: null, focus: '猫' }) }],
           stopReason: 'end_turn',
           usage: { inputTokens: 4, outputTokens: 4 },
         },
@@ -586,7 +460,8 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
   assert.equal(events.at(-1)?.type, 'complete')
   assert.deepEqual(observerEnds[0]?.metadata, {
     phase: 'retrieve',
-    keywords: ['cat'],
+    retrievalQuery: '用户关于猫说过的话',
+    focus: '猫',
     timeRange: null,
     hitCount: 0,
     memoryIds: [],
@@ -595,141 +470,116 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
   assert.equal(observerEnds[0]?.error, 'memory retrieve failed')
 })
 
-test('runAgent emits system_error without fallback retrieval when memory query returns invalid JSON or empty keywords', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-query-invalid-'))
-  const dbPath = join(dir, 'test.db')
+test('runAgent emits system_error without fallback retrieval when memory query returns invalid JSON or empty retrieval_query', async () => {
+  const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
+  const observer: RunAgentObserver = {
+    onLLMCallStart() {
+      return `call-${observerEnds.length + 1}`
+    },
+    onLLMCallEnd(_callId, payload) {
+      observerEnds.push({ metadata: payload.metadata, error: payload.error })
+    },
+  }
 
-  try {
-    bootstrapDb(dbPath)
-    getRawSqlite().exec(`
-      INSERT INTO memories (id, agent_id, session_id, content, summary, tags, importance, created_at)
-      VALUES (
-        'invalid-memory',
-        'agent-1',
-        'session-1',
-        '用户说自己的猫叫橘子',
-        '用户养了一只叫橘子的猫',
-        '["猫","pet"]',
-        0.9,
-        unixepoch('now') * 1000
-      );
-    `)
-
-    const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
-    const observer: RunAgentObserver = {
-      onLLMCallStart() {
-        return `call-${observerEnds.length + 1}`
-      },
-      onLLMCallEnd(_callId, payload) {
-        observerEnds.push({ metadata: payload.metadata, error: payload.error })
-      },
-    }
-
-    let queryCalls = 0
-    const provider = new FakeProvider(async function* (params) {
-      if (isMemoryRetrievePrompt(params.systemPrompt)) {
-        queryCalls += 1
-        yield {
-          type: 'message_complete',
-          response: {
-            content: [
-              {
-                type: 'text',
-                text: queryCalls === 1 ? '{not json' : JSON.stringify({ keywords: [] }),
-              },
-            ],
-            stopReason: 'end_turn',
-            usage: { inputTokens: 4, outputTokens: 3 },
-          },
-        }
-        return
-      }
-
-      if (params.systemPrompt.includes('严格返回只有以下键的 JSON')) {
-        yield {
-          type: 'message_complete',
-          response: {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  summary: '用户养了一只叫橘子的猫',
-                  tags: ['猫', 'pet'],
-                  importance: 0.8,
-                }),
-              },
-            ],
-            stopReason: 'end_turn',
-            usage: { inputTokens: 4, outputTokens: 6 },
-          },
-        }
-        return
-      }
-
-      assert.equal(params.systemPrompt, 'test')
+  let queryCalls = 0
+  const provider = new FakeProvider(async function* (params) {
+    if (isMemoryRetrievePrompt(params.systemPrompt)) {
+      queryCalls += 1
       yield {
         type: 'message_complete',
         response: {
-          content: [{ type: 'text', text: '你的猫叫橘子。' }],
+          content: [
+            {
+              type: 'text',
+              text: queryCalls === 1
+                ? '{not json'
+                : JSON.stringify({ retrieval_query: '', time_range: null, focus: null }),
+            },
+          ],
           stopReason: 'end_turn',
-          usage: { inputTokens: 7, outputTokens: 4 },
+          usage: { inputTokens: 4, outputTokens: 3 },
         },
       }
-    })
-
-    for (const input of ['我猫叫什么', '我猫叫什么']) {
-      const events = []
-      for await (const event of runAgent(
-        createConfig(),
-        [createTextMessage('user', input)],
-        provider,
-        createSystems({
-          memory: {
-            scheme: 'sqlite',
-            summarizeModel: 'memory-model',
-            retrieveTopK: 5,
-            minTermLength: 2,
-          },
-        }),
-        observer,
-      )) {
-        events.push(
-          event.type === 'system_error'
-            ? { type: 'system_error', system: event.system, phase: event.phase, error: event.error.message }
-            : event,
-        )
-      }
-
-      assert.equal(events.at(-1)?.type, 'complete')
-      assert.deepEqual(events[0], {
-        type: 'system_error',
-        system: 'memory:sqlite',
-        phase: 'beforeTurn',
-        error: queryCalls === 1
-          ? 'Memory query call returned invalid JSON'
-          : 'Memory query call returned neither keywords nor time_range',
-      })
+      return
     }
 
-    assert.deepEqual(observerEnds[0]?.metadata, {
-      phase: 'retrieve',
-      keywords: [],
-      timeRange: null,
+    if (params.systemPrompt.includes('"display_summary": string')) {
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                display_summary: '用户养了一只叫橘子的猫',
+                retrieval_text: '用户曾告诉我，他养了一只名叫橘子的猫',
+                tags: ['猫', 'pet'],
+                importance: 0.8,
+              }),
+            },
+          ],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 4, outputTokens: 6 },
+        },
+      }
+      return
+    }
+
+    assert.equal(params.systemPrompt, 'test')
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [{ type: 'text', text: '你的猫叫橘子。' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 7, outputTokens: 4 },
+      },
+    }
+  })
+
+  for (const input of ['我猫叫什么', '我猫叫什么']) {
+    const events = []
+    for await (const event of runAgent(
+      createConfig(),
+      [createTextMessage('user', input)],
+      provider,
+      createSystems({
+        memory: {
+          scheme: 'sqlite',
+          summarizeModel: 'memory-model',
+          embeddingModel: 'qwen/qwen3-embedding-0.6b',
+          retrieveTopK: 5,
+          embedder: createEmbedder({}),
+        },
+      }),
+      observer,
+    )) {
+      events.push(
+        event.type === 'system_error'
+          ? { type: 'system_error', system: event.system, phase: event.phase, error: event.error.message }
+          : event,
+      )
+    }
+
+    assert.equal(events.at(-1)?.type, 'complete')
+    assert.deepEqual(events[0], {
+      type: 'system_error',
+      system: 'memory:sqlite',
+      phase: 'beforeTurn',
+      error: queryCalls === 1
+        ? 'Memory query call returned invalid JSON'
+        : 'Memory query call returned neither retrieval_query nor time_range',
     })
-    assert.equal((observerEnds[3]?.metadata as { phase?: string })?.phase, 'retrieve')
-    assert.deepEqual(
-      (observerEnds[3]?.metadata as { keywords?: string[] })?.keywords,
-      [],
-    )
-    assert.equal((observerEnds[3]?.metadata as { hitCount?: number })?.hitCount, undefined)
-    assert.deepEqual(
-      ((observerEnds[3]?.metadata as { memoryIds?: string[] })?.memoryIds ?? []).includes('invalid-memory'),
-      false,
-    )
-  } finally {
-    resetDb()
-    rmSync(dir, { recursive: true, force: true })
   }
+
+  assert.deepEqual(observerEnds[0]?.metadata, {
+    phase: 'retrieve',
+    retrievalQuery: '',
+    focus: null,
+    timeRange: null,
+  })
+  assert.equal((observerEnds[3]?.metadata as { phase?: string })?.phase, 'retrieve')
+  assert.equal((observerEnds[3]?.metadata as { retrievalQuery?: string })?.retrievalQuery, '')
+  assert.equal((observerEnds[3]?.metadata as { hitCount?: number })?.hitCount, undefined)
 })
 
 test('runAgent executes post-turn emotion, relationship, and memory LLM calls in parallel', async () => {
@@ -751,7 +601,8 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
           sourceText: '用户：你好\n助手：你好呀',
           parse() {
             return {
-              summary: '用户打了招呼',
+              displaySummary: '用户打了招呼',
+              retrievalText: '用户刚刚向我打了招呼',
               tags: ['打招呼'],
               importance: 0.4,
             }
@@ -841,7 +692,7 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
 
       if (params.systemPrompt === '记忆总结 prompt') {
         return {
-          content: [{ type: 'text', text: '{"summary":"用户打了招呼","tags":["打招呼"],"importance":0.4}' }],
+          content: [{ type: 'text', text: '{"display_summary":"用户打了招呼","retrieval_text":"用户刚刚向我打了招呼","tags":["打招呼"],"importance":0.4}' }],
           stopReason: 'end_turn',
           usage: { inputTokens: 3, outputTokens: 3 },
         }
@@ -863,5 +714,5 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
 
   assert.equal(events.at(-1)?.type, 'complete')
   assert.equal(maxConcurrentPostTurnCalls, 3)
-  assert.deepEqual(new Set(persisted), new Set(['emotion', 'relationship', 'memory']))
+  assert.deepEqual(persisted.sort(), ['emotion', 'memory', 'relationship'])
 })

@@ -4,12 +4,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { LLMProvider } from '@mas/core'
-import { getDb, getRawSqlite, memoryRepo, resetDb } from '@mas/db'
+import { getDb, getMemoryDb, getRawSqlite, memoryRepo, resetDb, resetMemoryDb } from '@mas/db'
 import { consolidateSqliteMemories } from './handler'
 
-function bootstrapDb(dbPath: string) {
+function bootstrapDb(dbPath: string, memoryDbPath: string) {
+  process.env.MAS_MEMORY_DB_PATH = memoryDbPath
   resetDb()
+  resetMemoryDb()
   getDb(dbPath)
+  getMemoryDb(memoryDbPath)
   getRawSqlite().exec(`
     CREATE TABLE agents (
       id TEXT PRIMARY KEY,
@@ -40,16 +43,6 @@ function bootstrapDb(dbPath: string) {
       token_count INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
-    CREATE TABLE memories (
-      id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL REFERENCES agents(id),
-      session_id TEXT NOT NULL REFERENCES sessions(id),
-      content TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      tags TEXT NOT NULL,
-      importance REAL NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
-    );
     CREATE TABLE llm_calls (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -69,8 +62,6 @@ function bootstrapDb(dbPath: string) {
       finished_at INTEGER,
       error TEXT
     );
-    CREATE INDEX idx_memories_agent_created_at ON memories(agent_id, created_at);
-    CREATE INDEX idx_memories_agent_id ON memories(agent_id);
   `)
   getRawSqlite().exec(`
     INSERT INTO agents (id, name, model, modules)
@@ -93,8 +84,11 @@ function addAgentOneMemory(input: {
   return memoryRepo.addMemory({
     agentId: 'agent-1',
     sessionId: input.sessionId,
-    content: input.summary,
-    summary: input.summary,
+    sourceText: input.summary,
+    displaySummary: input.summary,
+    retrievalText: input.summary,
+    retrievalEmbedding: [1, 0],
+    retrievalModel: 'qwen/qwen3-embedding-0.6b',
     tags: input.tags,
     importance: input.importance,
     createdAt: new Date(input.createdAt),
@@ -122,12 +116,21 @@ function createProvider(
   }
 }
 
+function createEmbedder(map: Record<string, number[]>) {
+  return {
+    async embed(input: string[]) {
+      return input.map((item) => map[item] ?? [0, 0])
+    },
+  }
+}
+
 test('consolidateSqliteMemories returns 404 when the agent does not exist', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-consolidate-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     const response = await consolidateSqliteMemories('missing-agent', {
       provider: createProvider('{"actions":[]}'),
@@ -137,6 +140,7 @@ test('consolidateSqliteMemories returns 404 when the agent does not exist', asyn
     assert.deepEqual(await response.json(), { error: 'Not found' })
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -144,9 +148,10 @@ test('consolidateSqliteMemories returns 404 when the agent does not exist', asyn
 test('consolidateSqliteMemories returns 400 when the memory scheme is not sqlite', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-consolidate-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     const response = await consolidateSqliteMemories('agent-2', {
       provider: createProvider('{"actions":[]}'),
@@ -156,6 +161,7 @@ test('consolidateSqliteMemories returns 400 when the memory scheme is not sqlite
     assert.deepEqual(await response.json(), { error: 'Agent memory scheme must be sqlite' })
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -163,9 +169,10 @@ test('consolidateSqliteMemories returns 400 when the memory scheme is not sqlite
 test('consolidateSqliteMemories returns 400 when there are no memories to consolidate', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-consolidate-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     const response = await consolidateSqliteMemories('agent-1', {
       provider: createProvider('{"actions":[]}'),
@@ -175,6 +182,7 @@ test('consolidateSqliteMemories returns 400 when there are no memories to consol
     assert.deepEqual(await response.json(), { error: 'No memories to consolidate' })
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -182,9 +190,10 @@ test('consolidateSqliteMemories returns 400 when there are no memories to consol
 test('consolidateSqliteMemories returns 400 when there are more than 100 memories', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-consolidate-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     for (let index = 0; index < 101; index += 1) {
       addAgentOneMemory({
@@ -204,6 +213,7 @@ test('consolidateSqliteMemories returns 400 when there are more than 100 memorie
     assert.deepEqual(await response.json(), { error: 'Too many memories to consolidate at once' })
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -211,9 +221,10 @@ test('consolidateSqliteMemories returns 400 when there are more than 100 memorie
 test('consolidateSqliteMemories returns 500 and leaves memories unchanged when the model output is invalid', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-consolidate-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
     addAgentOneMemory({
       sessionId: 'session-1',
       summary: '用户住在布鲁塞尔',
@@ -232,7 +243,7 @@ test('consolidateSqliteMemories returns 500 and leaves memories unchanged when t
     const ends: Array<{ metadata?: Record<string, unknown> }> = []
 
     const before = memoryRepo.listMemoriesByAgent('agent-1').map((memory) => ({
-      summary: memory.summary,
+      summary: memory.displaySummary,
       tags: memory.tags,
       importance: memory.importance,
     }))
@@ -251,7 +262,7 @@ test('consolidateSqliteMemories returns 500 and leaves memories unchanged when t
       },
     })
     const after = memoryRepo.listMemoriesByAgent('agent-1').map((memory) => ({
-      summary: memory.summary,
+      summary: memory.displaySummary,
       tags: memory.tags,
       importance: memory.importance,
     }))
@@ -265,6 +276,7 @@ test('consolidateSqliteMemories returns 500 and leaves memories unchanged when t
     assert.deepEqual(after, before)
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -272,9 +284,10 @@ test('consolidateSqliteMemories returns 500 and leaves memories unchanged when t
 test('consolidateSqliteMemories returns a report and emits consolidate observer metadata on success', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-consolidate-'))
   const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
     const keep = addAgentOneMemory({
       sessionId: 'session-1',
       summary: '用户的名字是王杰',
@@ -314,14 +327,16 @@ test('consolidateSqliteMemories returns a report and emits consolidate observer 
           {
             op: 'rewrite',
             id: rewrite.id,
-            summary: '用户住在比利时布鲁塞尔',
+            display_summary: '用户住在比利时布鲁塞尔',
+            retrieval_text: '用户长期住在比利时布鲁塞尔',
             tags: ['布鲁塞尔', 'brussels', '比利时', 'belgium', '住处', 'location'],
             importance: 0.7,
           },
           {
             op: 'merge',
             sourceIds: [mergeA.id, mergeB.id],
-            summary: '用户习惯夜间编码',
+            display_summary: '用户习惯夜间编码',
+            retrieval_text: '用户经常在夜间编码或工作',
             tags: ['夜间', 'night', '编码', 'coding', '晚上', 'evening'],
             importance: 0.8,
           },
@@ -338,6 +353,10 @@ test('consolidateSqliteMemories returns a report and emits consolidate observer 
           },
         }
       },
+      embedder: createEmbedder({
+        用户长期住在比利时布鲁塞尔: [1, 0],
+        用户经常在夜间编码或工作: [0, 1],
+      }),
     })
 
     const body = await response.json()
@@ -368,9 +387,10 @@ test('consolidateSqliteMemories returns a report and emits consolidate observer 
       reasoning: { effort: 'none' },
     })
     assert.equal(rows.length, 3)
-    assert.ok(rows.some((memory) => memory.summary === '用户习惯夜间编码'))
+    assert.ok(rows.some((memory) => memory.displaySummary === '用户习惯夜间编码'))
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })

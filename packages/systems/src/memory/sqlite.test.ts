@@ -3,13 +3,23 @@ import test from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { getDb, getRawSqlite, memoryRepo, resetDb } from '@mas/db'
+import {
+  getDb,
+  getMemoryDb,
+  getRawSqlite,
+  memoryRepo,
+  resetDb,
+  resetMemoryDb,
+} from '@mas/db'
 import { MemorySqliteSystem } from './sqlite'
 import type { TurnContext } from '../types'
 
-function bootstrapDb(dbPath: string) {
+function bootstrapDb(dbPath: string, memoryDbPath: string) {
+  process.env.MAS_MEMORY_DB_PATH = memoryDbPath
   resetDb()
+  resetMemoryDb()
   getDb(dbPath)
+  getMemoryDb(memoryDbPath)
   getRawSqlite().exec(`
     CREATE TABLE agents (
       id TEXT PRIMARY KEY,
@@ -32,18 +42,6 @@ function bootstrapDb(dbPath: string) {
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
-    CREATE TABLE memories (
-      id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL REFERENCES agents(id),
-      session_id TEXT NOT NULL REFERENCES sessions(id),
-      content TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      tags TEXT NOT NULL,
-      importance REAL NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
-    );
-    CREATE INDEX idx_memories_agent_created_at ON memories(agent_id, created_at);
-    CREATE INDEX idx_memories_agent_id ON memories(agent_id);
   `)
   getRawSqlite().exec(`
     INSERT INTO agents (id, name, model) VALUES ('agent-1', 'Agent One', 'claude-sonnet-4-6');
@@ -71,18 +69,30 @@ function createContext(text: string): TurnContext {
   }
 }
 
-test('memory sqlite system prepares a pending retrieval query in beforeTurn and injects prompt fragments after retrieval', async () => {
+function createEmbedder(map: Record<string, number[]>) {
+  return {
+    async embed(input: string[]) {
+      return input.map((item) => map[item] ?? [0, 0])
+    },
+  }
+}
+
+test('memory sqlite system prepares embedding retrieval and injects display summaries after retrieval', { concurrency: false }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
-  const dbPath = join(dir, 'test.db')
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     const catMemory = memoryRepo.addMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      content: '用户说自己的猫叫橘子',
-      summary: '用户养了一只叫橘子的猫',
+      sourceText: '用户说自己的猫叫橘子',
+      displaySummary: '用户养了一只叫橘子的猫',
+      retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
       tags: ['猫', '橘子', '宠物'],
       importance: 0.95,
       createdAt: new Date('2026-04-17T10:00:00.000Z'),
@@ -90,57 +100,57 @@ test('memory sqlite system prepares a pending retrieval query in beforeTurn and 
     memoryRepo.addMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      content: '用户说自己晚上更有空',
-      summary: '用户喜欢晚上聊天',
+      sourceText: '用户说自己晚上更有空',
+      displaySummary: '用户喜欢晚上聊天',
+      retrievalText: '用户平时更喜欢在夜里找我聊天',
+      retrievalEmbedding: [0, 1],
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
       tags: ['晚上', '聊天'],
       importance: 0.3,
       createdAt: new Date('2026-04-17T11:00:00.000Z'),
     })
-    memoryRepo.addMemory({
-      agentId: 'agent-2',
-      sessionId: 'session-3',
-      content: '其他 agent 的记忆',
-      summary: '另一个 agent 也有一只猫',
-      tags: ['猫'],
-      importance: 1,
-      createdAt: new Date('2026-04-17T12:00:00.000Z'),
-    })
 
     const system = new MemorySqliteSystem({
       retrieveTopK: 5,
-      minTermLength: 2,
+      embeddingModel: 'qwen/qwen3-embedding-0.6b',
+      embedder: createEmbedder({
+        我猫叫什么: [1, 0],
+        用户告诉过我的猫叫什么名字: [1, 0],
+      }),
     })
     const ctx = createContext('我猫叫什么')
 
     await system.beforeTurn?.(ctx)
     assert.equal(ctx.pendingMemoryQuery?.kind, 'sqlite')
-    assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /JSON/i)
-    assert.deepEqual(ctx.state.memories, undefined)
+    assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /retrieval_query/i)
 
     const retrieved = await ctx.pendingMemoryQuery?.retrieve({
-      keywords: ['猫'],
+      retrievalQuery: '用户告诉过我的猫叫什么名字',
       timeRange: null,
+      focus: '猫的名字',
     })
+
     ctx.state.memories = retrieved ?? []
-    ctx.state.memoryRetrievalKeywords = ['猫']
     await system.beforeLLM?.(ctx)
 
-    const loaded = ctx.state.memories as Array<{ id: string; summary: string }>
+    const loaded = ctx.state.memories as Array<{ id: string; displaySummary: string }>
     assert.deepEqual(loaded.map((memory) => memory.id), [catMemory.id])
     assert.equal(ctx.promptFragments[0]?.priority, 30)
     assert.match(ctx.promptFragments[0]?.content ?? '', /以下是本轮回复可直接依赖的相关记忆/)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /把这些内容视为你这一轮可用的回忆/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /可用的回忆/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /不要再声称自己记不住/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /橘子的猫/)
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
 
-test('memory sqlite system prepares a pending write after turn', async () => {
+test('memory sqlite system prepares a pending write with display_summary and retrieval_text', { concurrency: false }, async () => {
   const system = new MemorySqliteSystem({
     summarizeModel: 'memory-model',
+    embedder: createEmbedder({}),
   })
   const ctx = createContext('我猫叫橘子')
   ctx.response = {
@@ -153,16 +163,15 @@ test('memory sqlite system prepares a pending write after turn', async () => {
 
   assert.equal(ctx.pendingMemoryWrite?.kind, 'sqlite')
   assert.equal(ctx.pendingMemoryWrite?.model, 'memory-model')
-  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /严格返回只有以下键的 JSON/i)
-  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /请使用简体中文/i)
-  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /tags 尽量提供至少 4 个简短、可复用的中文关键词/i)
-  assert.doesNotMatch(ctx.pendingMemoryWrite?.prompt ?? '', /Use the main language of the conversation turn/i)
-  assert.equal(typeof ctx.pendingMemoryWrite?.persist, 'function')
+  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /display_summary/i)
+  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /retrieval_text/i)
+  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /自然语言完整描述可检索的事实/)
 })
 
-test('memory sqlite system uses summarize model override for retrieval queries too', async () => {
+test('memory sqlite system uses memory model override for retrieval queries too', { concurrency: false }, async () => {
   const system = new MemorySqliteSystem({
     summarizeModel: 'memory-model',
+    embedder: createEmbedder({}),
   })
   const ctx = createContext('昨天发生了什么')
 
@@ -170,19 +179,24 @@ test('memory sqlite system uses summarize model override for retrieval queries t
 
   assert.equal(ctx.pendingMemoryQuery?.kind, 'sqlite')
   assert.equal(ctx.pendingMemoryQuery?.model, 'memory-model')
-  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /time_range/i)
-  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /你要为 sqlite 记忆系统准备一份检索查询/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /retrieval_query/i)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /语义检索查询/)
 })
 
-test('memory sqlite system parses and persists chinese summarize output', async () => {
+test('memory sqlite system parses and persists display summary plus retrieval text', { concurrency: false }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
-  const dbPath = join(dir, 'test.db')
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
 
   try {
-    bootstrapDb(dbPath)
+    bootstrapDb(dbPath, memoryDbPath)
 
     const system = new MemorySqliteSystem({
       summarizeModel: 'memory-model',
+      embeddingModel: 'qwen/qwen3-embedding-0.6b',
+      embedder: createEmbedder({
+        用户告诉过我他的名字是王家骏: [0.2, 0.8],
+      }),
     })
     const ctx = createContext('我叫王家骏')
     ctx.response = {
@@ -194,13 +208,15 @@ test('memory sqlite system parses and persists chinese summarize output', async 
     await system.afterTurn?.(ctx)
 
     const parsed = ctx.pendingMemoryWrite?.parse(JSON.stringify({
-      summary: '用户叫王家骏',
+      display_summary: '用户叫王家骏',
+      retrieval_text: '用户告诉过我他的名字是王家骏',
       tags: ['名字', '称呼', '身份', '王家骏'],
       importance: 0.9,
     }))
 
     assert.deepEqual(parsed, {
-      summary: '用户叫王家骏',
+      displaySummary: '用户叫王家骏',
+      retrievalText: '用户告诉过我他的名字是王家骏',
       tags: ['名字', '称呼', '身份', '王家骏'],
       importance: 0.9,
     })
@@ -209,97 +225,40 @@ test('memory sqlite system parses and persists chinese summarize output', async 
 
     const stored = memoryRepo.listMemoriesByAgent('agent-1')
     assert.equal(stored.length, 1)
-    assert.deepEqual(stored[0]?.tags, ['名字', '称呼', '身份', '王家骏'])
+    assert.equal(stored[0]?.displaySummary, '用户叫王家骏')
+    assert.equal(stored[0]?.retrievalText, '用户告诉过我他的名字是王家骏')
+    assert.deepEqual(stored[0]?.retrievalEmbedding, [0.2, 0.8])
   } finally {
     resetDb()
+    resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
   }
 })
 
-test('memory sqlite retrieval hits mixed bilingual tags for both Chinese and English inputs', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-bilingual-'))
-  const dbPath = join(dir, 'test.db')
-
-  try {
-    bootstrapDb(dbPath)
-
-    const memory = memoryRepo.addMemory({
-      agentId: 'agent-1',
-      sessionId: 'session-1',
-      content: '用户告诉过我他的名字是王家骏',
-      summary: '用户名字叫王家骏',
-      tags: ['名字', 'name'],
-      importance: 0.95,
-      createdAt: new Date('2026-04-18T10:00:00.000Z'),
-    })
-
-    const system = new MemorySqliteSystem({
-      retrieveTopK: 5,
-      minTermLength: 2,
-    })
-
-    const chineseCtx = createContext('我叫什么名字')
-    await system.beforeTurn?.(chineseCtx)
-    const chineseHits = await chineseCtx.pendingMemoryQuery?.retrieve(
-      {
-        keywords: ['名字'],
-        timeRange: null,
-      },
-    )
-    assert.deepEqual(chineseHits?.map((item) => item.id), [memory.id])
-
-    const englishCtx = createContext(`what's my name`)
-    await system.beforeTurn?.(englishCtx)
-    const englishHits = await englishCtx.pendingMemoryQuery?.retrieve(
-      {
-        keywords: ['name'],
-        timeRange: null,
-      },
-    )
-    assert.deepEqual(englishHits?.map((item) => item.id), [memory.id])
-  } finally {
-    resetDb()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('memory sqlite query parse returns optional time range for natural-language time intent', async () => {
+test('memory sqlite query parse returns retrieval query, optional time range, and optional focus', { concurrency: false }, async () => {
   const system = new MemorySqliteSystem({
     retrieveTopK: 5,
-    minTermLength: 2,
+    embedder: createEmbedder({}),
   })
   const ctx = createContext('你刚刚在干嘛')
 
   await system.beforeTurn?.(ctx)
 
   const parsed = ctx.pendingMemoryQuery?.parse(JSON.stringify({
-    keywords: [],
+    retrieval_query: '刚才和用户之间发生的互动',
     time_range: {
       start: '2026-04-20T13:55:00+02:00',
       end: '2026-04-20T14:00:00+02:00',
     },
+    focus: '刚才在做什么',
   }))
 
   assert.deepEqual(parsed, {
-    keywords: [],
+    retrievalQuery: '刚才和用户之间发生的互动',
     timeRange: {
       start: new Date('2026-04-20T13:55:00+02:00'),
       end: new Date('2026-04-20T14:00:00+02:00'),
     },
+    focus: '刚才在做什么',
   })
-})
-
-test('memory sqlite retrieve prompt distinguishes stable topics from time-only recall queries', async () => {
-  const system = new MemorySqliteSystem({
-    retrieveTopK: 5,
-    minTermLength: 2,
-  })
-  const ctx = createContext('昨天发生了什么')
-
-  await system.beforeTurn?.(ctx)
-
-  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /稳定的话题锚点/)
-  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /如果用户主要是在追问某个时间段内发生了什么/)
-  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /昨天发生了什么/i)
-  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /"keywords":\s*\[\]/i)
 })

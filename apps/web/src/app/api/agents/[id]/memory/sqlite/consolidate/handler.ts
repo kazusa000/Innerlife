@@ -8,13 +8,16 @@ import { agentRepo, memoryRepo } from '@mas/db'
 import {
   buildMemoryConsolidationPrompt,
   buildMemoryConsolidationSourceText,
+  createOpenRouterMemoryEmbedder,
   isSqliteMemoryConfig,
   parseMemoryConsolidationResponse,
   resolveMemorySqliteConfig,
+  type MemoryEmbedder,
 } from '@mas/systems'
 
 export interface ConsolidateSqliteMemoriesDeps {
   provider?: Pick<LLMProvider, 'sendMessage'>
+  embedder?: MemoryEmbedder
   resolveObserver?: (input: {
     agentId: string
     memories: ReturnType<typeof memoryRepo.listMemoriesByAgentOldestFirst>
@@ -48,7 +51,8 @@ export async function consolidateSqliteMemories(
   }
 
   const provider = deps.provider ?? createProvider(agent.provider)
-  const model = resolveMemorySqliteConfig(memoryConfig).summarizeModel ?? agent.model
+  const memorySettings = resolveMemorySqliteConfig(memoryConfig)
+  const model = memorySettings.summarizeModel ?? agent.model
   const systemPrompt = buildMemoryConsolidationPrompt()
   const phaseMetadata = { phase: 'consolidate' as const }
   const messages: Message[] = [
@@ -86,9 +90,31 @@ export async function consolidateSqliteMemories(
         )
         .join('\n'),
     )
+    const embedder = deps.embedder ?? createOpenRouterMemoryEmbedder()
+    const rewriteLikeActions = actions.filter((action) => action.op !== 'keep')
+    const embeddings = rewriteLikeActions.length > 0
+      ? await embedder.embed(
+        rewriteLikeActions.map((action) => action.retrievalText),
+        {
+          model: memorySettings.embeddingModel,
+          inputType: 'search_document',
+        },
+      )
+      : []
+    const actionsWithEmbeddings = actions.map((action) => {
+      if (action.op === 'keep') {
+        return action
+      }
+      const embedding = embeddings.shift() ?? []
+      return {
+        ...action,
+        retrievalEmbedding: embedding,
+        retrievalModel: memorySettings.embeddingModel,
+      }
+    })
     const report = memoryRepo.applyConsolidationPlan({
       agentId,
-      actions,
+      actions: actionsWithEmbeddings,
     })
 
     if (callId !== undefined && observer) {

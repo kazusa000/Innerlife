@@ -557,12 +557,14 @@ async function runPendingMemoryWrite(
           written: written
             ? {
                 id: written.id,
-                summary: written.summary,
+                summary: written.displaySummary,
+                retrievalText: written.retrievalText,
                 tags: [...written.tags],
                 importance: written.importance,
               }
             : {
-                summary: result.summary,
+                summary: result.displaySummary,
+                retrievalText: result.retrievalText,
                 tags: [...result.tags],
                 importance: result.importance,
               },
@@ -626,10 +628,15 @@ async function runPendingMemoryQuery(
   let queryError: Error | undefined
   let retrieveError: Error | undefined
   let query = {
-    keywords: [] as string[],
+    retrievalQuery: '',
     timeRange: null as PendingMemoryQuery['parse'] extends (responseText: string) => infer T
       ? T extends { timeRange: infer R }
         ? R
+        : null
+      : null,
+    focus: null as PendingMemoryQuery['parse'] extends (responseText: string) => infer T
+      ? T extends { focus: infer F }
+        ? F
         : null
       : null,
   }
@@ -648,18 +655,19 @@ async function runPendingMemoryQuery(
     queryError = err instanceof Error ? err : new Error(String(err))
   }
 
-  ctx.state.memoryRetrievalKeywords = query.keywords
+  ctx.state.memoryRetrievalQuery = query.retrievalQuery
   ctx.state.memoryRetrievalTimeRange = query.timeRange
   ctx.state.memories = []
 
-  if (!queryError && (query.keywords.length > 0 || query.timeRange)) {
+  if (!queryError && (query.retrievalQuery || query.timeRange)) {
     try {
       memories = await pending.retrieve(query)
       ctx.state.memories = memories
-      const hits = memories.map((memory) => serializeMemoryHit(memory, query.keywords))
+      const hits = memories.map((memory) => serializeMemoryHit(memory))
       ctx.turnMetadata.memory = {
         hitCount: memories.length,
-        keywords: [...query.keywords],
+        retrievalQuery: query.retrievalQuery,
+        focus: query.focus,
         timeRange: query.timeRange
           ? {
               start: query.timeRange.start.toISOString(),
@@ -680,7 +688,8 @@ async function runPendingMemoryQuery(
       : queryError ?? retrieveError
   const metadata: Record<string, unknown> = {
     phase: 'retrieve',
-    keywords: [...query.keywords],
+    retrievalQuery: query.retrievalQuery,
+    focus: query.focus,
     timeRange: query.timeRange
       ? {
           start: query.timeRange.start.toISOString(),
@@ -689,8 +698,8 @@ async function runPendingMemoryQuery(
       : null,
   }
 
-  if (!queryError && (query.keywords.length > 0 || query.timeRange)) {
-    const hits = memories.map((memory) => serializeMemoryHit(memory, query.keywords))
+  if (!queryError && (query.retrievalQuery || query.timeRange)) {
+    const hits = memories.map((memory) => serializeMemoryHit(memory))
     metadata.hitCount = memories.length
     metadata.memoryIds = memories.map((memory) => memory.id)
     metadata.hits = hits
@@ -809,24 +818,12 @@ function serializeRelationshipState(state: PendingRelationshipAnalysis['currentS
   }
 }
 
-function serializeMemoryHit(
-  memory: NonNullable<TurnContext['state']['memories']>[number],
-  keywords: string[],
-) {
-  const normalizedTags = memory.tags.map((tag) => tag.toLowerCase())
-  const matchedTerms = [...new Set(
-    keywords.filter((keyword) => {
-      const normalizedKeyword = keyword.toLowerCase()
-      return normalizedTags.some((tag) => tag.includes(normalizedKeyword))
-    }),
-  )]
-
+function serializeMemoryHit(memory: NonNullable<TurnContext['state']['memories']>[number]) {
   return {
     id: memory.id,
-    summary: memory.summary,
+    summary: memory.displaySummary,
     tags: [...memory.tags],
     importance: memory.importance,
-    ...(matchedTerms.length > 0 ? { matchedTerms } : {}),
   }
 }
 

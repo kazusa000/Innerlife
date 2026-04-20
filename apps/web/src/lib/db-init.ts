@@ -1,13 +1,16 @@
 import path from 'node:path'
-import { getDb, getRawSqlite, agentRepo } from '@mas/db'
+import { getDb, getRawSqlite, getMemoryDb, agentRepo } from '@mas/db'
 
 const DB_PATH = path.resolve(process.cwd(), '..', '..', 'data.db')
+const MEMORY_DB_PATH = path.resolve(process.cwd(), '..', '..', 'storage', 'memory', 'memory.db')
 
 let initialized = false
 
 export function initDb() {
   if (initialized) return
+  process.env.MAS_MEMORY_DB_PATH = MEMORY_DB_PATH
   getDb(DB_PATH)
+  getMemoryDb(MEMORY_DB_PATH)
   const sqlite = getRawSqlite()
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS agents (
@@ -49,16 +52,6 @@ export function initDb() {
       duration_ms INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
-    CREATE TABLE IF NOT EXISTS memories (
-      id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL REFERENCES agents(id),
-      session_id TEXT NOT NULL REFERENCES sessions(id),
-      content TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      tags TEXT NOT NULL,
-      importance REAL NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
-    );
     CREATE TABLE IF NOT EXISTS llm_calls (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -78,8 +71,6 @@ export function initDb() {
       finished_at INTEGER,
       error TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_memories_agent_created_at ON memories(agent_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_memories_agent_id ON memories(agent_id);
     CREATE TABLE IF NOT EXISTS emotion_states (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL REFERENCES agents(id),
@@ -105,6 +96,11 @@ export function initDb() {
       ON relationships(agent_id, counterpart_type, counterpart_id);
     CREATE INDEX IF NOT EXISTS idx_relationships_agent_updated_at
       ON relationships(agent_id, updated_at);
+  `)
+  sqlite.exec(`
+    DROP INDEX IF EXISTS idx_memories_agent_created_at;
+    DROP INDEX IF EXISTS idx_memories_agent_id;
+    DROP TABLE IF EXISTS memories;
   `)
   const columns = sqlite.pragma("table_info('agents')") as Array<{ name: string }>
   if (!columns.some((column) => column.name === 'modules')) {
