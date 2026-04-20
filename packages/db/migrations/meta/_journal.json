@@ -29,6 +29,13 @@
       "when": 1776542296579,
       "tag": "0003_little_naoko",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1776679040646,
+      "tag": "0004_glorious_ezekiel",
+      "breakpoints": true
     }
   ]
 }

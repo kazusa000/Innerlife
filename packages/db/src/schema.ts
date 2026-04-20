@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export const agents = sqliteTable('agents', {
   id: text('id').primaryKey(),
@@ -126,3 +126,24 @@ export const emotionStates = sqliteTable('emotion_states', {
     .notNull()
     .$defaultFn(() => new Date()),
 })
+
+export const relationships = sqliteTable('relationships', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id')
+    .notNull()
+    .references(() => agents.id),
+  counterpartType: text('counterpart_type', { enum: ['user', 'agent'] }).notNull(),
+  counterpartId: text('counterpart_id').notNull(),
+  dimensions: text('dimensions').notNull(),
+  history: text('history').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (table) => ({
+  counterpartIdx: uniqueIndex('idx_relationships_agent_counterpart').on(
+    table.agentId,
+    table.counterpartType,
+    table.counterpartId,
+  ),
+  updatedAtIdx: index('idx_relationships_agent_updated_at').on(table.agentId, table.updatedAt),
+}))
