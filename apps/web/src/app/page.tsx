@@ -2,6 +2,23 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  DEFAULT_BIG5,
+  DEFAULT_EMOTION_BASELINE,
+  DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_RELATIONSHIP_BASELINE,
+  buildModules,
+  getEmotionFormState,
+  getMemoryFormState,
+  getPersonalityFormState,
+  getRelationshipFormState,
+  readValuePriorities,
+  stripManagedModules,
+  type BigFiveKey,
+  type BigFiveScores,
+  type EmotionBaseline,
+  type RelationshipBaseline,
+} from './persona-modules'
 
 interface Agent {
   id: string
@@ -13,75 +30,6 @@ interface Agent {
   status: string
   createdAt: string
 }
-
-type BigFiveKey =
-  | 'openness'
-  | 'conscientiousness'
-  | 'extraversion'
-  | 'agreeableness'
-  | 'neuroticism'
-
-type BigFiveScores = Record<BigFiveKey, number>
-
-type EmotionKey = 'mood' | 'energy' | 'stress'
-type EmotionBaseline = Record<EmotionKey, number>
-
-type PersonalityModule = {
-  scheme?: string
-  big5?: Partial<BigFiveScores>
-  speechStyle?: string
-  background?: string
-}
-
-type EmotionModule = {
-  scheme?: string
-  baseline?: Partial<EmotionBaseline>
-  decayPerTurn?: number
-  analysisModel?: string | null
-}
-
-type MemoryModule = {
-  scheme?: string
-  summarizeModel?: string | null
-}
-
-type PersonalityFormState = {
-  enabled: boolean
-  big5: BigFiveScores
-  speechStyle: string
-  background: string
-}
-
-type EmotionFormState = {
-  enabled: boolean
-  baseline: EmotionBaseline
-  decayPerTurn?: number
-  analysisModel?: string | null
-}
-
-type MemoryFormState = {
-  scheme: 'noop' | 'sqlite'
-  summarizeModel: string
-}
-
-const DEFAULT_BIG5: BigFiveScores = {
-  openness: 0.5,
-  conscientiousness: 0.5,
-  extraversion: 0.5,
-  agreeableness: 0.5,
-  neuroticism: 0.5,
-}
-
-const DEFAULT_EMOTION_BASELINE: EmotionBaseline = {
-  mood: 0,
-  energy: 0,
-  stress: 0,
-}
-
-const DEFAULT_MODEL_BY_PROVIDER = {
-  anthropic: 'claude-sonnet-4-6',
-  openrouter: 'anthropic/claude-sonnet-4.6',
-} as const
 
 const MODEL_LABELS: Record<string, string> = {
   'claude-sonnet-4-6': 'Sonnet 4.6',
@@ -121,212 +69,6 @@ const BIG_FIVE_FIELDS: Array<{
   },
 ]
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function clampTrait(value: unknown): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return 0.5
-  }
-
-  return Math.min(1, Math.max(0, value))
-}
-
-function clampMood(value: unknown): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return 0
-  }
-
-  return Math.min(1, Math.max(-1, value))
-}
-
-function clampEmotionLevel(value: unknown): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return 0
-  }
-
-  return Math.min(1, Math.max(0, value))
-}
-
-function readPersonalityModule(
-  modules: Record<string, unknown> | null
-): PersonalityModule | null {
-  if (!isRecord(modules)) {
-    return null
-  }
-
-  const personality = modules.personality
-  if (typeof personality === 'string') {
-    return { scheme: personality }
-  }
-
-  return isRecord(personality) ? (personality as PersonalityModule) : null
-}
-
-function getPersonalityFormState(
-  modules: Record<string, unknown> | null,
-  defaultEnabled: boolean
-): PersonalityFormState {
-  const personality = readPersonalityModule(modules)
-
-  return {
-    enabled: personality ? personality.scheme !== 'noop' : defaultEnabled,
-    big5: {
-      openness: clampTrait(personality?.big5?.openness),
-      conscientiousness: clampTrait(personality?.big5?.conscientiousness),
-      extraversion: clampTrait(personality?.big5?.extraversion),
-      agreeableness: clampTrait(personality?.big5?.agreeableness),
-      neuroticism: clampTrait(personality?.big5?.neuroticism),
-    },
-    speechStyle: typeof personality?.speechStyle === 'string'
-      ? personality.speechStyle
-      : '',
-    background: typeof personality?.background === 'string'
-      ? personality.background
-      : '',
-  }
-}
-
-function readEmotionModule(
-  modules: Record<string, unknown> | null
-): EmotionModule | null {
-  if (!isRecord(modules)) {
-    return null
-  }
-
-  const emotion = modules.emotion
-  if (typeof emotion === 'string') {
-    return { scheme: emotion }
-  }
-
-  return isRecord(emotion) ? (emotion as EmotionModule) : null
-}
-
-function getEmotionFormState(
-  modules: Record<string, unknown> | null,
-  defaultEnabled: boolean
-): EmotionFormState {
-  const emotion = readEmotionModule(modules)
-
-  return {
-    enabled: emotion ? emotion.scheme !== 'noop' : defaultEnabled,
-    baseline: {
-      mood: clampMood(emotion?.baseline?.mood),
-      energy: clampEmotionLevel(emotion?.baseline?.energy),
-      stress: clampEmotionLevel(emotion?.baseline?.stress),
-    },
-    decayPerTurn:
-      typeof emotion?.decayPerTurn === 'number' ? emotion.decayPerTurn : undefined,
-    analysisModel:
-      typeof emotion?.analysisModel === 'string' ? emotion.analysisModel : null,
-  }
-}
-
-function readValuePriorities(modules: Record<string, unknown> | null | undefined) {
-  if (!isRecord(modules)) {
-    return []
-  }
-
-  const values = modules.values
-  if (!isRecord(values) || !Array.isArray(values.priorities)) {
-    return []
-  }
-
-  return values.priorities
-    .filter((value): value is string => typeof value === 'string')
-    .map(value => value.trim())
-    .filter(Boolean)
-}
-
-function readMemoryModule(
-  modules: Record<string, unknown> | null,
-): MemoryModule | null {
-  if (!isRecord(modules)) {
-    return null
-  }
-
-  const memory = modules.memory
-  if (typeof memory === 'string') {
-    return { scheme: memory }
-  }
-
-  return isRecord(memory) ? (memory as MemoryModule) : null
-}
-
-function getMemoryFormState(
-  modules: Record<string, unknown> | null,
-): MemoryFormState {
-  const memory = readMemoryModule(modules)
-  const scheme = memory?.scheme === 'sqlite' ? 'sqlite' : 'noop'
-
-  return {
-    scheme,
-    summarizeModel:
-      typeof memory?.summarizeModel === 'string' ? memory.summarizeModel : '',
-  }
-}
-
-function stripManagedModules(modules: Record<string, unknown> | null) {
-  if (!isRecord(modules)) {
-    return {}
-  }
-
-  const { personality: _personality, values: _values, ...rest } = modules
-  delete rest.emotion
-  delete rest.memory
-  return rest
-}
-
-function buildModules(
-  baseModules: Record<string, unknown>,
-  personality: PersonalityFormState,
-  emotion: EmotionFormState,
-  memory: MemoryFormState,
-  valuePriorities: string[],
-) {
-  const next: Record<string, unknown> = { ...baseModules }
-
-  next.personality = personality.enabled
-    ? {
-        scheme: 'big-five',
-        big5: personality.big5,
-        speechStyle: personality.speechStyle.trim(),
-        background: personality.background.trim(),
-      }
-    : { scheme: 'noop' }
-
-  next.emotion = emotion.enabled
-    ? {
-        scheme: 'dimensional',
-        baseline: emotion.baseline,
-        ...(typeof emotion.decayPerTurn === 'number'
-          ? { decayPerTurn: emotion.decayPerTurn }
-          : {}),
-        ...(emotion.analysisModel ? { analysisModel: emotion.analysisModel } : {}),
-      }
-    : { scheme: 'noop' }
-
-  next.memory = memory.scheme === 'sqlite'
-    ? {
-        scheme: 'sqlite',
-        ...(memory.summarizeModel.trim()
-          ? { summarizeModel: memory.summarizeModel.trim() }
-          : {}),
-      }
-    : { scheme: 'noop' }
-
-  const priorities = valuePriorities.map(value => value.trim()).filter(Boolean)
-  if (priorities.length > 0) {
-    next.values = {
-      scheme: 'priority-list',
-      priorities,
-    }
-  }
-
-  return next
-}
-
 function gradientFor(seed: string) {
   let h = 0
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
@@ -360,6 +102,12 @@ export default function HomePage() {
   })
   const [emotionDecayPerTurn, setEmotionDecayPerTurn] = useState<number | undefined>(undefined)
   const [emotionAnalysisModel, setEmotionAnalysisModel] = useState<string | null>(null)
+  const [relationshipEnabled, setRelationshipEnabled] = useState(false)
+  const [relationshipBaseline, setRelationshipBaseline] = useState<RelationshipBaseline>({
+    ...DEFAULT_RELATIONSHIP_BASELINE,
+  })
+  const [relationshipDecayPerTurn, setRelationshipDecayPerTurn] = useState<number | undefined>(undefined)
+  const [relationshipAnalysisModel, setRelationshipAnalysisModel] = useState<string | null>(null)
   const [memoryScheme, setMemoryScheme] = useState<'noop' | 'sqlite'>('noop')
   const [memorySummarizeModel, setMemorySummarizeModel] = useState('')
   const [valuePriorities, setValuePriorities] = useState<string[]>([])
@@ -391,6 +139,10 @@ export default function HomePage() {
     setEmotionBaseline({ ...DEFAULT_EMOTION_BASELINE })
     setEmotionDecayPerTurn(undefined)
     setEmotionAnalysisModel(null)
+    setRelationshipEnabled(false)
+    setRelationshipBaseline({ ...DEFAULT_RELATIONSHIP_BASELINE })
+    setRelationshipDecayPerTurn(undefined)
+    setRelationshipAnalysisModel(null)
     setMemoryScheme('noop')
     setMemorySummarizeModel('')
     setValuePriorities([])
@@ -399,6 +151,7 @@ export default function HomePage() {
   function startEdit(agent: Agent) {
     const personality = getPersonalityFormState(agent.modules, false)
     const emotion = getEmotionFormState(agent.modules, false)
+    const relationship = getRelationshipFormState(agent.modules, false)
     const memory = getMemoryFormState(agent.modules)
 
     setEditingId(agent.id)
@@ -415,6 +168,10 @@ export default function HomePage() {
     setEmotionBaseline(emotion.baseline)
     setEmotionDecayPerTurn(emotion.decayPerTurn)
     setEmotionAnalysisModel(emotion.analysisModel ?? null)
+    setRelationshipEnabled(relationship.enabled)
+    setRelationshipBaseline(relationship.baseline)
+    setRelationshipDecayPerTurn(relationship.decayPerTurn)
+    setRelationshipAnalysisModel(relationship.analysisModel ?? null)
     setMemoryScheme(memory.scheme)
     setMemorySummarizeModel(memory.summarizeModel)
     setValuePriorities(readValuePriorities(agent.modules))
@@ -460,6 +217,12 @@ export default function HomePage() {
         baseline: emotionBaseline,
         decayPerTurn: emotionDecayPerTurn,
         analysisModel: emotionAnalysisModel,
+      },
+      {
+        enabled: relationshipEnabled,
+        baseline: relationshipBaseline,
+        decayPerTurn: relationshipDecayPerTurn,
+        analysisModel: relationshipAnalysisModel,
       },
       {
         scheme: memoryScheme,
@@ -598,7 +361,7 @@ export default function HomePage() {
               <section className="modules-panel" aria-label="Modules configuration">
                 <div className="modules-panel-head">
                   <span className="field-label">模块配置</span>
-                  <span className="placeholder-pill">Personality · Emotion · Memory · Values</span>
+                  <span className="placeholder-pill">Personality · Emotion · Relationship · Memory · Values</span>
                 </div>
 
                 <section className="module-card" aria-label="Personality configuration">
@@ -768,6 +531,122 @@ export default function HomePage() {
                   ) : (
                     <p className="module-copy">
                       关闭后会写入 `emotion.noop`，聊天时不会注入当前情绪，也不会记录状态轨迹。
+                    </p>
+                  )}
+                </section>
+
+                <section className="module-card" aria-label="Relationship configuration">
+                  <div className="module-card-head">
+                    <div className="module-copy-wrap">
+                      <div className="module-copy-top">
+                        <span className="field-label">关系</span>
+                        <span className="module-pill">Multi-dim</span>
+                      </div>
+                      <p className="module-copy">
+                        控制信任、亲和、熟悉和尊重基线。启用后，关系变化会在 Observer 里显示并写入关系状态。
+                      </p>
+                    </div>
+                    <label
+                      className={`module-toggle ${relationshipEnabled ? 'is-active' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={relationshipEnabled}
+                        onChange={(e) => setRelationshipEnabled(e.target.checked)}
+                      />
+                      <span>{relationshipEnabled ? '启用中' : '已关闭'}</span>
+                    </label>
+                  </div>
+
+                  {relationshipEnabled ? (
+                    <div className="personality-grid">
+                      <label className="trait-card">
+                        <div className="trait-head">
+                          <span className="trait-label">信任 baseline</span>
+                          <span className="trait-value">{relationshipBaseline.trust.toFixed(2)}</span>
+                        </div>
+                        <p className="trait-hint">范围 0 到 1，越高越容易把用户当成可信对象。</p>
+                        <input
+                          className="trait-slider"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={relationshipBaseline.trust}
+                          onChange={(e) =>
+                            setRelationshipBaseline((current) => ({
+                              ...current,
+                              trust: Number(e.target.value),
+                            }))}
+                        />
+                      </label>
+
+                      <label className="trait-card">
+                        <div className="trait-head">
+                          <span className="trait-label">亲和 baseline</span>
+                          <span className="trait-value">{relationshipBaseline.affinity.toFixed(2)}</span>
+                        </div>
+                        <p className="trait-hint">范围 0 到 1，越高越容易表现出亲近和温度。</p>
+                        <input
+                          className="trait-slider"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={relationshipBaseline.affinity}
+                          onChange={(e) =>
+                            setRelationshipBaseline((current) => ({
+                              ...current,
+                              affinity: Number(e.target.value),
+                            }))}
+                        />
+                      </label>
+
+                      <label className="trait-card">
+                        <div className="trait-head">
+                          <span className="trait-label">熟悉 baseline</span>
+                          <span className="trait-value">{relationshipBaseline.familiarity.toFixed(2)}</span>
+                        </div>
+                        <p className="trait-hint">范围 0 到 1，越高越像已经认识一段时间。</p>
+                        <input
+                          className="trait-slider"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={relationshipBaseline.familiarity}
+                          onChange={(e) =>
+                            setRelationshipBaseline((current) => ({
+                              ...current,
+                              familiarity: Number(e.target.value),
+                            }))}
+                        />
+                      </label>
+
+                      <label className="trait-card">
+                        <div className="trait-head">
+                          <span className="trait-label">尊重 baseline</span>
+                          <span className="trait-value">{relationshipBaseline.respect.toFixed(2)}</span>
+                        </div>
+                        <p className="trait-hint">范围 0 到 1，越高越容易维持郑重和分寸感。</p>
+                        <input
+                          className="trait-slider"
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={relationshipBaseline.respect}
+                          onChange={(e) =>
+                            setRelationshipBaseline((current) => ({
+                              ...current,
+                              respect: Number(e.target.value),
+                            }))}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <p className="module-copy">
+                      关闭后会写入 `relationship.noop`，聊天时不会注入当前关系，也不会记录关系轨迹。
                     </p>
                   )}
                 </section>
