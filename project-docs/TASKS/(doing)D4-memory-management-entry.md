@@ -119,3 +119,13 @@ const memoryManagersByScheme = {
 - **Verified**: `cd packages/db && npm test`；`cd apps/web && node --import tsx --test 'src/**/*.test.ts' --test-name-pattern='listSqliteMemories|deleteSqliteMemory|consolidateSqliteMemories'`；`cd packages/db && npm run typecheck`；`cd apps/web && npm run typecheck && npm run build`；本地 `next start` 后用 `curl` 烟测了入口元信息、sqlite 列表/搜索/删除。
 - **Caveats**: 这次没有做浏览器级手动验证；`memory:noop` 空状态和 consolidate 刷新 UI 只做了路由/自动化覆盖。当前 worktree 也没有可用的 Anthropic key，所以没做真实 consolidate HTTP 烟测。
 - **Design deltas**: 无。
+
+## 审核意见（2026-04-20, coordinator）
+
+- 结论：FAIL，任务退回 `(doing)`。
+- 代码层和自动化验证整体是有的，但这张卡把浏览器人工验证写进了完成标准，因此不能用 API / `curl` / typecheck 代替。
+- 当前缺失的关键证据是：
+- `memory:sqlite` agent 聊几轮后，打开 `/agent/[id]/memory` 能实际看到列表。
+- 点击 consolidate 后，页面能看到刷新后的结果。
+- `memory:noop` agent 打开同一路由时，页面显示空状态而不是报错。
+- 回来时请补完这些浏览器级验证，再把 Completion Note 里的 caveat 收敛掉；如果某条手测标准不再要求，需要先改 task 卡本身。
