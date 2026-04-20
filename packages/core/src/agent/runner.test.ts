@@ -744,6 +744,7 @@ test('runAgent executes pending emotion analysis as a separate observer call and
   ])
   assert.equal(seen.emotionRequest?.model, 'claude-haiku-4-5-20251001')
   assert.equal(seen.emotionRequest?.systemPrompt, 'Return JSON for emotion deltas only.')
+  assert.deepEqual(seen.emotionRequest?.reasoning, { effort: 'none' })
   assert.deepEqual(observerStarts.map((item) => item.kind), ['turn', 'emotion'])
   assert.deepEqual(seen.analysis, {
     delta: {
@@ -895,6 +896,7 @@ test('runAgent executes pending relationship analysis as a separate observer cal
   ])
   assert.equal(seen.relationshipRequest?.model, 'claude-haiku-4-5-20251001')
   assert.equal(seen.relationshipRequest?.systemPrompt, 'Return JSON for relationship deltas only.')
+  assert.deepEqual(seen.relationshipRequest?.reasoning, { effort: 'none' })
   assert.deepEqual(observerStarts.map((item) => item.kind), ['turn', 'relationship'])
   assert.deepEqual(seen.analysis, {
     delta: {

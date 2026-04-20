@@ -857,6 +857,7 @@ async function runPendingEmotionAnalysis(
       model,
       systemPrompt: pending.systemPrompt,
       messages: pending.messages as Message[],
+      reasoning: { effort: 'none' },
       signal,
     })
 
@@ -934,6 +935,7 @@ async function runPendingRelationshipAnalysis(
       model,
       systemPrompt: pending.systemPrompt,
       messages: pending.messages as Message[],
+      reasoning: { effort: 'none' },
       signal,
     })
 
