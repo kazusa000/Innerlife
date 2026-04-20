@@ -112,3 +112,25 @@ test('createSystems treats noop emotion configs as disabled', () => {
   assert.deepEqual(createSystems({ emotion: { scheme: 'noop' } }), [])
   assert.deepEqual(createSystems({ emotion: {} }), [])
 })
+
+test('createSystems treats noop relationship configs as disabled', () => {
+  assert.deepEqual(createSystems({ relationship: { scheme: 'noop' } }), [])
+  assert.deepEqual(createSystems({ relationship: {} }), [])
+})
+
+test('createSystems instantiates multi-dim relationship system', () => {
+  const [system] = createSystems({
+    relationship: {
+      scheme: 'multi-dim',
+      baseline: {
+        trust: 0.6,
+        affinity: 0.55,
+        familiarity: 0.2,
+        respect: 0.75,
+      },
+    },
+  })
+
+  assert.equal(system?.name, 'relationship:multi-dim')
+  assert.equal(system?.type, 'relationship')
+})

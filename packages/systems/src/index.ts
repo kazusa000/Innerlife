@@ -11,8 +11,12 @@ export type {
   MemoryWriteResult,
   PendingCompaction,
   PendingEmotionAnalysis,
+  PendingRelationshipAnalysis,
   PendingMemoryWrite,
   PromptFragment,
+  RelationshipAnalysisResult,
+  RelationshipDimensions,
+  RelationshipHistoryEntry,
   SystemFactory,
   SystemPhase,
   SystemRegistry,
@@ -42,5 +46,14 @@ export {
   resolveMemorySqliteConfig,
 } from './memory'
 export { NoopSystem, HelloWorldSystem } from './noop'
+export {
+  DEFAULT_BASELINE as DEFAULT_RELATIONSHIP_BASELINE,
+  DEFAULT_COUNTERPART_ID as DEFAULT_RELATIONSHIP_COUNTERPART_ID,
+  applyRelationshipDecayAndDelta,
+  buildRelationshipFragment,
+  MultiDimRelationshipSystem,
+  normalizeRelationshipConfig,
+  normalizeRelationshipState,
+} from './relationship'
 export { ValuesPriorityListSystem } from './values'
 export { createSystems, systemRegistry } from './registry'

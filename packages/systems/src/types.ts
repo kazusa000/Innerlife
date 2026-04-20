@@ -99,6 +99,46 @@ export interface EmotionAnalysisResult {
   rawResponse: string
 }
 
+export interface RelationshipDimensions {
+  trust: number
+  affinity: number
+  familiarity: number
+  respect: number
+}
+
+export interface RelationshipHistoryEntry {
+  summary: string
+  trigger: string | null
+  delta: {
+    trust: number
+    affinity: number
+    familiarity: number
+    respect: number
+  }
+  createdAt: string
+}
+
+export interface PendingRelationshipAnalysis {
+  kind: 'multi-dim'
+  model?: string | null
+  systemPrompt: string
+  messages: ConversationMessage[]
+  currentState: RelationshipDimensions
+  baseline: RelationshipDimensions
+  decayPerTurn: number
+}
+
+export interface RelationshipAnalysisResult {
+  delta: {
+    trust: number
+    affinity: number
+    familiarity: number
+    respect: number
+  }
+  trigger: string | null
+  rawResponse: string
+}
+
 export interface TurnContext {
   agentId: string
   sessionId: string
@@ -120,7 +160,9 @@ export interface TurnContext {
   pendingMemoryQuery?: PendingMemoryQuery
   pendingMemoryWrite?: PendingMemoryWrite
   pendingEmotionAnalysis?: PendingEmotionAnalysis
+  pendingRelationshipAnalysis?: PendingRelationshipAnalysis
   emotionAnalysis?: EmotionAnalysisResult
+  relationshipAnalysis?: RelationshipAnalysisResult
   response?: {
     content: unknown[]
     stopReason: string
