@@ -43,7 +43,7 @@ export async function POST(request: Request) {
   const provider = new AnthropicProvider()
   const tools = getDefaultTools()
   const systems = createSystems(agent?.modules ?? null)
-  const toolPrompt = 'You can use tools to execute bash commands, read files, write files, and fetch web pages. Be concise.'
+  const toolPrompt = 'You can use the web_fetch tool to fetch web pages. Be concise.'
   const config: AgentConfig = {
     id: agent?.id ?? 'default',
     model: agent?.model ?? 'claude-sonnet-4-6',
