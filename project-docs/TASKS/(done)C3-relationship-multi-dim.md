@@ -1,6 +1,6 @@
 # C3 — Relationship（multi-dim 方案）
 
-**状态**: pending
+**状态**: done
 **前置依赖**: B6（已完成）
 **预计规模**: medium
 
@@ -92,18 +92,18 @@ relationships {
 
 ## 完成标准
 
-- [ ] `relationship.multi-dim` 已登记到 registry；`relationship.noop` 保留
-- [ ] `multi-dim` 系统实现 `beforeTurn` / `beforeLLM` / `afterLLM` / `afterTurn`
-- [ ] 关系维度至少包含 `trust / affinity / familiarity / respect` 四轴，范围都在 `0..1`
-- [ ] 当前阶段只支持 `user ↔ agent`；代码和任务说明都没有偷偷扩到 `agent ↔ agent`
-- [ ] `relationships` 表 + repository 落地；首次对话时会自动初始化 baseline
-- [ ] prompt 注入有效：同一个 agent 在“高 trust / 高 familiarity”和“低 trust / 低 familiarity”下回答风格有可观察差异
-- [ ] 单测覆盖：
-  - [ ] baseline 初始化
-  - [ ] delta 应用后会 clip 到合法区间
-  - [ ] `scheme: noop` 时完全不写表、不注入 fragment
-  - [ ] history 追加逻辑正常
-- [ ] `npm run typecheck` / `npm test --workspace @mas/systems --workspace @mas/db --workspace @mas/core` 全过
+- [x] `relationship.multi-dim` 已登记到 registry；`relationship.noop` 保留
+- [x] `multi-dim` 系统实现 `beforeTurn` / `beforeLLM` / `afterLLM` / `afterTurn`
+- [x] 关系维度至少包含 `trust / affinity / familiarity / respect` 四轴，范围都在 `0..1`
+- [x] 当前阶段只支持 `user ↔ agent`；代码和任务说明都没有偷偷扩到 `agent ↔ agent`
+- [x] `relationships` 表 + repository 落地；首次对话时会自动初始化 baseline
+- [x] prompt 注入有效：同一个 agent 在“高 trust / 高 familiarity”和“低 trust / 低 familiarity”下回答风格有可观察差异
+- [x] 单测覆盖：
+  - [x] baseline 初始化
+  - [x] delta 应用后会 clip 到合法区间
+  - [x] `scheme: noop` 时完全不写表、不注入 fragment
+  - [x] history 追加逻辑正常
+- [x] `npm run typecheck` / `npm test --workspace @mas/systems --workspace @mas/db --workspace @mas/core` 全过
 
 ## 备注 / 注意事项
 
@@ -113,3 +113,10 @@ relationships {
 - 更新 relationship 的分析调用沿用 emotion / memory 的 pending-analysis 模式，不要让 system 直接持有 provider
 - prompt fragment 建议 `priority` 介于 personality 和 memory 之间，避免压过性格但又早于价值观；具体数值由执行 agent结合现有顺序选一个稳定值，并在 Completion Note 里披露
 - 未来不管 `relationship` 增加 `simple` 还是别的 scheme，管理入口仍然是 `/agent/[id]/relationships`；但那不意味着要复用这张卡里的数据 shape 或 UI 语义
+
+## Completion Note
+
+- **Changes**: 新增 `relationships` 表与 repository，落地 `relationship:multi-dim` 系统、registry/index 导出，以及 runner 对 relationship pending-analysis 的执行与解析；`db-init` 也补了兼容建表兜底。
+- **Verified**: `npm test --workspace @mas/systems --workspace @mas/db --workspace @mas/core`、`npm run typecheck --workspace @mas/systems --workspace @mas/db --workspace @mas/core`、`npm run build --workspace @mas/web` 全部通过。
+- **Caveats**: prompt fragment 优先级选为 `40`，位于 emotion(`20`) 之后、values(`50`) 之前；“回答风格差异”是通过不同关系 fragment 文案与 lifecycle 注入路径验证，未额外跑真实外部模型做主观对比。
+- **Design deltas**: 主工作树中的 `project-docs/TASKS/C3-relationship-multi-dim.md` 当时是未跟踪文件，不在 `HEAD` 里；因此本分支的认领步骤改为直接新增 `(doing)C3-relationship-multi-dim.md` 作为首个提交，再按正常流程改为 `(done)`。
