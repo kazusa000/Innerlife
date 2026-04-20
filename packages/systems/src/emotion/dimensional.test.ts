@@ -198,3 +198,49 @@ test('dimensional emotion decays from the latest stored state and clips values i
     stress: 0,
   })
 })
+
+test('dimensional emotion persists across sessions for the same agent', async () => {
+  const agentId = 'agent-shared'
+  const sessionA = 'session-a'
+  const sessionB = 'session-b'
+  seedAgentAndSession(agentId, sessionA)
+  getRawSqlite().prepare(`
+    INSERT INTO sessions (id, agent_id, title, status)
+    VALUES (?, ?, 'Second Emotion Session', 'active')
+  `).run(sessionB, agentId)
+
+  emotionStateRepo.addEmotionState({
+    agentId,
+    sessionId: sessionA,
+    state: {
+      mood: -0.4,
+      energy: 0.2,
+      stress: 0.8,
+    },
+    delta: {
+      mood: -0.2,
+      energy: -0.1,
+      stress: 0.3,
+    },
+    trigger: '第一段对话里被激怒',
+  })
+
+  const system = new DimensionalEmotionSystem({
+    scheme: 'dimensional',
+    baseline: {
+      mood: 0,
+      energy: 0.5,
+      stress: 0.1,
+    },
+    decayPerTurn: 0.1,
+  })
+
+  const ctx = createContext(agentId, sessionB, '我换个章节继续聊')
+  await system.beforeTurn?.(ctx)
+
+  assert.deepEqual(ctx.state.emotion, {
+    mood: -0.4,
+    energy: 0.2,
+    stress: 0.8,
+  })
+})

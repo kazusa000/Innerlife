@@ -204,7 +204,7 @@ export class DimensionalEmotionSystem implements AgentSystem {
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
-    const latest = emotionStateRepo.getLatestEmotionState(ctx.agentId, ctx.sessionId)
+    const latest = emotionStateRepo.getLatestEmotionStateByAgent(ctx.agentId)
     ctx.state.emotion = latest?.state ?? this.config.baseline
   }
 
