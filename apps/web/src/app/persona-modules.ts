@@ -3,6 +3,28 @@ export type EmotionScheme = 'noop' | 'dimensional'
 export type RelationshipScheme = 'noop' | 'multi-dim'
 export type MemoryScheme = 'noop' | 'sqlite'
 
+export type BigFiveKey =
+  | 'openness'
+  | 'conscientiousness'
+  | 'extraversion'
+  | 'agreeableness'
+  | 'neuroticism'
+
+export type BigFiveScores = Record<BigFiveKey, number>
+
+export type EmotionBaseline = {
+  mood: number
+  energy: number
+  stress: number
+}
+
+export type RelationshipBaseline = {
+  trust: number
+  affinity: number
+  familiarity: number
+  respect: number
+}
+
 type ManagedModuleRecord = {
   scheme?: string
   [key: string]: unknown
@@ -28,6 +50,27 @@ export const DEFAULT_MODEL_BY_PROVIDER = {
   anthropic: 'claude-sonnet-4-6',
   openrouter: 'anthropic/claude-sonnet-4.6',
 } as const
+
+export const DEFAULT_BIG5: BigFiveScores = {
+  openness: 0.75,
+  conscientiousness: 0.65,
+  extraversion: 0.55,
+  agreeableness: 0.7,
+  neuroticism: 0.3,
+}
+
+export const DEFAULT_EMOTION_BASELINE: EmotionBaseline = {
+  mood: 0.15,
+  energy: 0.62,
+  stress: 0.22,
+}
+
+export const DEFAULT_RELATIONSHIP_BASELINE: RelationshipBaseline = {
+  trust: 0.5,
+  affinity: 0.4,
+  familiarity: 0.1,
+  respect: 0.5,
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
