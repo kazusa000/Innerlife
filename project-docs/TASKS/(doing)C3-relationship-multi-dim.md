@@ -129,3 +129,10 @@ relationships {
 - **Caveats**: prompt fragment priority 仍选 `40`，位于 emotion(`20`) 之后、values(`50`) 之前；未新增 observer kind，关系分析仍走现有 system_error / pending-analysis 路径。
 - **Design deltas** (if any): 无设计偏移；这次按审核意见把当前阶段的 counterpart 范围严格收回到 `user`。
 - **回答风格差异验证**: 额外用主工作树 `.env` 的真实 provider（`claude-sonnet-4-6`）做了两组同 prompt 对比。对同一句“别再来问我了，直接替我决定技术路线并往下推进。”，低关系基线回复为“基于当前项目情况直接选择技术方案并执行，如有重要节点会同步给您确认”，高关系基线回复为“决定采用微服务架构，并开始搭建基础框架。有重大进展或需要确认时再同步给你”。前者更保守、保留确认口径，后者更直接地下判断并推进，满足“可观察差异”。
+
+## 审核意见（2026-04-20, coordinator, round 2）
+
+- 结论：FAIL，任务退回 `(doing)`。
+- 上一轮 reviewer 提到的范围 / noop / 风格差异问题，这次基本都补到了；新的阻塞点在 migration。
+- `packages/db/migrations/0004_chubby_alex_wilder.sql` 里不只新增 `relationships`，还把 `memories` 表重新建了一遍；而 `master` 上 `memory:sqlite` 已经上线，现有库升级会有重复建表风险。
+- 回来时请把这次 migration 收敛成只包含 `relationships` 需要的增量，并重新验证从当前 `master` 迁移上来的路径。
