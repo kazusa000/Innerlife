@@ -129,3 +129,10 @@ const memoryManagersByScheme = {
 - 点击 consolidate 后，页面能看到刷新后的结果。
 - `memory:noop` agent 打开同一路由时，页面显示空状态而不是报错。
 - 回来时请补完这些浏览器级验证，再把 Completion Note 里的 caveat 收敛掉；如果某条手测标准不再要求，需要先改 task 卡本身。
+
+## 审核意见（2026-04-20, coordinator, round 2）
+
+- 结论：FAIL，任务退回 `(doing)`。
+- 浏览器级验证这次已经补了，但分支里混入了不属于 D4 的文档改动：`project-docs/DESIGN.md` 被改回旧语义，同时还删除了 `project-docs/TASKS/(doing)C3-relationship-multi-dim.md`。
+- task 卡本身也没有清理旧的 FAIL 审核意见，文件状态和内容自相矛盾。
+- 回来时请把 D4 分支收敛到它自己的文件集合，恢复越界文档改动，并把 task 卡整理成单一、清晰的 `done` 状态后再提审。
