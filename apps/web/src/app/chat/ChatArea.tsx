@@ -74,7 +74,13 @@ function normalizeCallDetail(call: Record<string, unknown>): LiveCall | null {
   return {
     callId: id,
     turnIndex,
-    kind: kind === 'memory' || kind === 'emotion' || kind === 'compaction' ? kind : 'turn',
+    kind:
+      kind === 'memory'
+      || kind === 'emotion'
+      || kind === 'compaction'
+      || kind === 'relationship'
+        ? kind
+        : 'turn',
     model,
     systemPrompt,
     tools,

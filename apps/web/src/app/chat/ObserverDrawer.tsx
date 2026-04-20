@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { EmotionCallCardDimensional } from './EmotionCallCard.dimensional'
 import { MemoryCallCardSqlite } from './MemoryCallCard.sqlite'
+import { RelationshipCallCardMultiDim } from './RelationshipCallCard.multi-dim'
 import type { AgentModules, LiveCall, ObserverTab, ObserverTurnState } from './observer-types'
 import { CALL_ACCENTS, CodeBlock, CollapsibleSection, EmptyState, MessagesTimeline, Pill } from './observer-ui'
 import type { AccentTone } from './observer-ui'
@@ -22,6 +23,7 @@ function callSubtabLabel(call: LiveCall): string {
     return phase
   }
   if (call.kind === 'emotion') return 'delta'
+  if (call.kind === 'relationship') return 'delta'
   return call.callId
 }
 
@@ -139,6 +141,7 @@ function MainTurnCallCard({
     { key: 'values', label: '价值观', accent: CALL_ACCENTS.values },
     { key: 'emotion', label: '情绪', accent: CALL_ACCENTS.emotion },
     { key: 'memory', label: '记忆', accent: CALL_ACCENTS.memory },
+    { key: 'relationship', label: '关系', accent: CALL_ACCENTS.relationship },
   ].flatMap(({ key, label, accent }) => {
     const fragment = getPromptFragment(call, key)
     if (!fragment) {
@@ -349,10 +352,12 @@ export function ObserverDrawer({
   const mainCalls = useMemo(() => turn.calls.filter((call) => call.kind === 'turn'), [turn.calls])
   const memoryCalls = useMemo(() => turn.calls.filter((call) => call.kind === 'memory'), [turn.calls])
   const emotionCalls = useMemo(() => turn.calls.filter((call) => call.kind === 'emotion'), [turn.calls])
+  const relationshipCalls = useMemo(() => turn.calls.filter((call) => call.kind === 'relationship'), [turn.calls])
 
   const [activeMainCallId, setActiveMainCallId] = useState<string | null>(null)
   const [activeMemoryCallId, setActiveMemoryCallId] = useState<string | null>(null)
   const [activeEmotionCallId, setActiveEmotionCallId] = useState<string | null>(null)
+  const [activeRelationshipCallId, setActiveRelationshipCallId] = useState<string | null>(null)
 
   useEffect(() => {
     setActiveMainCallId((prev) => pickActiveCallId(mainCalls, prev))
@@ -366,8 +371,15 @@ export function ObserverDrawer({
     setActiveEmotionCallId((prev) => pickActiveCallId(emotionCalls, prev))
   }, [emotionCalls])
 
+  useEffect(() => {
+    setActiveRelationshipCallId((prev) => pickActiveCallId(relationshipCalls, prev))
+  }, [relationshipCalls])
+
   const memoryScheme = typeof agentModules?.memory?.scheme === 'string' ? agentModules.memory.scheme : null
   const emotionScheme = typeof agentModules?.emotion?.scheme === 'string' ? agentModules.emotion.scheme : null
+  const relationshipScheme = typeof agentModules?.relationship?.scheme === 'string'
+    ? agentModules.relationship.scheme
+    : null
 
   const renderMainTab = () => {
     if (mainCalls.length === 0) {
@@ -433,6 +445,31 @@ export function ObserverDrawer({
     )
   }
 
+  const renderRelationshipTab = () => {
+    if (relationshipCalls.length === 0) {
+      return <EmptyState title="本轮未触发关系调用" body="当前 turn 没有 relationship.delta 调用。" />
+    }
+
+    if (relationshipScheme !== 'multi-dim') {
+      return <UnknownSchemeCard title="关系组件未命中" scheme={relationshipScheme} />
+    }
+
+    const activeCall = relationshipCalls.find((call) => call.callId === activeRelationshipCallId)
+      ?? relationshipCalls[relationshipCalls.length - 1]
+
+    return (
+      <>
+        <CallSubtabs
+          calls={relationshipCalls}
+          activeId={activeCall.callId}
+          onSelect={setActiveRelationshipCallId}
+          accent={CALL_ACCENTS.relationship.color}
+        />
+        <RelationshipCallCardMultiDim key={activeCall.callId} call={activeCall} />
+      </>
+    )
+  }
+
   return (
     <aside
       style={{
@@ -479,6 +516,7 @@ export function ObserverDrawer({
           { id: 'main', label: '主对话', count: mainCalls.length },
           { id: 'memory', label: '记忆', count: memoryCalls.length },
           { id: 'emotion', label: '情绪', count: emotionCalls.length },
+          { id: 'relationship', label: '关系', count: relationshipCalls.length },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -533,6 +571,7 @@ export function ObserverDrawer({
           {activeTab === 'main' && renderMainTab()}
           {activeTab === 'memory' && renderMemoryTab()}
           {activeTab === 'emotion' && renderEmotionTab()}
+          {activeTab === 'relationship' && renderRelationshipTab()}
         </div>
       </div>
     </aside>

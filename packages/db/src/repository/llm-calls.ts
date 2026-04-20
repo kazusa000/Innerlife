@@ -4,7 +4,7 @@ import { getDb } from '../client'
 import { llmCalls, messages } from '../schema'
 
 export interface StartCallInput {
-  kind: 'turn' | 'compaction' | 'memory' | 'emotion'
+  kind: 'turn' | 'compaction' | 'memory' | 'emotion' | 'relationship'
   sessionId: string
   userMessageId: string
   turnIndex: number
@@ -73,7 +73,7 @@ export interface TurnNode {
   calls: Array<{
     id: string
     turnIndex: number
-    kind: 'turn' | 'compaction' | 'memory' | 'emotion'
+    kind: 'turn' | 'compaction' | 'memory' | 'emotion' | 'relationship'
     stopReason: string | null
     startedAt: number
     finishedAt: number | null

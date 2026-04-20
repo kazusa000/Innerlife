@@ -3,7 +3,11 @@ import type { LLMProvider, LLMResponse } from '../provider/types'
 import type { Message, ContentBlock, TextBlock, ToolDefinition, ToolUseBlock } from '../types'
 import { toolsToDefinitions, executeTool } from '../tools/registry'
 import { isAbortError, throwIfAborted } from '../utils/abort'
-import { COMPACTION_SUMMARY_PREFIX, applyDecayAndDelta } from '@mas/systems'
+import {
+  COMPACTION_SUMMARY_PREFIX,
+  applyDecayAndDelta,
+  applyRelationshipDecayAndDelta,
+} from '@mas/systems'
 import type {
   AgentSystem,
   ConversationBlock,
@@ -21,7 +25,7 @@ import type {
 
 export interface RunAgentObserver {
   onLLMCallStart(payload: {
-    kind: 'turn' | 'compaction' | 'memory' | 'emotion'
+    kind: 'turn' | 'compaction' | 'memory' | 'emotion' | 'relationship'
     model: string
     systemPrompt: string
     tools: ToolDefinition[]
@@ -221,6 +225,7 @@ export async function* runAgent(
         ctx.pendingRelationshipAnalysis,
         config,
         provider,
+        observer,
         signal,
       )
 
@@ -786,6 +791,17 @@ function serializeEmotionState(state: PendingEmotionAnalysis['currentState']) {
   }
 }
 
+function serializeRelationshipState(state: PendingRelationshipAnalysis['currentState']) {
+  const round = (value: number) => Number(value.toFixed(3))
+
+  return {
+    trust: round(state.trust),
+    affinity: round(state.affinity),
+    familiarity: round(state.familiarity),
+    respect: round(state.respect),
+  }
+}
+
 function serializeMemoryHit(
   memory: NonNullable<TurnContext['state']['memories']>[number],
   keywords: string[],
@@ -888,6 +904,7 @@ async function runPendingRelationshipAnalysis(
   pending: PendingRelationshipAnalysis | undefined,
   config: AgentConfig,
   provider: LLMProvider,
+  observer?: RunAgentObserver,
   signal?: AbortSignal,
 ): Promise<{
   analysis?: RelationshipAnalysisResult
@@ -897,19 +914,57 @@ async function runPendingRelationshipAnalysis(
     return {}
   }
 
+  const model = pending.model ?? config.model
+  const callId = observer?.onLLMCallStart({
+    kind: 'relationship',
+    model,
+    systemPrompt: pending.systemPrompt,
+    tools: [],
+    messages: cloneMessages(pending.messages as Message[]),
+  })
+
   try {
     const response = await provider.sendMessage({
-      model: pending.model ?? config.model,
+      model,
       systemPrompt: pending.systemPrompt,
       messages: pending.messages as Message[],
       signal,
     })
 
-    return {
-      analysis: parseRelationshipAnalysis(extractContentText(response.content)),
+    const analysis = parseRelationshipAnalysis(extractContentText(response.content))
+    const afterState = applyRelationshipDecayAndDelta(
+      pending.currentState,
+      pending.baseline,
+      pending.decayPerTurn,
+      analysis.delta,
+    )
+
+    if (callId !== undefined && observer) {
+      observer.onLLMCallEnd(callId, {
+        response: response.content,
+        stopReason: response.stopReason,
+        usage: response.usage,
+        metadata: {
+          before: serializeRelationshipState(pending.currentState),
+          after: serializeRelationshipState(afterState),
+          delta: serializeRelationshipState(analysis.delta),
+          trigger: analysis.trigger,
+        },
+      })
     }
+
+    return { analysis }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
+
+    if (callId !== undefined && observer) {
+      observer.onLLMCallEnd(callId, {
+        response: [],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 0, outputTokens: 0 },
+        error: err.message,
+      })
+    }
 
     return {
       event: {

@@ -20,6 +20,7 @@ export const CALL_ACCENTS: Record<string, AccentTone> = {
   turn: { color: 'var(--indigo)', soft: 'rgba(129, 140, 248, 0.14)' },
   memory: { color: '#34d399', soft: 'rgba(52, 211, 153, 0.14)' },
   emotion: { color: '#f472b6', soft: 'rgba(244, 114, 182, 0.14)' },
+  relationship: { color: '#38bdf8', soft: 'rgba(56, 189, 248, 0.14)' },
   compaction: { color: 'var(--orange)', soft: 'rgba(251, 146, 60, 0.14)' },
   personality: { color: 'var(--indigo)', soft: 'rgba(129, 140, 248, 0.14)' },
   values: { color: '#fbbf24', soft: 'rgba(251, 191, 36, 0.14)' },

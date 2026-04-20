@@ -36,6 +36,7 @@ const baseTurnCall: LiveCall = {
     fragments: [
       { source: 'personality', priority: 10, content: 'personality fragment' },
       { source: 'memory', priority: 30, content: 'memory fragment' },
+      { source: 'relationship', priority: 40, content: 'relationship fragment' },
     ],
     hits: [{ id: 'm1', summary: 'should stay out of main tab', tags: ['x'], importance: 0.9 }],
   },
@@ -97,8 +98,10 @@ test('main tab renders turn cards with fragment anchors and inline compaction on
   assert.equal(html.includes('主对话'), true)
   assert.equal(html.includes('记忆'), true)
   assert.equal(html.includes('情绪'), true)
+  assert.equal(html.includes('关系'), true)
   assert.equal(html.includes('personality fragment'), true)
   assert.equal(html.includes('memory fragment'), true)
+  assert.equal(html.includes('relationship fragment'), true)
   assert.equal(html.includes('should stay out of main tab'), false)
   assert.equal(html.includes('本轮压缩：25 条 → 1 条摘要'), true)
   assert.equal(html.includes('Messages'), true)
@@ -193,10 +196,63 @@ test('emotion tab renders dimensional delta details and empty tabs remain visibl
   assert.equal(html.includes('主对话'), true)
   assert.equal(html.includes('记忆'), true)
   assert.equal(html.includes('情绪'), true)
+  assert.equal(html.includes('关系'), true)
   assert.equal(html.includes('emotion.delta'), true)
   assert.equal(html.includes('user was relieved'), true)
   assert.equal(html.includes('Before'), true)
   assert.equal(html.includes('After'), true)
   assert.equal(html.includes('Delta'), true)
   assert.equal(html.includes('stress'), true)
+})
+
+test('relationship tab renders multi-dim delta details', () => {
+  const turn: ObserverTurnState = {
+    status: 'complete',
+    calls: [
+      {
+        callId: 'relationship-1',
+        turnIndex: 0,
+        kind: 'relationship',
+        model: 'fake-model',
+        systemPrompt: 'relationship prompt',
+        tools: [],
+        messages: [],
+        metadata: {
+          before: { trust: 0.3, affinity: 0.4, familiarity: 0.2, respect: 0.6 },
+          after: { trust: 0.45, affinity: 0.38, familiarity: 0.35, respect: 0.7 },
+          delta: { trust: 0.15, affinity: -0.02, familiarity: 0.15, respect: 0.1 },
+          trigger: 'user reopened a difficult topic calmly',
+        },
+        response: [{ type: 'text', text: '{}' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+        finished: true,
+      },
+    ],
+  }
+
+  const html = renderDrawer({
+    turn,
+    activeTab: 'relationship',
+    agentModules: { relationship: { scheme: 'multi-dim' } },
+  })
+
+  assert.equal(html.includes('relationship.delta'), true)
+  assert.equal(html.includes('user reopened a difficult topic calmly'), true)
+  assert.equal(html.includes('Before'), true)
+  assert.equal(html.includes('After'), true)
+  assert.equal(html.includes('Delta'), true)
+  assert.equal(html.includes('trust'), true)
+  assert.equal(html.includes('familiarity'), true)
+})
+
+test('relationship tab stays stable with noop agent and no relationship calls', () => {
+  const html = renderDrawer({
+    turn: { status: 'complete', calls: [baseTurnCall] },
+    activeTab: 'relationship',
+    agentModules: { relationship: { scheme: 'noop' } },
+  })
+
+  assert.equal(html.includes('本轮未触发关系调用'), true)
+  assert.equal(html.includes('当前 turn 没有 relationship.delta 调用。'), true)
 })

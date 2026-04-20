@@ -5,7 +5,7 @@ import { CompactionView, EmotionView, MemoryView, MessagesView, ResponseView } f
 
 interface CallDetail {
   id: string
-  kind: 'turn' | 'compaction' | 'memory' | 'emotion'
+  kind: 'turn' | 'compaction' | 'memory' | 'emotion' | 'relationship'
   model: string
   systemPrompt: string
   tools: unknown

@@ -1,6 +1,6 @@
 'use client'
 
-export type LiveCallKind = 'turn' | 'compaction' | 'memory' | 'emotion'
+export type LiveCallKind = 'turn' | 'compaction' | 'memory' | 'emotion' | 'relationship'
 
 export interface LiveCall {
   callId: string
@@ -28,10 +28,11 @@ export interface AgentModules {
   values?: AgentModuleConfig | null
   memory?: AgentModuleConfig | null
   emotion?: AgentModuleConfig | null
+  relationship?: AgentModuleConfig | null
   [key: string]: unknown
 }
 
-export type ObserverTab = 'main' | 'memory' | 'emotion'
+export type ObserverTab = 'main' | 'memory' | 'emotion' | 'relationship'
 
 export interface ObserverTurnState {
   calls: LiveCall[]

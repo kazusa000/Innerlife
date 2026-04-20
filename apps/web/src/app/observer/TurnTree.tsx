@@ -7,7 +7,7 @@ export interface TurnNode {
   calls: Array<{
     id: string
     turnIndex: number
-    kind: 'turn' | 'compaction' | 'memory' | 'emotion'
+    kind: 'turn' | 'compaction' | 'memory' | 'emotion' | 'relationship'
     stopReason: string | null
     startedAt: number
     finishedAt: number | null
@@ -29,6 +29,9 @@ function describeCallKind(kind: TurnNode['calls'][number]['kind']) {
   }
   if (kind === 'emotion') {
     return 'emotion'
+  }
+  if (kind === 'relationship') {
+    return 'relationship'
   }
   return 'call'
 }
