@@ -55,10 +55,9 @@ function readErrorMessage(value: unknown, fallback: string) {
 export default function EmotionManagerDimensional(
   { agentId }: EmotionManagerProps,
 ) {
-  const [baseline, setBaseline] = useState<EmotionBaseline>({ ...DEFAULT_EMOTION_BASELINE })
+  const [currentState, setCurrentState] = useState<EmotionBaseline>({ ...DEFAULT_EMOTION_BASELINE })
   const [decayPerTurn, setDecayPerTurn] = useState<string>('')
   const [analysisModel, setAnalysisModel] = useState('')
-  const [currentState, setCurrentState] = useState<EmotionBaseline | null>(null)
   const [history, setHistory] = useState<EmotionHistoryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -85,12 +84,11 @@ export default function EmotionManagerDimensional(
         }
 
         if (!cancelled) {
-          setBaseline(data.baseline)
           setDecayPerTurn(
             typeof data.decayPerTurn === 'number' ? String(data.decayPerTurn) : '',
           )
           setAnalysisModel(data.analysisModel ?? '')
-          setCurrentState(data.currentState)
+          setCurrentState(data.currentState ?? data.baseline)
           setHistory(data.history)
         }
       } catch (err) {
@@ -123,7 +121,7 @@ export default function EmotionManagerDimensional(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          baseline,
+          currentState,
           ...(decayPerTurn.trim() ? { decayPerTurn: Number(decayPerTurn) } : {}),
           analysisModel: analysisModel.trim() || null,
         }),
@@ -136,14 +134,13 @@ export default function EmotionManagerDimensional(
         throw new Error('Failed to save emotion config')
       }
 
-      setBaseline(data.baseline)
       setDecayPerTurn(
         typeof data.decayPerTurn === 'number' ? String(data.decayPerTurn) : '',
       )
       setAnalysisModel(data.analysisModel ?? '')
-      setCurrentState(data.currentState)
+      setCurrentState(data.currentState ?? data.baseline)
       setHistory(data.history)
-      setNotice('Emotion 配置已保存。')
+      setNotice('Current emotion 已更新。')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save emotion config')
     } finally {
@@ -171,7 +168,7 @@ export default function EmotionManagerDimensional(
           <p className="manager-label">Scheme</p>
           <h3 className="manager-title">Dimensional</h3>
           <p className="manager-copy">
-            编辑 baseline、每轮衰减和分析模型。下面同时展示当前情绪状态和最近的状态历史。
+            这里直接调整当前情绪。保存时会写入一条 `manual_override` 记录；每轮衰减和分析模型仍可在下面继续配置。
           </p>
         </div>
         <button
@@ -189,8 +186,8 @@ export default function EmotionManagerDimensional(
       <div className="trait-grid">
         <label className="trait-card">
           <div className="trait-head">
-            <span className="trait-label">心情 baseline</span>
-            <span className="trait-value">{baseline.mood.toFixed(2)}</span>
+            <span className="trait-label">当前心情</span>
+            <span className="trait-value">{currentState.mood.toFixed(2)}</span>
           </div>
           <p className="trait-hint">范围 -1 到 1，越高越偏积极。</p>
           <input
@@ -199,16 +196,16 @@ export default function EmotionManagerDimensional(
             min="-1"
             max="1"
             step="0.05"
-            value={baseline.mood}
+            value={currentState.mood}
             onChange={(event) =>
-              setBaseline(current => ({ ...current, mood: Number(event.target.value) }))}
+              setCurrentState(current => ({ ...current, mood: Number(event.target.value) }))}
           />
         </label>
 
         <label className="trait-card">
           <div className="trait-head">
-            <span className="trait-label">精力 baseline</span>
-            <span className="trait-value">{baseline.energy.toFixed(2)}</span>
+            <span className="trait-label">当前精力</span>
+            <span className="trait-value">{currentState.energy.toFixed(2)}</span>
           </div>
           <p className="trait-hint">范围 0 到 1，越高越有劲。</p>
           <input
@@ -217,16 +214,16 @@ export default function EmotionManagerDimensional(
             min="0"
             max="1"
             step="0.05"
-            value={baseline.energy}
+            value={currentState.energy}
             onChange={(event) =>
-              setBaseline(current => ({ ...current, energy: Number(event.target.value) }))}
+              setCurrentState(current => ({ ...current, energy: Number(event.target.value) }))}
           />
         </label>
 
         <label className="trait-card">
           <div className="trait-head">
-            <span className="trait-label">压力 baseline</span>
-            <span className="trait-value">{baseline.stress.toFixed(2)}</span>
+            <span className="trait-label">当前压力</span>
+            <span className="trait-value">{currentState.stress.toFixed(2)}</span>
           </div>
           <p className="trait-hint">范围 0 到 1，越高越紧绷。</p>
           <input
@@ -235,9 +232,9 @@ export default function EmotionManagerDimensional(
             min="0"
             max="1"
             step="0.05"
-            value={baseline.stress}
+            value={currentState.stress}
             onChange={(event) =>
-              setBaseline(current => ({ ...current, stress: Number(event.target.value) }))}
+              setCurrentState(current => ({ ...current, stress: Number(event.target.value) }))}
           />
         </label>
 
@@ -269,27 +266,12 @@ export default function EmotionManagerDimensional(
       <div className="status-grid">
         <section className="panel">
           <div className="panel-head">
-            <h4>当前状态</h4>
-            <span className="panel-pill">{currentState ? 'live' : 'empty'}</span>
+            <h4>当前情绪说明</h4>
+            <span className="panel-pill">manual</span>
           </div>
-          {currentState ? (
-            <dl className="metric-list">
-              <div>
-                <dt>心情</dt>
-                <dd>{currentState.mood.toFixed(2)}</dd>
-              </div>
-              <div>
-                <dt>精力</dt>
-                <dd>{currentState.energy.toFixed(2)}</dd>
-              </div>
-              <div>
-                <dt>压力</dt>
-                <dd>{currentState.stress.toFixed(2)}</dd>
-              </div>
-            </dl>
-          ) : (
-            <p className="panel-copy">还没有记录到 emotion state。聊过几轮后这里会出现最新状态。</p>
-          )}
+          <p className="panel-copy">
+            上面的三个滑杆代表这个 persona 现在的真实情绪。保存后会立刻成为新的运行时状态，而不是去修改长期 baseline。
+          </p>
         </section>
 
         <section className="panel">

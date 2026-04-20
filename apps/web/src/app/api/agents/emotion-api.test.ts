@@ -257,3 +257,59 @@ test('updateDimensionalEmotionConfig only mutates modules.emotion and preserves 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('updateDimensionalEmotionConfig allows manually overriding current emotion state', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-emotion-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const response = updateDimensionalEmotionConfig('agent-1', {
+      currentState: {
+        mood: -0.45,
+        energy: 0.3,
+        stress: 0.72,
+      },
+    })
+
+    assert.equal(response.status, 200)
+    const data = await response.json()
+    assert.deepEqual(data.currentState, {
+      mood: -0.45,
+      energy: 0.3,
+      stress: 0.72,
+    })
+    assert.equal(data.history[0].trigger, 'manual_override')
+    assert.deepEqual(data.history[0].delta, null)
+
+    const latest = emotionStateRepo.listRecentEmotionStatesByAgent('agent-1', 1)[0]
+    assert.deepEqual(latest?.state, {
+      mood: -0.45,
+      energy: 0.3,
+      stress: 0.72,
+    })
+    assert.equal(latest?.trigger, 'manual_override')
+    assert.equal(latest?.sessionId, 'session-b')
+
+    assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
+      emotion: {
+        scheme: 'dimensional',
+        baseline: {
+          mood: 0.35,
+          energy: 0.62,
+          stress: 0.18,
+        },
+        decayPerTurn: 0.12,
+        analysisModel: 'emotion-fast',
+      },
+      memory: {
+        scheme: 'sqlite',
+        summarizeModel: 'memory-fast',
+      },
+    })
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

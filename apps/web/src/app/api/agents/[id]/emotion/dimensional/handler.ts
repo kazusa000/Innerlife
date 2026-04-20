@@ -124,6 +124,13 @@ function parsePatchBody(body: unknown) {
     }
   }
 
+  if (body.currentState !== undefined && !isRecord(body.currentState)) {
+    return {
+      ok: false as const,
+      response: Response.json({ error: 'currentState must be an object' }, { status: 400 }),
+    }
+  }
+
   if (body.decayPerTurn !== undefined && typeof body.decayPerTurn !== 'number') {
     return {
       ok: false as const,
@@ -142,6 +149,7 @@ function parsePatchBody(body: unknown) {
     ok: true as const,
     value: body as {
       baseline?: Partial<EmotionBaseline>
+      currentState?: Partial<EmotionBaseline>
       decayPerTurn?: number
       analysisModel?: string | null
     },
@@ -199,6 +207,21 @@ export function updateDimensionalEmotionConfig(agentId: string, body: unknown) {
     ...(next.analysisModel ? { analysisModel: next.analysisModel } : {}),
   }
   agentRepo.updateAgent(agentId, { modules: nextModules })
+
+  if (parsed.value.currentState !== undefined) {
+    const latest = emotionStateRepo.listRecentEmotionStatesByAgent(agentId, 1)[0]
+    emotionStateRepo.addEmotionState({
+      agentId,
+      sessionId: latest?.sessionId ?? 'manual-override',
+      state: {
+        mood: clampMood(parsed.value.currentState.mood, latest?.state.mood ?? next.baseline.mood),
+        energy: clampLevel(parsed.value.currentState.energy, latest?.state.energy ?? next.baseline.energy),
+        stress: clampLevel(parsed.value.currentState.stress, latest?.state.stress ?? next.baseline.stress),
+      },
+      delta: null,
+      trigger: 'manual_override',
+    })
+  }
 
   return Response.json(buildPayload(agentId, next))
 }
