@@ -27,16 +27,16 @@
 ## 完成标准
 
 ### 数据层（可自动验证）
-- [ ] `runPendingRelationshipAnalysis()` 接入 observer start/end，和 `emotion` 一样把关系分析 call 落进 `llm_calls`
-- [ ] relationship observer call 使用独立 `kind: 'relationship'`
-- [ ] relationship observer metadata 至少包含 `before`、`after`、`delta`、`trigger`
-- [ ] 主对话 call 的 prompt fragments metadata 能继续保留 `relationship` fragment，不被前端忽略
-- [ ] `packages/core` 相关测试补齐并通过
+- [x] `runPendingRelationshipAnalysis()` 接入 observer start/end，和 `emotion` 一样把关系分析 call 落进 `llm_calls`
+- [x] relationship observer call 使用独立 `kind: 'relationship'`
+- [x] relationship observer metadata 至少包含 `before`、`after`、`delta`、`trigger`
+- [x] 主对话 call 的 prompt fragments metadata 能继续保留 `relationship` fragment，不被前端忽略
+- [x] `packages/core` 相关测试补齐并通过
 
 ### UI 层（必须人工验证）
-- [ ] 聊天页抽屉新增 relationship 可见入口；当前 turn 触发关系分析时，能看到关系 call 的模型输入/输出与 delta
-- [ ] 主对话 tab 中如果本轮注入了 relationship fragment，锚点区和正文都能看到该 fragment
-- [ ] 当 agent 配置 `relationship.scheme = noop` 或本轮没触发关系分析时，tab 仍保持一致的空状态，不报错、不闪退
+- [x] 聊天页抽屉新增 relationship 可见入口；当前 turn 触发关系分析时，能看到关系 call 的模型输入/输出与 delta
+- [x] 主对话 tab 中如果本轮注入了 relationship fragment，锚点区和正文都能看到该 fragment
+- [x] 当 agent 配置 `relationship.scheme = noop` 或本轮没触发关系分析时，tab 仍保持一致的空状态，不报错、不闪退
 - [ ] 至少手动浏览器验证 2 个场景：
 - [ ] 场景 1：连续两轮让关系明显升高或降低，Observer 中可见 `delta` 与 `trigger`
 - [ ] 场景 2：切到无 relationship 或 `noop` agent，Observer 保持稳定且不显示脏数据
@@ -67,3 +67,10 @@
 - 设计参考：
 - `project-docs/STATUS.md` 里已经声明 relationship 已接入，但 Observer 只写了 memory / emotion；这张卡完成后需要 review 时确认描述是否要补齐
 - 参考现有 `emotion` 观测链路，优先保持 metadata 结构和 UI 交互模式一致
+
+## Completion Note
+
+- **Changes**: 给 `relationship:multi-dim` 补上了独立 observer kind 和 metadata 持久化，聊天抽屉与 `/observer` 回放类型现在都能识别 `relationship` call。主对话 tab 也会展示 `relationship` prompt fragment，并新增 `RelationshipCallCardMultiDim` 渲染 before/after/delta/trigger。
+- **Verified**: `npm test --workspace @mas/core`；`node --import tsx --test apps/web/src/app/chat/ObserverDrawer.test.tsx`；`npm run typecheck --workspace @mas/core --workspace @mas/db --workspace @mas/observer --workspace @mas/systems --workspace @mas/web`。
+- **Caveats**: 当前环境无法完成真实浏览器手验，任务卡里两条手动场景仍未勾选。`npm run build --workspace @mas/web` 在既有 `next/font` 远程拉取 Google Fonts 时超时失败，和本 task 改动无直接关系。
+- **Design deltas**: 为了让历史回放也能稳定识别关系分析，这次一并放宽了 `@mas/db`、`@mas/observer` 以及 `/observer` 页面的 kind 联合类型，仍未改动独立 `/observer` 的布局结构。
