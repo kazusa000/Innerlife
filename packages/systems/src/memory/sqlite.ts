@@ -46,9 +46,9 @@ export type MemoryConsolidationAction =
   | MemoryConsolidationMergeAction
 
 const TAG_GUIDANCE = [
-  'tags must include at least 4 short reusable keywords when possible.',
-  'Use the main language of the conversation turn for tags.',
-  'Do not force bilingual tags.',
+  'tags 尽量提供至少 4 个简短、可复用的中文关键词。',
+  'summary 和 tags 默认使用简体中文。',
+  '除非是专有名词、代码标识符或固定英文术语，否则不要输出英文标签。',
 ].join('\n')
 
 function readConfig(config: unknown): MemoryModuleConfig {
@@ -90,13 +90,14 @@ export function isSqliteMemoryConfig(config: unknown): boolean {
 
 function buildSummaryPrompt(): string {
   return [
-    'You summarize one completed conversation turn into a durable memory for future turns.',
-    'Use only the provided turn transcript.',
-    'Return strict JSON with exactly these keys:',
+    '你负责把一轮已经完成的对话整理成后续可用的长期记忆。',
+    '只允许使用提供的本轮对话文本，不要补充不存在的信息。',
+    '请使用简体中文总结，并严格返回只有以下键的 JSON：',
     '{"summary": string, "tags": string[], "importance": number}',
-    'importance must be a number between 0 and 1.',
+    'summary 需要是简洁、可复用的中文记忆摘要。',
+    'importance 必须是 0 到 1 之间的数字。',
     TAG_GUIDANCE,
-    'Do not add markdown or code fences.',
+    '不要输出 markdown、代码块或任何额外说明。',
   ].join('\n')
 }
 
@@ -104,15 +105,23 @@ function buildRetrievePrompt(): string {
   return [
     'You prepare a memory retrieval query for sqlite-based agent memories.',
     'You will receive the current local datetime of the computer and the user\'s latest message.',
+    'Think in two channels:',
+    '- time_range answers when the user is referring to.',
+    '- keywords capture stable retrieval topics that are likely to appear in memory summaries or tags.',
     'Return strict JSON with exactly this shape:',
     '{"keywords": string[], "time_range": {"start": string, "end": string} | null}',
-    'keywords are for semantic topics, entities, events, tasks, or objects only.',
+    'keywords should be stable retrieval topics such as names, people, places, projects, objects, concerns, activities, commitments, or incidents.',
     'keywords may be empty.',
     'Use the same language as the user\'s message.',
-    'Do not include time expressions in keywords.',
+    'Choose concepts that would still make sense if the time expression were removed from the message.',
+    'Prefer topic anchors over sentence fragments, query scaffolding, or generic recall words.',
     'If the user expresses time-related intent, translate it into an absolute time_range based on the provided current local datetime.',
     'If the user expresses no time-related intent, return "time_range": null.',
     'If the time intent is too ambiguous to resolve safely, return "time_range": null.',
+    'If the message is mainly asking about a time period or recent events and does not name a concrete topic, return an empty keywords array and rely on time_range.',
+    'Example: if the user says "昨天发生了什么", return {"keywords":[],"time_range":{"start":"...","end":"..."}}.',
+    'Example: if the user says "昨天我们聊数据库迁移了吗", return {"keywords":["数据库迁移"],"time_range":{"start":"...","end":"..."}}.',
+    'Example: if the user says "你记得我叫什么吗", return {"keywords":["名字"],"time_range":null}.',
     '"start" and "end" must be ISO 8601 datetime strings.',
     'Do not add markdown or code fences.',
   ].join('\n')
@@ -124,7 +133,11 @@ function renderMemoryFragment(memories: MemoryRecord[]): string | null {
   }
 
   return [
-    'Relevant memories (most important first):',
+    'Relevant memories you can rely on for this reply (most important first):',
+    'Treat these as your available recollections for this turn.',
+    'If the user asks about prior interactions, past facts, or recent events and these memories are relevant, answer from them directly.',
+    'Do not claim that you cannot remember or that you lack memory if the relevant answer is contained here.',
+    'If these memories are insufficient, say you are not sure instead of inventing details.',
     ...memories.map((memory) => `- ${memory.summary}`),
   ].join('\n')
 }
@@ -432,6 +445,7 @@ export class MemorySqliteSystem implements AgentSystem {
     const pending: PendingMemoryQuery = {
       kind: 'sqlite',
       system: this.name,
+      model: this.summarizeModel,
       prompt: buildRetrievePrompt(),
       inputText: buildRetrieveInputText(ctx.input.text),
       parse: parseMemoryQueryResponse,

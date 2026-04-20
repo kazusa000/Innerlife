@@ -801,12 +801,12 @@ export default function HomePage() {
 
                     {memoryScheme === 'sqlite' ? (
                       <label className="field">
-                        <span className="field-label">Summarize model override</span>
+                        <span className="field-label">Memory model override</span>
                         <input
                           className="input"
                           value={memorySummarizeModel}
                           onChange={(event) => setMemorySummarizeModel(event.target.value)}
-                          placeholder="留空则继承 persona model"
+                          placeholder="留空则继承 persona model；用于 retrieve / summarize / consolidate"
                         />
                       </label>
                     ) : (

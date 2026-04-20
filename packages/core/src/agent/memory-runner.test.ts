@@ -122,11 +122,11 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
       );
     `)
 
-    const observerStarts: Array<{ kind: string }> = []
+    const observerStarts: Array<{ kind: string; model: string }> = []
     const observerEnds: Array<{ metadata?: unknown }> = []
     const observer: RunAgentObserver = {
       onLLMCallStart(payload) {
-        observerStarts.push({ kind: payload.kind })
+        observerStarts.push({ kind: payload.kind, model: payload.model })
         return `call-${observerStarts.length}`
       },
       onLLMCallEnd(_callId, payload) {
@@ -154,7 +154,10 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
         return
       }
 
-      if (params.systemPrompt.includes('strict JSON')) {
+      if (
+        params.systemPrompt.includes('严格返回只有以下键的 JSON')
+        || params.systemPrompt.includes('strict JSON')
+      ) {
         yield {
           type: 'message_complete',
           response: {
@@ -205,7 +208,11 @@ test('runAgent records memory retrieval metadata and writes a memory row after t
     }
 
     assert.equal(events.at(-1)?.type, 'complete')
-    assert.deepEqual(observerStarts.map((call) => call.kind), ['memory', 'turn', 'memory'])
+    assert.deepEqual(observerStarts, [
+      { kind: 'memory', model: 'memory-model' },
+      { kind: 'turn', model: 'fake-model' },
+      { kind: 'memory', model: 'memory-model' },
+    ])
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
       keywords: ['猫', '我猫叫什么'],

@@ -129,6 +129,8 @@ test('memory sqlite system prepares a pending retrieval query in beforeTurn and 
     assert.deepEqual(loaded.map((memory) => memory.id), [catMemory.id])
     assert.equal(ctx.promptFragments[0]?.priority, 30)
     assert.match(ctx.promptFragments[0]?.content ?? '', /Relevant memories/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /available recollections/i)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /Do not claim that you cannot remember/i)
     assert.match(ctx.promptFragments[0]?.content ?? '', /橘子的猫/)
   } finally {
     resetDb()
@@ -151,13 +153,27 @@ test('memory sqlite system prepares a pending write after turn', async () => {
 
   assert.equal(ctx.pendingMemoryWrite?.kind, 'sqlite')
   assert.equal(ctx.pendingMemoryWrite?.model, 'memory-model')
-  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /strict JSON/i)
-  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /Use the main language of the conversation turn/i)
-  assert.doesNotMatch(ctx.pendingMemoryWrite?.prompt ?? '', /Chinese and English/i)
+  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /严格返回只有以下键的 JSON/i)
+  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /请使用简体中文/i)
+  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /tags 尽量提供至少 4 个简短、可复用的中文关键词/i)
+  assert.doesNotMatch(ctx.pendingMemoryWrite?.prompt ?? '', /Use the main language of the conversation turn/i)
   assert.equal(typeof ctx.pendingMemoryWrite?.persist, 'function')
 })
 
-test('memory sqlite system parses and persists mixed bilingual tags from summarize output', async () => {
+test('memory sqlite system uses summarize model override for retrieval queries too', async () => {
+  const system = new MemorySqliteSystem({
+    summarizeModel: 'memory-model',
+  })
+  const ctx = createContext('昨天发生了什么')
+
+  await system.beforeTurn?.(ctx)
+
+  assert.equal(ctx.pendingMemoryQuery?.kind, 'sqlite')
+  assert.equal(ctx.pendingMemoryQuery?.model, 'memory-model')
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /time_range/i)
+})
+
+test('memory sqlite system parses and persists chinese summarize output', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
   const dbPath = join(dir, 'test.db')
 
@@ -178,13 +194,13 @@ test('memory sqlite system parses and persists mixed bilingual tags from summari
 
     const parsed = ctx.pendingMemoryWrite?.parse(JSON.stringify({
       summary: '用户叫王家骏',
-      tags: ['名字', 'name', '称呼', 'introduction', '王家骏', 'identity'],
+      tags: ['名字', '称呼', '身份', '王家骏'],
       importance: 0.9,
     }))
 
     assert.deepEqual(parsed, {
       summary: '用户叫王家骏',
-      tags: ['名字', 'name', '称呼', 'introduction', '王家骏', 'identity'],
+      tags: ['名字', '称呼', '身份', '王家骏'],
       importance: 0.9,
     })
 
@@ -192,7 +208,7 @@ test('memory sqlite system parses and persists mixed bilingual tags from summari
 
     const stored = memoryRepo.listMemoriesByAgent('agent-1')
     assert.equal(stored.length, 1)
-    assert.deepEqual(stored[0]?.tags, ['名字', 'name', '称呼', 'introduction', '王家骏', 'identity'])
+    assert.deepEqual(stored[0]?.tags, ['名字', '称呼', '身份', '王家骏'])
   } finally {
     resetDb()
     rmSync(dir, { recursive: true, force: true })
@@ -270,4 +286,19 @@ test('memory sqlite query parse returns optional time range for natural-language
       end: new Date('2026-04-20T14:00:00+02:00'),
     },
   })
+})
+
+test('memory sqlite retrieve prompt distinguishes stable topics from time-only recall queries', async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    minTermLength: 2,
+  })
+  const ctx = createContext('昨天发生了什么')
+
+  await system.beforeTurn?.(ctx)
+
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /stable retrieval topics/i)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /If the message is mainly asking about a time period/i)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /昨天发生了什么/i)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /"keywords":\s*\[\]/i)
 })
