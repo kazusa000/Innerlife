@@ -53,6 +53,11 @@ export interface MemoryReport {
   merged: number | null
 }
 
+export interface MemoryTimeRange {
+  start: string
+  end: string
+}
+
 export interface CompactionInfo {
   beforeMessageCount: number | null
   afterMessageCount: number | null
@@ -214,6 +219,21 @@ export function getMemoryKeywords(call: LiveCall): string[] {
 
 export function getMemoryFallbackKeywords(call: LiveCall): string[] {
   return readStringArray(getMetadata(call)?.fallbackKeywords)
+}
+
+export function getMemoryTimeRange(call: LiveCall): MemoryTimeRange | null {
+  const timeRange = getMetadata(call)?.timeRange
+  if (!isRecord(timeRange)) {
+    return null
+  }
+
+  const start = readString(timeRange.start)
+  const end = readString(timeRange.end)
+  if (!start || !end) {
+    return null
+  }
+
+  return { start, end }
 }
 
 export function getCompactionInfo(call: LiveCall): CompactionInfo | null {

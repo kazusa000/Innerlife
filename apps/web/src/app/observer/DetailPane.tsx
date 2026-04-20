@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CompactionView, EmotionView, MessagesView, ResponseView } from '@/lib/call-renderers'
+import { CompactionView, EmotionView, MemoryView, MessagesView, ResponseView } from '@/lib/call-renderers'
 
 interface CallDetail {
   id: string
@@ -25,7 +25,7 @@ interface Props {
   callId: string | null
 }
 
-type Tab = 'system' | 'tools' | 'history' | 'metadata' | 'compaction' | 'emotion' | 'response'
+type Tab = 'system' | 'tools' | 'history' | 'metadata' | 'compaction' | 'emotion' | 'memory' | 'response'
 const OUTPUT_TABS: Tab[] = ['response']
 
 export function DetailPane({ callId }: Props) {
@@ -67,6 +67,7 @@ export function DetailPane({ callId }: Props) {
     ...(detail.metadata !== null ? ['metadata' as const] : []),
     ...(detail.kind === 'compaction' ? ['compaction' as const] : []),
     ...(detail.kind === 'emotion' || detail.latestEmotionState ? ['emotion' as const] : []),
+    ...(detail.kind === 'memory' ? ['memory' as const] : []),
   ]
 
   return (
@@ -147,6 +148,7 @@ export function DetailPane({ callId }: Props) {
             latestState={detail.latestEmotionState}
           />
         )}
+        {tab === 'memory' && <MemoryView metadata={detail.metadata} />}
         {tab === 'response' && (
           <ResponseView
             response={detail.response}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState, type ReactNode } from 'react'
 
 interface Block {
   type: string
@@ -281,6 +281,108 @@ export function EmotionView({
           {JSON.stringify(latestState ?? null, null, 2)}
         </pre>
       </div>
+    </div>
+  )
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function readText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+function readTextArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean)
+    : []
+}
+
+function MemorySection({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 10,
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+          color: '#34d399',
+          marginBottom: 6,
+          fontWeight: 600,
+        }}
+      >
+        {title}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+export function MemoryView({ metadata }: { metadata: unknown }) {
+  const record = readRecord(metadata)
+  const phase = readText(record?.phase) ?? 'unknown'
+  const keywords = readTextArray(record?.keywords)
+  const fallbackKeywords = readTextArray(record?.fallbackKeywords)
+  const timeRange = readRecord(record?.timeRange)
+  const timeRangeStart = readText(timeRange?.start)
+  const timeRangeEnd = readText(timeRange?.end)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <MemorySection title="Phase">
+        <pre style={{ fontSize: 11, color: '#cdd9e5' }}>{phase}</pre>
+      </MemorySection>
+
+      {phase === 'retrieve' && (
+        <>
+          <MemorySection title="Keywords">
+            <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+              {JSON.stringify({ keywords, fallbackKeywords }, null, 2)}
+            </pre>
+          </MemorySection>
+          <MemorySection title="Time range">
+            <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+              {JSON.stringify(
+                timeRangeStart && timeRangeEnd
+                  ? { start: timeRangeStart, end: timeRangeEnd }
+                  : null,
+                null,
+                2,
+              )}
+            </pre>
+          </MemorySection>
+          <MemorySection title="Hits">
+            <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+              {JSON.stringify(record?.hits ?? [], null, 2)}
+            </pre>
+          </MemorySection>
+        </>
+      )}
+
+      {phase === 'summarize' && (
+        <MemorySection title="Written">
+          <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+            {JSON.stringify(record?.written ?? null, null, 2)}
+          </pre>
+        </MemorySection>
+      )}
+
+      {phase === 'consolidate' && (
+        <MemorySection title="Report">
+          <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+            {JSON.stringify(record?.report ?? null, null, 2)}
+          </pre>
+        </MemorySection>
+      )}
     </div>
   )
 }
