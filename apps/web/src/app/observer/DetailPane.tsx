@@ -5,7 +5,7 @@ import { CompactionView, EmotionView, MessagesView, ResponseView } from '@/lib/c
 
 interface CallDetail {
   id: string
-  kind: 'turn' | 'compaction' | 'memory' | 'emotion'
+  kind: 'turn' | 'compaction' | 'memory' | 'emotion' | 'relationship'
   model: string
   systemPrompt: string
   tools: unknown

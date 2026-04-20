@@ -774,6 +774,161 @@ test('runAgent executes pending emotion analysis as a separate observer call and
   })
 })
 
+test('runAgent executes pending relationship analysis as a separate observer call and exposes parsed deltas to afterTurn', async () => {
+  const observerStarts: Array<{ kind: string; model: string; systemPrompt: string }> = []
+  const observerEnds: Array<{ callId: string; metadata?: Record<string, unknown> }> = []
+  const seen: { relationshipRequest?: LLMRequest; analysis?: unknown } = {}
+
+  const provider: LLMProvider = {
+    name: 'fake',
+    async *streamMessage(params) {
+      assert.equal(params.model, 'fake-model')
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: 'answer' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 8, outputTokens: 6 },
+        },
+      }
+    },
+    async sendMessage(params) {
+      seen.relationshipRequest = params
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              trust_delta: 0.1,
+              affinity_delta: -0.05,
+              familiarity_delta: 0.2,
+              respect_delta: 0.03,
+              trigger: '用户分享了新的上下文并认可了当前方案',
+            }),
+          },
+        ],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 5, outputTokens: 7 },
+      }
+    },
+  }
+
+  const systems: AgentSystem[] = [
+    {
+      name: 'relationship:multi-dim',
+      type: 'relationship',
+      async afterLLM(ctx: TurnContext) {
+        ctx.pendingRelationshipAnalysis = {
+          kind: 'multi-dim',
+          model: 'claude-haiku-4-5-20251001',
+          systemPrompt: 'Return JSON for relationship deltas only.',
+          messages: [
+            createTextMessage('user', 'User said: 这次你的方案靠谱多了\nAssistant said: answer'),
+          ],
+          currentState: {
+            trust: 0.4,
+            affinity: 0.6,
+            familiarity: 0.2,
+            respect: 0.8,
+          },
+          baseline: {
+            trust: 0.3,
+            affinity: 0.5,
+            familiarity: 0.1,
+            respect: 0.7,
+          },
+          decayPerTurn: 0.2,
+        }
+      },
+      async afterTurn(ctx: TurnContext) {
+        seen.analysis = clone(ctx.relationshipAnalysis)
+      },
+    },
+  ]
+
+  const observer = {
+    onLLMCallStart(payload: {
+      kind: 'turn' | 'compaction' | 'emotion' | 'relationship'
+      model: string
+      systemPrompt: string
+      tools: ToolDefinition[]
+      messages: Message[]
+    }) {
+      observerStarts.push({
+        kind: payload.kind,
+        model: payload.model,
+        systemPrompt: payload.systemPrompt,
+      })
+      return `call-${observerStarts.length}`
+    },
+    onLLMCallEnd(callId: string, payload: {
+      response: ContentBlock[]
+      stopReason: LLMResponse['stopReason']
+      usage: { inputTokens: number; outputTokens: number }
+      metadata?: Record<string, unknown>
+      error?: string
+    }) {
+      observerEnds.push({ callId, metadata: clone(payload.metadata) })
+    },
+  }
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig(),
+    [createTextMessage('user', 'hello')],
+    provider,
+    systems,
+    observer,
+  )) {
+    events.push(event)
+  }
+
+  assert.deepEqual(events, [
+    {
+      type: 'complete',
+      response: {
+        content: [{ type: 'text', text: 'answer' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 8, outputTokens: 6 },
+      },
+    },
+  ])
+  assert.equal(seen.relationshipRequest?.model, 'claude-haiku-4-5-20251001')
+  assert.equal(seen.relationshipRequest?.systemPrompt, 'Return JSON for relationship deltas only.')
+  assert.deepEqual(observerStarts.map((item) => item.kind), ['turn', 'relationship'])
+  assert.deepEqual(seen.analysis, {
+    delta: {
+      trust: 0.1,
+      affinity: -0.05,
+      familiarity: 0.2,
+      respect: 0.03,
+    },
+    trigger: '用户分享了新的上下文并认可了当前方案',
+    rawResponse: '{"trust_delta":0.1,"affinity_delta":-0.05,"familiarity_delta":0.2,"respect_delta":0.03,"trigger":"用户分享了新的上下文并认可了当前方案"}',
+  })
+  assert.deepEqual(observerEnds[1]?.metadata, {
+    before: {
+      trust: 0.4,
+      affinity: 0.6,
+      familiarity: 0.2,
+      respect: 0.8,
+    },
+    after: {
+      trust: 0.48,
+      affinity: 0.53,
+      familiarity: 0.38,
+      respect: 0.81,
+    },
+    delta: {
+      trust: 0.1,
+      affinity: -0.05,
+      familiarity: 0.2,
+      respect: 0.03,
+    },
+    trigger: '用户分享了新的上下文并认可了当前方案',
+  })
+})
+
 function bootstrapRelationshipDb(dbPath: string) {
   resetDb()
   getDb(dbPath)

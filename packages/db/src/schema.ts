@@ -94,7 +94,7 @@ export const llmCalls = sqliteTable('llm_calls', {
     .notNull()
     .references(() => messages.id),
   turnIndex: integer('turn_index').notNull(),
-  kind: text('kind', { enum: ['turn', 'compaction', 'memory', 'emotion'] })
+  kind: text('kind', { enum: ['turn', 'compaction', 'memory', 'emotion', 'relationship'] })
     .notNull()
     .default('turn'),
   model: text('model').notNull(),

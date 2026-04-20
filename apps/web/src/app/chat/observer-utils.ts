@@ -30,6 +30,13 @@ export interface EmotionVector {
   stress: number
 }
 
+export interface RelationshipVector {
+  trust: number
+  affinity: number
+  familiarity: number
+  respect: number
+}
+
 export interface MemoryHit {
   id: string
   summary: string
@@ -143,6 +150,22 @@ export function getEmotionVector(value: unknown): EmotionVector | null {
   }
 
   return { mood, energy, stress }
+}
+
+export function getRelationshipVector(value: unknown): RelationshipVector | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const trust = readNumber(value.trust)
+  const affinity = readNumber(value.affinity)
+  const familiarity = readNumber(value.familiarity)
+  const respect = readNumber(value.respect)
+  if (trust === null || affinity === null || familiarity === null || respect === null) {
+    return null
+  }
+
+  return { trust, affinity, familiarity, respect }
 }
 
 export function getMemoryHits(call: LiveCall): MemoryHit[] {
