@@ -39,6 +39,11 @@ type EmotionModule = {
   analysisModel?: string | null
 }
 
+type MemoryModule = {
+  scheme?: string
+  summarizeModel?: string | null
+}
+
 type PersonalityFormState = {
   enabled: boolean
   big5: BigFiveScores
@@ -51,6 +56,11 @@ type EmotionFormState = {
   baseline: EmotionBaseline
   decayPerTurn?: number
   analysisModel?: string | null
+}
+
+type MemoryFormState = {
+  scheme: 'noop' | 'sqlite'
+  summarizeModel: string
 }
 
 const DEFAULT_BIG5: BigFiveScores = {
@@ -223,6 +233,34 @@ function readValuePriorities(modules: Record<string, unknown> | null | undefined
     .filter(Boolean)
 }
 
+function readMemoryModule(
+  modules: Record<string, unknown> | null,
+): MemoryModule | null {
+  if (!isRecord(modules)) {
+    return null
+  }
+
+  const memory = modules.memory
+  if (typeof memory === 'string') {
+    return { scheme: memory }
+  }
+
+  return isRecord(memory) ? (memory as MemoryModule) : null
+}
+
+function getMemoryFormState(
+  modules: Record<string, unknown> | null,
+): MemoryFormState {
+  const memory = readMemoryModule(modules)
+  const scheme = memory?.scheme === 'sqlite' ? 'sqlite' : 'noop'
+
+  return {
+    scheme,
+    summarizeModel:
+      typeof memory?.summarizeModel === 'string' ? memory.summarizeModel : '',
+  }
+}
+
 function stripManagedModules(modules: Record<string, unknown> | null) {
   if (!isRecord(modules)) {
     return {}
@@ -230,6 +268,7 @@ function stripManagedModules(modules: Record<string, unknown> | null) {
 
   const { personality: _personality, values: _values, ...rest } = modules
   delete rest.emotion
+  delete rest.memory
   return rest
 }
 
@@ -237,6 +276,7 @@ function buildModules(
   baseModules: Record<string, unknown>,
   personality: PersonalityFormState,
   emotion: EmotionFormState,
+  memory: MemoryFormState,
   valuePriorities: string[],
 ) {
   const next: Record<string, unknown> = { ...baseModules }
@@ -258,6 +298,15 @@ function buildModules(
           ? { decayPerTurn: emotion.decayPerTurn }
           : {}),
         ...(emotion.analysisModel ? { analysisModel: emotion.analysisModel } : {}),
+      }
+    : { scheme: 'noop' }
+
+  next.memory = memory.scheme === 'sqlite'
+    ? {
+        scheme: 'sqlite',
+        ...(memory.summarizeModel.trim()
+          ? { summarizeModel: memory.summarizeModel.trim() }
+          : {}),
       }
     : { scheme: 'noop' }
 
@@ -304,6 +353,8 @@ export default function HomePage() {
   })
   const [emotionDecayPerTurn, setEmotionDecayPerTurn] = useState<number | undefined>(undefined)
   const [emotionAnalysisModel, setEmotionAnalysisModel] = useState<string | null>(null)
+  const [memoryScheme, setMemoryScheme] = useState<'noop' | 'sqlite'>('noop')
+  const [memorySummarizeModel, setMemorySummarizeModel] = useState('')
   const [valuePriorities, setValuePriorities] = useState<string[]>([])
   const router = useRouter()
 
@@ -332,12 +383,15 @@ export default function HomePage() {
     setEmotionBaseline({ ...DEFAULT_EMOTION_BASELINE })
     setEmotionDecayPerTurn(undefined)
     setEmotionAnalysisModel(null)
+    setMemoryScheme('noop')
+    setMemorySummarizeModel('')
     setValuePriorities([])
   }
 
   function startEdit(agent: Agent) {
     const personality = getPersonalityFormState(agent.modules, false)
     const emotion = getEmotionFormState(agent.modules, false)
+    const memory = getMemoryFormState(agent.modules)
 
     setEditingId(agent.id)
     setName(agent.name)
@@ -352,6 +406,8 @@ export default function HomePage() {
     setEmotionBaseline(emotion.baseline)
     setEmotionDecayPerTurn(emotion.decayPerTurn)
     setEmotionAnalysisModel(emotion.analysisModel ?? null)
+    setMemoryScheme(memory.scheme)
+    setMemorySummarizeModel(memory.summarizeModel)
     setValuePriorities(readValuePriorities(agent.modules))
     setShowForm(true)
   }
@@ -396,6 +452,10 @@ export default function HomePage() {
         decayPerTurn: emotionDecayPerTurn,
         analysisModel: emotionAnalysisModel,
       },
+      {
+        scheme: memoryScheme,
+        summarizeModel: memorySummarizeModel,
+      },
       valuePriorities,
     )
 
@@ -430,6 +490,10 @@ export default function HomePage() {
     })
     const data = await res.json()
     router.push(`/chat?agent=${agentId}&session=${data.session.id}`)
+  }
+
+  function handleMemory(agentId: string) {
+    router.push(`/agent/${agentId}/memory`)
   }
 
   return (
@@ -500,7 +564,7 @@ export default function HomePage() {
               <section className="modules-panel" aria-label="Modules configuration">
                 <div className="modules-panel-head">
                   <span className="field-label">模块配置</span>
-                  <span className="placeholder-pill">Personality · Emotion · Values</span>
+                  <span className="placeholder-pill">Personality · Emotion · Memory · Values</span>
                 </div>
 
                 <section className="module-card" aria-label="Personality configuration">
@@ -674,6 +738,51 @@ export default function HomePage() {
                   )}
                 </section>
 
+                <section className="module-card" aria-label="Memory configuration">
+                  <div className="module-card-head">
+                    <div className="module-copy-wrap">
+                      <div className="module-copy-top">
+                        <span className="field-label">记忆</span>
+                        <span className="module-pill">SQLite entry</span>
+                      </div>
+                      <p className="module-copy">
+                        统一入口固定在 `/agent/[id]/memory`。这里只决定 memory scheme，具体管理界面由入口页分发。
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="personality-grid">
+                    <label className="field">
+                      <span className="field-label">Memory scheme</span>
+                      <select
+                        className="input"
+                        value={memoryScheme}
+                        onChange={(event) =>
+                          setMemoryScheme(event.target.value === 'sqlite' ? 'sqlite' : 'noop')}
+                      >
+                        <option value="noop">noop</option>
+                        <option value="sqlite">sqlite</option>
+                      </select>
+                    </label>
+
+                    {memoryScheme === 'sqlite' ? (
+                      <label className="field">
+                        <span className="field-label">Summarize model override</span>
+                        <input
+                          className="input"
+                          value={memorySummarizeModel}
+                          onChange={(event) => setMemorySummarizeModel(event.target.value)}
+                          placeholder="留空则继承 persona model"
+                        />
+                      </label>
+                    ) : (
+                      <p className="module-empty">
+                        关闭后会写入 `memory.noop`，打开 `/agent/[id]/memory` 时会显示空状态。
+                      </p>
+                    )}
+                  </div>
+                </section>
+
                 <section className="module-card" aria-label="Values configuration">
                   <div className="module-card-head">
                     <div className="module-copy-wrap">
@@ -783,6 +892,9 @@ export default function HomePage() {
                     onClick={() => handleChat(agent.id)}
                   >
                     Chat
+                  </button>
+                  <button className="btn" onClick={() => handleMemory(agent.id)}>
+                    Memory
                   </button>
                   <button className="btn" onClick={() => startEdit(agent)}>
                     Edit

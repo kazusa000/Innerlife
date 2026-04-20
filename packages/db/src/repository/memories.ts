@@ -116,6 +116,38 @@ export function listMemoriesByAgent(agentId: string) {
     .map(mapMemory)
 }
 
+export function listSqliteMemoriesByAgent(agentId: string, query?: string) {
+  const normalizedQuery = query?.trim().toLowerCase()
+  const db = getDb()
+  const scope = eq(memories.agentId, agentId)
+
+  if (!normalizedQuery) {
+    return db
+      .select()
+      .from(memories)
+      .where(scope)
+      .orderBy(desc(memories.createdAt))
+      .all()
+      .map(mapMemory)
+  }
+
+  const wildcard = `%${normalizedQuery}%`
+
+  return db
+    .select()
+    .from(memories)
+    .where(and(
+      scope,
+      or(
+        sql`lower(${memories.summary}) like ${wildcard}`,
+        sql`lower(${memories.tags}) like ${wildcard}`,
+      )!,
+    ))
+    .orderBy(desc(memories.createdAt))
+    .all()
+    .map(mapMemory)
+}
+
 export function listMemoriesByAgentOldestFirst(agentId: string) {
   const db = getDb()
   return db
@@ -125,6 +157,19 @@ export function listMemoriesByAgentOldestFirst(agentId: string) {
     .orderBy(asc(memories.createdAt))
     .all()
     .map(mapMemory)
+}
+
+export function deleteSqliteMemoryByAgent(agentId: string, memoryId: string) {
+  const db = getDb()
+  const result = db
+    .delete(memories)
+    .where(and(
+      eq(memories.agentId, agentId),
+      eq(memories.id, memoryId),
+    ))
+    .run()
+
+  return result.changes > 0
 }
 
 export function findRelevantMemories(input: {
