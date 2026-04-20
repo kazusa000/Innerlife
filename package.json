@@ -6,5 +6,8 @@
   "workspaces": [
     "packages/*",
     "apps/*"
-  ]
+  ],
+  "scripts": {
+    "daemon:start": "npm run start --workspace @mas/daemon"
+  }
 }

@@ -147,3 +147,18 @@ export const relationships = sqliteTable('relationships', {
   ),
   updatedAtIdx: index('idx_relationships_agent_updated_at').on(table.agentId, table.updatedAt),
 }))
+
+export const daemonState = sqliteTable('daemon_state', {
+  id: text('id').primaryKey(),
+  pid: integer('pid').notNull(),
+  status: text('status', {
+    enum: ['starting', 'running', 'stopping', 'stopped'],
+  }).notNull(),
+  startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+  lastHeartbeatAt: integer('last_heartbeat_at', { mode: 'timestamp_ms' }).notNull(),
+  stoppedAt: integer('stopped_at', { mode: 'timestamp_ms' }),
+  lastError: text('last_error'),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+})
