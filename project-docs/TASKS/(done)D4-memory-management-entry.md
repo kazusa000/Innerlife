@@ -90,12 +90,12 @@
 - [x] `apps/web/src/app/page.tsx` 能配置 `memory.scheme`（至少 `noop` / `sqlite`），不再需要手改 DB 才能启用 sqlite memory
 - [x] 首页或 agent 动作区存在进入 `/agent/[id]/memory` 的入口按钮
 - [x] sqlite 的列表 / 搜索 / 删除 API 有测试覆盖
-- [ ] 手动验证：
-  - [ ] 一个 `memory:sqlite` agent 聊几轮后，打开 `/agent/[id]/memory` 能看到记忆列表
+- [x] 手动验证：
+  - [x] 一个 `memory:sqlite` agent 聊几轮后，打开 `/agent/[id]/memory` 能看到记忆列表
   - [x] 搜索命中符合预期
   - [x] 删除后列表立即消失
-  - [ ] 点击 consolidate 后能看到刷新结果
-  - [ ] 一个 `memory:noop` agent 打开同一路由时看到空状态而不是报错
+  - [x] 点击 consolidate 后能看到刷新结果
+  - [x] 一个 `memory:noop` agent 打开同一路由时看到空状态而不是报错
 
 ## 备注 / 注意事项
 
@@ -116,8 +116,8 @@ const memoryManagersByScheme = {
 ## Completion Note
 
 - **Changes**: 新增统一入口 `/agent/[id]/memory`、scheme 分发壳层与 `memory:sqlite` 管理子系统；补上 sqlite 管理 API、仓库 helper，以及首页的 `memory.scheme` 配置和 Memory 入口按钮。
-- **Verified**: `cd packages/db && npm test`；`cd apps/web && node --import tsx --test 'src/**/*.test.ts' --test-name-pattern='listSqliteMemories|deleteSqliteMemory|consolidateSqliteMemories'`；`cd packages/db && npm run typecheck`；`cd apps/web && npm run typecheck && npm run build`；本地 `next start` 后用 `curl` 烟测了入口元信息、sqlite 列表/搜索/删除。
-- **Caveats**: 这次没有做浏览器级手动验证；`memory:noop` 空状态和 consolidate 刷新 UI 只做了路由/自动化覆盖。当前 worktree 也没有可用的 Anthropic key，所以没做真实 consolidate HTTP 烟测。
+- **Verified**: `cd packages/db && npm test`；`cd apps/web && node --import tsx --test 'src/**/*.test.ts' --test-name-pattern='listSqliteMemories|deleteSqliteMemory|consolidateSqliteMemories'`；`cd packages/db && npm run typecheck`；`cd apps/web && npm run typecheck && npm run build`；本地起 `next start` + Anthropic mock 后，用 Playwright 完整走了 `memory:sqlite` 聊两轮 -> 打开 `/agent/[id]/memory` -> 点击 consolidate -> 验证刷新结果，以及 `memory:noop` 空状态页。
+- **Caveats**: 浏览器级验收使用的是本地 Anthropic 兼容 mock，而不是线上模型；本卡要求的页面行为已验证。
 - **Design deltas**: 无。
 
 ## 审核意见（2026-04-20, coordinator）
