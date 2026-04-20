@@ -31,21 +31,21 @@
 ## 完成标准
 
 ### 进程层（可自动验证）
-- [ ] 新增 `@mas/daemon` 包，提供明确入口命令，可从仓库根启动本地 daemon
-- [ ] daemon 启动后写入单实例锁；同机重复启动时会被拒绝，并给出可读错误
-- [ ] daemon 支持优雅退出，停止时释放锁并更新最终状态
+- [x] 新增 `@mas/daemon` 包，提供明确入口命令，可从仓库根启动本地 daemon
+- [x] daemon 启动后写入单实例锁；同机重复启动时会被拒绝，并给出可读错误
+- [x] daemon 支持优雅退出，停止时释放锁并更新最终状态
 
 ### 状态层（可自动验证）
-- [ ] 数据层新增 daemon 状态持久化，至少能记录：`pid`、`startedAt`、`lastHeartbeatAt`、`status`
-- [ ] daemon 运行时按固定间隔刷新 heartbeat
-- [ ] 提供仓库内可复用的状态读取接口，供未来 web/CLI 状态页直接复用
+- [x] 数据层新增 daemon 状态持久化，至少能记录：`pid`、`startedAt`、`lastHeartbeatAt`、`status`
+- [x] daemon 运行时按固定间隔刷新 heartbeat
+- [x] 提供仓库内可复用的状态读取接口，供未来 web/CLI 状态页直接复用
 
 ### 运行层（可自动验证）
-- [ ] daemon 内部有固定 tick loop，但当前 tick 只做 heartbeat / 基础巡检，不执行 `scheduled_tasks`
-- [ ] tick loop 具备最小错误隔离：单次 tick 出错不会直接让整个 daemon 进程静默退出
-- [ ] 自动化测试覆盖：单实例、heartbeat 刷新、优雅退出、tick 错误隔离
-- [ ] typecheck 通过
-- [ ] 相关单测通过
+- [x] daemon 内部有固定 tick loop，但当前 tick 只做 heartbeat / 基础巡检，不执行 `scheduled_tasks`
+- [x] tick loop 具备最小错误隔离：单次 tick 出错不会直接让整个 daemon 进程静默退出
+- [x] 自动化测试覆盖：单实例、heartbeat 刷新、优雅退出、tick 错误隔离
+- [x] typecheck 通过
+- [x] 相关单测通过
 
 ## 非目标（明确不做）
 
@@ -61,3 +61,10 @@
 - 数据语义提示：daemon 状态应是“当前本地后台进程的运行状态”，不是 agent 业务数据，不要和 `sessions` / `llm_calls` / `memories` 混表。
 - 合并冲突风险：`packages/db/src/schema.ts` 和根 `package.json` 是 hot file；这张卡应避免顺手改 `runner.ts`、`apps/web/src/app/api/chat/route.ts` 之类更热的链路文件。
 - 设计参考：`DESIGN.md §10.8-10.9, §11 Phase 4 / G1`；参考项目 `reference-project/openclaw/` 的 heartbeat / cron 思路，但 v1 只取“本地常驻 + 心跳 + tick”这层。
+
+## Completion Note
+
+- **Changes**: 新增 `@mas/daemon` 包，提供根命令 `npm run daemon:start`、文件锁、固定 tick loop 和 SIGINT/SIGTERM 优雅退出；`@mas/db` 新增 `daemon_state` schema / repository / migration，持久化当前本地 daemon 的运行状态与最近错误。
+- **Verified**: `npm test --workspace @mas/db --workspace @mas/daemon`；`npm run typecheck --workspace @mas/db --workspace @mas/daemon`；`npm run db:generate --workspace @mas/db`。
+- **Caveats**: 当前默认锁文件落在仓库根下的 `.superpowers/daemon.lock`。源任务卡在 `master` 上是未跟踪文件，所以首个 claim commit 只能在任务分支里新增 `(doing)G1-daemon-v1.md`，无法做真正的 `git mv` 轨迹。
+- **Design deltas**: `daemon_state` 除任务要求的最小字段外，还补了 `stoppedAt` 和 `lastError`，用于对齐 `DESIGN.md` 里 heartbeat / status / 最近错误的可观测语义。
