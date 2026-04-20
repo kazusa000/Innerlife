@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react'
 import type { LiveCall } from './observer-types'
+import { formatDurationLabel } from '../../lib/format-duration'
 import {
   getCallPhase,
   getMemoryHits,
@@ -16,6 +17,7 @@ import { CALL_ACCENTS, CodeBlock, CollapsibleSection, DetailList, Pill, TagPills
 
 export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
   const phase = getCallPhase(call) ?? 'unknown'
+  const duration = formatDurationLabel(call.startedAt, call.finishedAt)
   const keywords = getMemoryKeywords(call)
   const timeRange = getMemoryTimeRange(call)
   const hits = getMemoryHits(call)
@@ -52,6 +54,7 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <strong style={{ color: 'var(--fg)', fontSize: 14 }}>memory.{phase}</strong>
           <Pill label="model" value={call.model} />
+          {duration ? <Pill label="duration" value={duration} /> : null}
           <Pill label="stop" value={call.stopReason ?? (call.finished ? 'end_turn' : 'pending')} accent={CALL_ACCENTS.memory.color} />
         </div>
         <span style={{ color: 'var(--fg-subtle)', fontSize: 12, flexShrink: 0 }}>{open ? '收起' : '展开'}</span>

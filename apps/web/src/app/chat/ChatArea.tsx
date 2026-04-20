@@ -66,6 +66,8 @@ function normalizeCallDetail(call: Record<string, unknown>): LiveCall | null {
   const systemPrompt = typeof call.systemPrompt === 'string' ? call.systemPrompt : null
   const tools = Array.isArray(call.tools) ? call.tools : null
   const messages = Array.isArray(call.messages) ? call.messages : null
+  const startedAt = typeof call.startedAt === 'number' ? call.startedAt : null
+  const finishedAt = typeof call.finishedAt === 'number' ? call.finishedAt : null
 
   if (!id || turnIndex === null || !model || !systemPrompt || !tools || !messages) {
     return null
@@ -95,6 +97,8 @@ function normalizeCallDetail(call: Record<string, unknown>): LiveCall | null {
         ? { inputTokens: call.inputTokens, outputTokens: call.outputTokens }
         : null,
     error: typeof call.error === 'string' ? call.error : null,
+    startedAt,
+    finishedAt,
     finished: true,
   }
 }
@@ -121,15 +125,30 @@ async function loadLatestObserverTurn(sessionId: string): Promise<LiveCall[]> {
       }
 
       const detail = await response.json() as Record<string, unknown>
+      const call = normalizeCallDetail(detail)
+      if (!call) {
+        return null
+      }
+
       return {
         startedAt: summaryCall.startedAt,
-        call: normalizeCallDetail(detail),
+        call: {
+          ...call,
+          startedAt: call.startedAt ?? summaryCall.startedAt,
+          finishedAt: call.finishedAt ?? summaryCall.finishedAt,
+        },
       }
     }),
   )
 
-  return detailResults
-    .filter((item): item is { startedAt: number; call: LiveCall } => item !== null && item.call !== null)
+  const calls: Array<{ startedAt: number; call: LiveCall }> = []
+  for (const item of detailResults) {
+    if (item !== null) {
+      calls.push(item)
+    }
+  }
+
+  return calls
     .sort((a, b) => a.startedAt - b.startedAt)
     .map((item) => item.call)
 }
@@ -318,6 +337,8 @@ export function ChatArea({ sessionId, agentModules, onFirstMessage }: Props) {
                       tools: event.payload.tools,
                       messages: event.payload.messages,
                       metadata: event.payload.metadata ?? null,
+                      startedAt: Date.now(),
+                      finishedAt: null,
                       finished: false,
                     },
                   ],
@@ -339,6 +360,7 @@ export function ChatArea({ sessionId, agentModules, onFirstMessage }: Props) {
                             ...(event.payload.metadata ?? {}),
                           },
                           error: event.payload.error,
+                          finishedAt: Date.now(),
                           finished: true,
                         }
                       : c,

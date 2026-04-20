@@ -2,11 +2,13 @@
 
 import React, { useState } from 'react'
 import type { LiveCall } from './observer-types'
+import { formatDurationLabel } from '../../lib/format-duration'
 import { formatJson, formatMetric, getMetadata, getRelationshipVector, readString } from './observer-utils'
 import { CALL_ACCENTS, CodeBlock, CollapsibleSection, DetailList, Pill } from './observer-ui'
 
 export function RelationshipCallCardMultiDim({ call }: { call: LiveCall }) {
   const metadata = getMetadata(call)
+  const duration = formatDurationLabel(call.startedAt, call.finishedAt)
   const before = getRelationshipVector(metadata?.before)
   const after = getRelationshipVector(metadata?.after)
   const delta = getRelationshipVector(metadata?.delta)
@@ -42,6 +44,7 @@ export function RelationshipCallCardMultiDim({ call }: { call: LiveCall }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <strong style={{ color: 'var(--fg)', fontSize: 14 }}>relationship.delta</strong>
           <Pill label="model" value={call.model} />
+          {duration ? <Pill label="duration" value={duration} /> : null}
           <Pill
             label="stop"
             value={call.stopReason ?? (call.finished ? 'end_turn' : 'pending')}

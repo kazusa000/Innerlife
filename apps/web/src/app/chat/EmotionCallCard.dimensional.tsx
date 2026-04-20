@@ -2,11 +2,13 @@
 
 import React, { useState } from 'react'
 import type { LiveCall } from './observer-types'
+import { formatDurationLabel } from '../../lib/format-duration'
 import { formatJson, formatMetric, getMetadata, getEmotionVector, readString } from './observer-utils'
 import { CALL_ACCENTS, CodeBlock, CollapsibleSection, DetailList, Pill } from './observer-ui'
 
 export function EmotionCallCardDimensional({ call }: { call: LiveCall }) {
   const metadata = getMetadata(call)
+  const duration = formatDurationLabel(call.startedAt, call.finishedAt)
   const before = getEmotionVector(metadata?.before)
   const after = getEmotionVector(metadata?.after)
   const delta = getEmotionVector(metadata?.delta)
@@ -42,6 +44,7 @@ export function EmotionCallCardDimensional({ call }: { call: LiveCall }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <strong style={{ color: 'var(--fg)', fontSize: 14 }}>emotion.delta</strong>
           <Pill label="model" value={call.model} />
+          {duration ? <Pill label="duration" value={duration} /> : null}
           <Pill label="stop" value={call.stopReason ?? (call.finished ? 'end_turn' : 'pending')} accent={CALL_ACCENTS.emotion.color} />
         </div>
         <span style={{ color: 'var(--fg-subtle)', fontSize: 12, flexShrink: 0 }}>{open ? '收起' : '展开'}</span>

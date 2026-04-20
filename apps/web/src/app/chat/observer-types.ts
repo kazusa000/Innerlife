@@ -15,6 +15,8 @@ export interface LiveCall {
   stopReason?: string | null
   usage?: { inputTokens: number; outputTokens: number } | null
   error?: string | null
+  startedAt?: number | null
+  finishedAt?: number | null
   finished: boolean
 }
 

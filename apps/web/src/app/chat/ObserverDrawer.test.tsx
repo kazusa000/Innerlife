@@ -24,7 +24,7 @@ function renderDrawer({
   )
 }
 
-const baseTurnCall: LiveCall = {
+const baseTurnCall = {
   callId: 'turn-1',
   turnIndex: 1,
   kind: 'turn',
@@ -43,8 +43,10 @@ const baseTurnCall: LiveCall = {
   response: [{ type: 'text', text: 'ok' }],
   stopReason: 'end_turn',
   usage: { inputTokens: 10, outputTokens: 5 },
+  startedAt: 1000,
+  finishedAt: 2200,
   finished: true,
-}
+} as LiveCall
 
 test('main tab renders turn cards with fragment anchors and inline compaction only', () => {
   const turn: ObserverTurnState = {
@@ -107,6 +109,7 @@ test('main tab renders turn cards with fragment anchors and inline compaction on
   assert.equal(html.includes('Messages'), true)
   assert.equal(html.includes('Tools'), true)
   assert.equal(html.includes('Final prompt'), true)
+  assert.equal(html.includes('1.2s'), true)
 })
 
 test('memory tab renders sqlite retrieve and summarize details', () => {
@@ -141,6 +144,8 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
         response: [{ type: 'text', text: '{}' }],
         stopReason: 'end_turn',
         usage: { inputTokens: 1, outputTokens: 1 },
+        startedAt: 1000,
+        finishedAt: 2200,
         finished: true,
       },
     ],
@@ -159,6 +164,7 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
   assert.equal(html.includes('原 prompt'), true)
   assert.equal(html.includes('retrieve'), true)
   assert.equal(html.includes('cat memory'), true)
+  assert.equal(html.includes('1.2s'), true)
 })
 
 test('emotion tab renders dimensional delta details and empty tabs remain visible', () => {

@@ -15,6 +15,8 @@ export async function GET(
     const latestEmotionState = emotionStateRepo.getLatestEmotionStateBySession(call.sessionId)
     return Response.json({
       ...call,
+      startedAt: call.startedAt.getTime(),
+      finishedAt: call.finishedAt ? call.finishedAt.getTime() : null,
       kind: call.kind ?? 'turn',
       tools: JSON.parse(call.toolsJson),
       messages: JSON.parse(call.messagesJson),

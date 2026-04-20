@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { formatDurationLabel } from '../../lib/format-duration'
 import { CompactionView, EmotionView, MemoryView, MessagesView, ResponseView } from '@/lib/call-renderers'
 
 interface CallDetail {
@@ -69,11 +70,12 @@ export function DetailPane({ callId }: Props) {
     ...(detail.kind === 'emotion' || detail.latestEmotionState ? ['emotion' as const] : []),
     ...(detail.kind === 'memory' ? ['memory' as const] : []),
   ]
+  const duration = formatDurationLabel(detail.startedAt, detail.finishedAt)
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       <div style={{ padding: '8px 14px', borderBottom: '1px solid #222', fontSize: 12, color: '#888' }}>
-        {detail.kind} · {detail.model} · in {detail.inputTokens ?? '?'} / out {detail.outputTokens ?? '?'} tokens · {detail.stopReason ?? 'pending'}
+        {detail.kind} · {detail.model} · in {detail.inputTokens ?? '?'} / out {detail.outputTokens ?? '?'} tokens · {detail.stopReason ?? 'pending'}{duration ? ` · ${duration}` : ''}
       </div>
       <div
         style={{

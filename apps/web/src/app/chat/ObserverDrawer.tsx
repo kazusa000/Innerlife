@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { formatDurationLabel } from '../../lib/format-duration'
 import { EmotionCallCardDimensional } from './EmotionCallCard.dimensional'
 import { MemoryCallCardSqlite } from './MemoryCallCard.sqlite'
 import { RelationshipCallCardMultiDim } from './RelationshipCallCard.multi-dim'
@@ -134,6 +135,7 @@ function MainTurnCallCard({
 }) {
   const toolsCount = Array.isArray(call.tools) ? call.tools.length : 0
   const fragmentsCount = getPromptFragments(call).length
+  const duration = formatDurationLabel(call.startedAt, call.finishedAt)
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
   const fragmentSections = [
@@ -222,6 +224,7 @@ function MainTurnCallCard({
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Pill label="model" value={call.model} />
+          {duration ? <Pill label="duration" value={duration} /> : null}
           <Pill label="tools" value={String(toolsCount)} />
           <Pill label="fragments" value={String(fragmentsCount)} />
           <Pill label="stop" value={call.stopReason ?? (call.finished ? 'end_turn' : 'pending')} accent={CALL_ACCENTS.turn.color} />
