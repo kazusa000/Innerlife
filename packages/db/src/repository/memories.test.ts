@@ -145,6 +145,58 @@ test('findRelevantMemories matches bilingual tags from both Chinese and English 
   }
 })
 
+test('findRelevantMemories supports pure time-range retrieval when semantic terms are empty', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const insideRange = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: 'User asked what I was doing a moment ago.',
+      summary: '我在修 consolidate 按钮反馈问题',
+      tags: ['修bug', 'consolidate'],
+      importance: 0.4,
+      createdAt: new Date('2026-04-20T13:58:00.000Z'),
+    })
+    addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: 'Older unrelated memory.',
+      summary: '我上午在看 observer',
+      tags: ['observer'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-20T10:00:00.000Z'),
+    })
+    addMemory({
+      agentId: 'agent-2',
+      sessionId: 'session-3',
+      content: 'Other agent memory in range.',
+      summary: '另一个 agent 也在修 bug',
+      tags: ['修bug'],
+      importance: 1,
+      createdAt: new Date('2026-04-20T13:59:00.000Z'),
+    })
+
+    const results = findRelevantMemories({
+      agentId: 'agent-1',
+      terms: [],
+      topK: 5,
+      timeRange: {
+        start: new Date('2026-04-20T13:55:00.000Z'),
+        end: new Date('2026-04-20T14:00:00.000Z'),
+      },
+    })
+
+    assert.deepEqual(results.map((memory) => memory.id), [insideRange.id])
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('applyConsolidationPlan keeps, rewrites, and merges memories in one transaction', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
   const dbPath = join(dir, 'test.db')

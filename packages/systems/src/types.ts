@@ -56,6 +56,16 @@ export interface MemoryWriteResult {
   importance: number
 }
 
+export interface MemoryTimeRange {
+  start: Date
+  end: Date
+}
+
+export interface MemoryQueryResult {
+  keywords: string[]
+  timeRange: MemoryTimeRange | null
+}
+
 export interface PendingMemoryWrite {
   kind: 'sqlite'
   system: string
@@ -73,8 +83,8 @@ export interface PendingMemoryQuery {
   prompt: string
   inputText: string
   fallback: string[]
-  parse(responseText: string): string[]
-  retrieve(keywords: string[]): Promise<MemoryRecord[]> | MemoryRecord[]
+  parse(responseText: string): MemoryQueryResult
+  retrieve(query: MemoryQueryResult): Promise<MemoryRecord[]> | MemoryRecord[]
 }
 
 export interface EmotionStateVector {

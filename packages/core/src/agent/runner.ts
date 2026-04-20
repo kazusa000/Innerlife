@@ -615,7 +615,14 @@ async function runPendingMemoryQuery(
   let queryError: Error | undefined
   let retrieveError: Error | undefined
   let source: 'llm' | 'fallback' = 'llm'
-  let keywords = [...pending.fallback]
+  let query = {
+    keywords: [...pending.fallback],
+    timeRange: null as PendingMemoryQuery['parse'] extends (responseText: string) => infer T
+      ? T extends { timeRange: infer R }
+        ? R
+        : null
+      : null,
+  }
   let memories: NonNullable<TurnContext['state']['memories']> | undefined
 
   try {
@@ -625,23 +632,33 @@ async function runPendingMemoryQuery(
       messages,
       signal,
     })
-    keywords = [...pending.parse(extractContentText(response.content))]
+    query = pending.parse(extractContentText(response.content))
   } catch (err) {
     queryError = err instanceof Error ? err : new Error(String(err))
     source = 'fallback'
-    keywords = [...pending.fallback]
+    query = {
+      keywords: [...pending.fallback],
+      timeRange: null,
+    }
   }
 
-  ctx.state.memoryRetrievalKeywords = keywords
+  ctx.state.memoryRetrievalKeywords = query.keywords
+  ctx.state.memoryRetrievalTimeRange = query.timeRange
 
   try {
-    memories = await pending.retrieve(keywords)
+    memories = await pending.retrieve(query)
     ctx.state.memories = memories
-    const hits = memories.map((memory) => serializeMemoryHit(memory, keywords))
+    const hits = memories.map((memory) => serializeMemoryHit(memory, query.keywords))
     ctx.turnMetadata.memory = {
       hitCount: memories.length,
-      keywords: [...keywords],
+      keywords: [...query.keywords],
       fallbackKeywords: [...pending.fallback],
+      timeRange: query.timeRange
+        ? {
+            start: query.timeRange.start.toISOString(),
+            end: query.timeRange.end.toISOString(),
+          }
+        : null,
       memoryIds: memories.map((memory) => memory.id),
       hits,
     }
@@ -657,11 +674,17 @@ async function runPendingMemoryQuery(
     phase: 'retrieve',
     source,
     fallbackKeywords: [...pending.fallback],
-    keywords: [...keywords],
+    keywords: [...query.keywords],
+    timeRange: query.timeRange
+      ? {
+          start: query.timeRange.start.toISOString(),
+          end: query.timeRange.end.toISOString(),
+        }
+      : null,
   }
 
   if (memories) {
-    const hits = memories.map((memory) => serializeMemoryHit(memory, keywords))
+    const hits = memories.map((memory) => serializeMemoryHit(memory, query.keywords))
     metadata.hitCount = memories.length
     metadata.memoryIds = memories.map((memory) => memory.id)
     metadata.hits = hits

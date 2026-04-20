@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, lte, or, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { getDb, getRawSqlite } from '../client'
 import { memories } from '../schema'
@@ -176,6 +176,10 @@ export function findRelevantMemories(input: {
   agentId: string
   terms: string[]
   topK: number
+  timeRange?: {
+    start: Date
+    end: Date
+  } | null
 }) {
   const normalizedTerms = [...new Set(
     input.terms
@@ -183,20 +187,31 @@ export function findRelevantMemories(input: {
       .map(term => term.trim().toLowerCase())
       .filter(Boolean),
   )]
+  const timeRange = input.timeRange ?? null
 
-  if (normalizedTerms.length === 0) {
+  if (normalizedTerms.length === 0 && !timeRange) {
     return []
   }
 
-  const filters = normalizedTerms.map((term) =>
-    sql`lower(${memories.tags}) like ${`%${term}%`}`,
-  )
   const db = getDb()
+  const conditions = [eq(memories.agentId, input.agentId)]
+
+  if (normalizedTerms.length > 0) {
+    const filters = normalizedTerms.map((term) =>
+      sql`lower(${memories.tags}) like ${`%${term}%`}`,
+    )
+    conditions.push(or(...filters)!)
+  }
+
+  if (timeRange) {
+    conditions.push(gte(memories.createdAt, timeRange.start))
+    conditions.push(lte(memories.createdAt, timeRange.end))
+  }
 
   return db
     .select()
     .from(memories)
-    .where(and(eq(memories.agentId, input.agentId), or(...filters)!))
+    .where(and(...conditions))
     .orderBy(desc(memories.importance), desc(memories.createdAt))
     .limit(input.topK)
     .all()

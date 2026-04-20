@@ -2,6 +2,7 @@ import { memoryRepo } from '@mas/db'
 import type {
   AgentSystem,
   MemoryRecord,
+  MemoryQueryResult,
   PendingMemoryQuery,
   MemoryWriteResult,
   PendingMemoryWrite,
@@ -100,11 +101,10 @@ export type MemoryConsolidationAction =
   | MemoryConsolidationRewriteAction
   | MemoryConsolidationMergeAction
 
-const BILINGUAL_TAG_GUIDANCE = [
-  'tags must include at least 6 short reusable keywords.',
-  'Every tag list MUST contain both Chinese and English equivalents for each important concept (strictly bilingual).',
-  'Do not output tags in only one language.',
-  'Example tags: ["名字", "name", "称呼", "introduction", "宠物", "pet"].',
+const TAG_GUIDANCE = [
+  'tags must include at least 4 short reusable keywords when possible.',
+  'Use the main language of the conversation turn for tags.',
+  'Do not force bilingual tags.',
 ].join('\n')
 
 function readConfig(config: unknown): MemoryModuleConfig {
@@ -151,20 +151,25 @@ function buildSummaryPrompt(): string {
     'Return strict JSON with exactly these keys:',
     '{"summary": string, "tags": string[], "importance": number}',
     'importance must be a number between 0 and 1.',
-    BILINGUAL_TAG_GUIDANCE,
+    TAG_GUIDANCE,
     'Do not add markdown or code fences.',
   ].join('\n')
 }
 
 function buildRetrievePrompt(): string {
   return [
-    'You expand retrieval keywords for searching persona memories by tag.',
-    'The user input will be provided as the only user message.',
+    'You prepare a memory retrieval query for sqlite-based agent memories.',
+    'You will receive the current local datetime of the computer and the user\'s latest message.',
     'Return strict JSON with exactly this shape:',
-    '{"keywords": string[]}',
-    'List 4-8 short reusable retrieval keywords when possible.',
-    'Include Chinese and English synonyms when relevant.',
-    'Do not just copy the surface words. Expand to paraphrases, related topics, and likely tag variants.',
+    '{"keywords": string[], "time_range": {"start": string, "end": string} | null}',
+    'keywords are for semantic topics, entities, events, tasks, or objects only.',
+    'keywords may be empty.',
+    'Use the same language as the user\'s message.',
+    'Do not include time expressions in keywords.',
+    'If the user expresses time-related intent, translate it into an absolute time_range based on the provided current local datetime.',
+    'If the user expresses no time-related intent, return "time_range": null.',
+    'If the time intent is too ambiguous to resolve safely, return "time_range": null.',
+    '"start" and "end" must be ISO 8601 datetime strings.',
     'Do not add markdown or code fences.',
   ].join('\n')
 }
@@ -205,6 +210,33 @@ function extractResponseText(ctx: TurnContext): string {
 
 function truncate(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}...`
+}
+
+function formatOffset(minutesEastOfUtc: number): string {
+  const sign = minutesEastOfUtc >= 0 ? '+' : '-'
+  const absoluteMinutes = Math.abs(minutesEastOfUtc)
+  const hours = String(Math.floor(absoluteMinutes / 60)).padStart(2, '0')
+  const minutes = String(absoluteMinutes % 60).padStart(2, '0')
+  return `${sign}${hours}:${minutes}`
+}
+
+function formatLocalIsoDateTime(date: Date): string {
+  const localMinutes = date.getTimezoneOffset() * -1
+  const localDate = new Date(date.getTime() + date.getTimezoneOffset() * 60_000 * -1)
+  const year = localDate.getUTCFullYear()
+  const month = String(localDate.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(localDate.getUTCDate()).padStart(2, '0')
+  const hours = String(localDate.getUTCHours()).padStart(2, '0')
+  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
+  const seconds = String(localDate.getUTCSeconds()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${formatOffset(localMinutes)}`
+}
+
+function buildRetrieveInputText(userText: string, now = new Date()): string {
+  return [
+    `Current local datetime: ${formatLocalIsoDateTime(now)}`,
+    `User message: ${userText}`,
+  ].join('\n')
 }
 
 function buildSourceText(ctx: TurnContext): string {
@@ -315,7 +347,31 @@ function parseMemoryWriteResponse(responseText: string): MemoryWriteResult {
   }
 }
 
-function parseMemoryQueryResponse(responseText: string): string[] {
+function parseTimeRange(value: unknown): MemoryQueryResult['timeRange'] {
+  if (value == null) {
+    return null
+  }
+
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Memory query call returned an invalid time_range')
+  }
+
+  const record = value as Record<string, unknown>
+  const start = typeof record.start === 'string' ? new Date(record.start) : null
+  const end = typeof record.end === 'string' ? new Date(record.end) : null
+
+  if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new Error('Memory query call returned an invalid time_range')
+  }
+
+  if (start.getTime() > end.getTime()) {
+    throw new Error('Memory query call returned an inverted time_range')
+  }
+
+  return { start, end }
+}
+
+function parseMemoryQueryResponse(responseText: string): MemoryQueryResult {
   let parsed: unknown
 
   try {
@@ -337,12 +393,16 @@ function parseMemoryQueryResponse(responseText: string): string[] {
           .filter(Boolean),
       )]
     : []
+  const timeRange = parseTimeRange(record.time_range)
 
-  if (keywords.length === 0) {
-    throw new Error('Memory query call returned no keywords')
+  if (keywords.length === 0 && !timeRange) {
+    throw new Error('Memory query call returned neither keywords nor time_range')
   }
 
-  return keywords
+  return {
+    keywords,
+    timeRange,
+  }
 }
 
 
@@ -359,7 +419,7 @@ export function buildMemoryConsolidationPrompt(): string {
     'A memory id may appear at most once across all actions.',
     'sourceIds must contain at least 2 ids when merging.',
     'importance must be a number between 0 and 1.',
-    BILINGUAL_TAG_GUIDANCE,
+    TAG_GUIDANCE,
     'Do not add markdown or code fences.',
   ].join('\n')
 }
@@ -471,13 +531,14 @@ export class MemorySqliteSystem implements AgentSystem {
       kind: 'sqlite',
       system: this.name,
       prompt: buildRetrievePrompt(),
-      inputText: ctx.input.text,
+      inputText: buildRetrieveInputText(ctx.input.text),
       fallback,
       parse: parseMemoryQueryResponse,
-      retrieve: async (keywords) => memoryRepo.findRelevantMemories({
+      retrieve: async (query) => memoryRepo.findRelevantMemories({
         agentId: ctx.agentId,
-        terms: keywords,
+        terms: query.keywords,
         topK: this.retrieveTopK,
+        timeRange: query.timeRange,
       }),
     }
 

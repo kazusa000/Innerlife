@@ -117,7 +117,10 @@ test('memory sqlite system prepares a pending retrieval query in beforeTurn and 
     assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /JSON/i)
     assert.deepEqual(ctx.state.memories, undefined)
 
-    const retrieved = await ctx.pendingMemoryQuery?.retrieve(['猫'])
+    const retrieved = await ctx.pendingMemoryQuery?.retrieve({
+      keywords: ['猫'],
+      timeRange: null,
+    })
     ctx.state.memories = retrieved ?? []
     ctx.state.memoryRetrievalKeywords = ['猫']
     await system.beforeLLM?.(ctx)
@@ -149,7 +152,8 @@ test('memory sqlite system prepares a pending write after turn', async () => {
   assert.equal(ctx.pendingMemoryWrite?.kind, 'sqlite')
   assert.equal(ctx.pendingMemoryWrite?.model, 'memory-model')
   assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /strict JSON/i)
-  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /MUST contain both Chinese and English/i)
+  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /Use the main language of the conversation turn/i)
+  assert.doesNotMatch(ctx.pendingMemoryWrite?.prompt ?? '', /Chinese and English/i)
   assert.equal(typeof ctx.pendingMemoryWrite?.persist, 'function')
 })
 
@@ -220,18 +224,50 @@ test('memory sqlite retrieval hits mixed bilingual tags for both Chinese and Eng
     const chineseCtx = createContext('我叫什么名字')
     await system.beforeTurn?.(chineseCtx)
     const chineseHits = await chineseCtx.pendingMemoryQuery?.retrieve(
-      chineseCtx.pendingMemoryQuery?.fallback ?? [],
+      {
+        keywords: chineseCtx.pendingMemoryQuery?.fallback ?? [],
+        timeRange: null,
+      },
     )
     assert.deepEqual(chineseHits?.map((item) => item.id), [memory.id])
 
     const englishCtx = createContext(`what's my name`)
     await system.beforeTurn?.(englishCtx)
     const englishHits = await englishCtx.pendingMemoryQuery?.retrieve(
-      englishCtx.pendingMemoryQuery?.fallback ?? [],
+      {
+        keywords: englishCtx.pendingMemoryQuery?.fallback ?? [],
+        timeRange: null,
+      },
     )
     assert.deepEqual(englishHits?.map((item) => item.id), [memory.id])
   } finally {
     resetDb()
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('memory sqlite query parse returns optional time range for natural-language time intent', async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    minTermLength: 2,
+  })
+  const ctx = createContext('你刚刚在干嘛')
+
+  await system.beforeTurn?.(ctx)
+
+  const parsed = ctx.pendingMemoryQuery?.parse(JSON.stringify({
+    keywords: [],
+    time_range: {
+      start: '2026-04-20T13:55:00+02:00',
+      end: '2026-04-20T14:00:00+02:00',
+    },
+  }))
+
+  assert.deepEqual(parsed, {
+    keywords: [],
+    timeRange: {
+      start: new Date('2026-04-20T13:55:00+02:00'),
+      end: new Date('2026-04-20T14:00:00+02:00'),
+    },
+  })
 })
