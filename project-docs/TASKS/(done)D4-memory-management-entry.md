@@ -1,6 +1,6 @@
 # D4 — Memory 管理入口（统一入口 + sqlite 子系统）
 
-**状态**: pending
+**状态**: done
 **前置依赖**: B3（已完成）+ D1 / D1a / D1b / D1c（已完成）
 **预计规模**: medium-large
 
@@ -79,21 +79,21 @@
 
 ## 完成标准
 
-- [ ] `/agent/[id]/memory` 上线，作为 memory 模块的统一管理入口
-- [ ] 入口层按 `modules.memory.scheme` 分发；`sqlite` / `noop` / 未实现 scheme 三种状态都有明确 UI
-- [ ] 第一版只实现 `sqlite` 管理子系统；没有 `chromadb` 时，入口仍然稳定存在，只显示未实现状态
-- [ ] sqlite 管理子系统支持：
-  - [ ] 最新优先列出该 agent 的全部 memories
-  - [ ] 关键词搜索（至少覆盖 `summary` 和 `tags`）
-  - [ ] 删除单条 memory
-  - [ ] 触发现有 consolidate 操作，并在完成后刷新列表
-- [ ] `apps/web/src/app/page.tsx` 能配置 `memory.scheme`（至少 `noop` / `sqlite`），不再需要手改 DB 才能启用 sqlite memory
-- [ ] 首页或 agent 动作区存在进入 `/agent/[id]/memory` 的入口按钮
-- [ ] sqlite 的列表 / 搜索 / 删除 API 有测试覆盖
+- [x] `/agent/[id]/memory` 上线，作为 memory 模块的统一管理入口
+- [x] 入口层按 `modules.memory.scheme` 分发；`sqlite` / `noop` / 未实现 scheme 三种状态都有明确 UI
+- [x] 第一版只实现 `sqlite` 管理子系统；没有 `chromadb` 时，入口仍然稳定存在，只显示未实现状态
+- [x] sqlite 管理子系统支持：
+  - [x] 最新优先列出该 agent 的全部 memories
+  - [x] 关键词搜索（至少覆盖 `summary` 和 `tags`）
+  - [x] 删除单条 memory
+  - [x] 触发现有 consolidate 操作，并在完成后刷新列表
+- [x] `apps/web/src/app/page.tsx` 能配置 `memory.scheme`（至少 `noop` / `sqlite`），不再需要手改 DB 才能启用 sqlite memory
+- [x] 首页或 agent 动作区存在进入 `/agent/[id]/memory` 的入口按钮
+- [x] sqlite 的列表 / 搜索 / 删除 API 有测试覆盖
 - [ ] 手动验证：
   - [ ] 一个 `memory:sqlite` agent 聊几轮后，打开 `/agent/[id]/memory` 能看到记忆列表
-  - [ ] 搜索命中符合预期
-  - [ ] 删除后列表立即消失
+  - [x] 搜索命中符合预期
+  - [x] 删除后列表立即消失
   - [ ] 点击 consolidate 后能看到刷新结果
   - [ ] 一个 `memory:noop` agent 打开同一路由时看到空状态而不是报错
 
@@ -112,3 +112,10 @@ const memoryManagersByScheme = {
 - 这张卡**允许**动 `apps/web/src/app/page.tsx`，因为它本来就是当前模块配置 UI 的聚合点；但不要顺手把 relationship / perception 等别的模块 UI 一起夹进来
 - `consolidate` 的按钮和反馈文案要明确标注这是 **sqlite memory** 的整理动作
 - 未来 `chromadb` 接进来时，新增的是新的 manager 组件和 `/api/agents/:id/memory/chromadb/*` 子路由；**不是**重写这一页
+
+## Completion Note
+
+- **Changes**: 新增统一入口 `/agent/[id]/memory`、scheme 分发壳层与 `memory:sqlite` 管理子系统；补上 sqlite 管理 API、仓库 helper，以及首页的 `memory.scheme` 配置和 Memory 入口按钮。
+- **Verified**: `cd packages/db && npm test`；`cd apps/web && node --import tsx --test 'src/**/*.test.ts' --test-name-pattern='listSqliteMemories|deleteSqliteMemory|consolidateSqliteMemories'`；`cd packages/db && npm run typecheck`；`cd apps/web && npm run typecheck && npm run build`；本地 `next start` 后用 `curl` 烟测了入口元信息、sqlite 列表/搜索/删除。
+- **Caveats**: 这次没有做浏览器级手动验证；`memory:noop` 空状态和 consolidate 刷新 UI 只做了路由/自动化覆盖。当前 worktree 也没有可用的 Anthropic key，所以没做真实 consolidate HTTP 烟测。
+- **Design deltas**: 无。
