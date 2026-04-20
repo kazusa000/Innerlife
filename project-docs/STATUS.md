@@ -3,13 +3,13 @@
 > 这个文件用大白话记录系统**目前能做什么**。由 Coordinator 在 TASK 归档到 `TASKS/done/` 之后统一更新。
 > 不写未来计划（路线图见 `DESIGN.md §11`）。
 
-最后更新：2026-04-20（C3 Relationship multi-dim + D4 Memory 管理入口）
+最后更新：2026-04-20（B10 Observer relationship visibility）
 
 ---
 
 ## 一句话总结
 
-一个能在网页上聊天的 AI agent，支持**创建多个虚拟人**（各有独立名称、描述、模型），会执行 shell 命令，对话自动存档。
+一个能在网页上聊天的 AI agent，支持**创建多个虚拟人**（各有独立名称、描述、模型），当前默认可抓取网页内容，对话自动存档。
 
 ---
 
@@ -20,22 +20,22 @@
 - 聊天页侧边栏显示当前虚拟人名称 + 返回按钮
 - 打开网页就能和 AI 对话
 - AI 能流式回复（边生成边显示，不用等完）
-- AI 可以执行 shell 命令来帮你（比如查看文件、跑程序），命令和结果会显示在对话里
+- AI 当前默认可用 `web_fetch` 抓取网页内容，结果会显示在对话里
 - 关掉浏览器再回来，历史对话还在
 - **左侧边栏管理多个会话**：新建、切换、删除，切换时会自动加载该会话的历史消息
 - 默认会自动创建一个虚拟人，无会话时自动建一个
-- **回复可随时中断**：流式回复途中点"停止"按钮立即取消这一轮，正在跑的 bash / fetch / LLM stream 全链路终止；已流出来的文本保留并尾部标记 `—（中断）`
-- **除 bash 外新增三件套工具**：`file_read`（读文件，超 100KB 自动裁剪）、`file_write`（create / overwrite / append 三种模式，自动建父目录）、`web_fetch`（30s 超时、HTML 去噪转纯文本）
+- **回复可随时中断**：流式回复途中点"停止"按钮立即取消这一轮，正在跑的 `web_fetch` / LLM stream 会被一起终止；已流出来的文本保留并尾部标记 `—（中断）`
+- **当前默认只启用 `web_fetch` 工具**：30s 超时、HTML 去噪转纯文本；`bash` / `file_read` / `file_write` 实现仍在仓库里，但不再默认注册到 chat route
 - **创建/编辑虚拟人表单的"模块配置"分区已上线**：当前包含 **性格 / 价值观 / 记忆** 三块；提交时写入 `agents.modules.{personality,values,memory}` JSON
-- **开启 `OBSERVER_ENABLED=1` 后可观测 AI 每轮内部**：聊天页观测抽屉现在是 3 个 tab（**主对话 / 记忆 / 情绪**）。主对话 tab 按当前 turn 聚合主对话 llm call，并支持在同一轮多个 call 之间切换；展开后可按锚点查看性格 / 价值观 / 情绪 / 记忆 fragments、messages 时间线（含 compaction 内联）、tools schema 和 final system prompt。记忆 / 情绪 tab 会按当前 agent 的 scheme 渲染系统内部 call：当前已支持 `memory:sqlite` 的 `retrieve` / `summarize` / `consolidate` 与 `emotion:dimensional` 的 `delta`；本轮没触发时 tab 保留但显示空状态。独立 `/observer` 页事后回放 + 清空保留不动
+- **开启 `OBSERVER_ENABLED=1` 后可观测 AI 每轮内部**：聊天页观测抽屉现在是 4 个 tab（**主对话 / 记忆 / 情绪 / 关系**）。主对话 tab 按当前 turn 聚合主对话 llm call，并支持在同一轮多个 call 之间切换；展开后可按锚点查看性格 / 价值观 / 情绪 / 记忆 / 关系 fragments、messages 时间线（含 compaction 内联）、tools schema 和 final system prompt。记忆 / 情绪 / 关系 tab 会按当前 agent 的 scheme 渲染系统内部 call：当前已支持 `memory:sqlite` 的 `retrieve` / `summarize` / `consolidate`、`emotion:dimensional` 的 `delta`、`relationship:multi-dim` 的 `delta`；本轮没触发时 tab 保留但显示空状态。独立 `/observer` 页事后回放也能识别 `relationship` call
 - **工具自动注册**：`packages/core/src/tools/*.ts` 里导出 `export const XxxTool: Tool = {...}`，启动前（`predev/prebuild/prestart`）扫描生成 `generated.ts`，`registry.getDefaultTools()` 统一供给 chat 路由；加新工具只需加文件，不再改注册数组
 - **模块化 AgentSystem 基座**：`@mas/systems` 包定义 `TurnContext` + `AgentSystem` 接口与四个生命周期钩子（`beforeTurn` / `beforeLLM` / `afterLLM` / `afterTurn`）；runner 按 `priority` 拼接各系统 prompt fragments；系统抛错只 yield `system_error`、不中断主流程
 - **性格系统（personality:big-five）**：5 维 Big Five 滑块 + 说话风格 + 背景故事；`beforeLLM` 以 `priority: 10` 注入 system prompt，关闭（`scheme: noop` 或字段缺失）行为等同 noop
 - **价值观系统（values:priority-list）**：表单可增删 + 上移/下移的字符串列表；`beforeLLM` 以 `priority: 50` 渲染成 "Values (in priority order)" 段落；空列表不注入
 - **上下文压缩（compaction:summary）**：消息数 > 40 或粗略 token 估算超阈值时，runner 调一次 LLM 把早期消息摘要成一条 `system` message，保留最近 20 条原文；DB 不删原消息。摘要 prompt 强制包含关键事实 / 用户偏好 / 未解决任务；连续多轮压缩会保留之前的 summary 作为下一轮输入。Observer 用 `kind: 'compaction'` 标记并展示 trigger / before / after 对比
 - **情绪系统（emotion:dimensional）**：mood / energy / stress 三轴；`beforeTurn` 加载该 (agent, session) 最新状态，`beforeLLM` 注入"当前情绪"段落（priority 20），`afterLLM` 让同一 LLM 分析本轮情绪变化产 delta，`afterTurn` 衰减回基线 + apply delta + append 一条 `emotion_states`。表单可开关 + 设 baseline；Observer 用 `kind: 'emotion'` 标记，详情页显示最新状态 + delta + trigger
-- **关系系统（relationship:multi-dim）**：trust / affinity / familiarity / respect 四轴；`beforeTurn` 读取该 agent 对默认用户的最新关系，没有就用 baseline；`beforeLLM` 注入关系 prompt fragment（priority 40）；`afterLLM` 走 pending-analysis；`afterTurn` 衰减回 baseline、clip 到 `0..1` 后写入 `relationships` 表并追加 history。当前只支持 `user ↔ agent`，还没有 `/agent/[id]/relationships` 管理页或图谱 UI
-- **记忆系统（memory:sqlite）**：`beforeTurn` 先让 LLM 把用户输入扩成 4-8 个中英双语关键词（失败回退到本地 tokenizer），再按 `agentId` 跨 session 关键词检索 → `beforeLLM` 渲染 "Relevant memories" 段落（priority 30）→ `afterTurn` 让 LLM 总结本轮成 `{summary, tags, importance}` 落 `memories` 表（summarize prompt 强制 tags 中英双语覆盖，支持跨语言召回）。手动触发 `POST /api/agents/:id/memory/sqlite/consolidate` 可让 LLM 整理该 agent 最多 100 条记忆（keep / rewrite / merge 三种 op，合并保留最早 `createdAt`，整个写回在一个事务里）。首页表单现在可直接配置 `memory.scheme = noop | sqlite`，每个 agent 也有固定 `/agent/[id]/memory` 入口；当前已实现 `memory:sqlite` 的列表 / 搜索 / 删除 / consolidate 管理页，并对 `noop` / 未实现 scheme 显示空状态或占位态。Observer 用 `kind: 'memory'` 标记，`metadata.phase` 区分 `retrieve` / `summarize` / `consolidate`
+- **关系系统（relationship:multi-dim）**：trust / affinity / familiarity / respect 四轴；`beforeTurn` 读取该 agent 对默认用户的最新关系，没有就用 baseline；`beforeLLM` 注入关系 prompt fragment（priority 40）；`afterLLM` 走 pending-analysis；`afterTurn` 衰减回 baseline、clip 到 `0..1` 后写入 `relationships` 表并追加 history。Observer 现在会把关系分析单独记成 `kind: 'relationship'`，metadata 含 `before / after / delta / trigger`，聊天抽屉和 `/observer` 回放都能看到。当前只支持 `user ↔ agent`，还没有 `/agent/[id]/relationships` 管理页或图谱 UI
+- **记忆系统（memory:sqlite）**：`beforeTurn` 让 LLM 产出检索用 `keywords + time_range`；如果 query 失败则直接跳过本轮记忆注入，不再回退本地 tokenizer。检索支持按 `createdAt` 走纯时间范围过滤；`beforeLLM` 渲染 "Relevant memories" 段落（priority 30）；`afterTurn` 让 LLM 总结本轮成 `{summary, tags, importance}` 落 `memories` 表，tags 使用当前对话语言，不再强制中英双语。手动触发 `POST /api/agents/:id/memory/sqlite/consolidate` 可让 LLM 整理该 agent 最多 100 条记忆（keep / rewrite / merge 三种 op，合并保留最早 `createdAt`，整个写回在一个事务里）。首页表单现在可直接配置 `memory.scheme = noop | sqlite`，每个 agent 也有固定 `/agent/[id]/memory` 入口；当前已实现 `memory:sqlite` 的列表 / 搜索 / 删除 / consolidate 管理页，并对 `noop` / 未实现 scheme 显示空状态或占位态。Observer 用 `kind: 'memory'` 标记，`metadata.phase` 区分 `retrieve` / `summarize` / `consolidate`，retrieve 会显示 `time range`
 
 ---
 
@@ -45,7 +45,7 @@
 agent 的"大脑"。负责和 LLM 对话、决定何时调用工具、把工具结果喂回 LLM、循环直到回答完成。
 
 - 支持流式输出
-- 支持调用 `bash` / `file_read` / `file_write` / `web_fetch` 四个工具（B4 起全部支持 `AbortSignal` 取消）
+- 当前默认只注册 `web_fetch` 工具（支持 `AbortSignal` 取消）
 - `runAgent` 贯穿 `AbortSignal`：每次 LLM 调用前 / stream 中 / 工具调用前都检查，取消时 yield 新的 `{type: 'aborted'}` 事件
 - 已对接 Anthropic 及其兼容 endpoint（默认 Claude Sonnet 4.6；通过 `ANTHROPIC_BASE_URL` 可切到 DeepSeek 等兼容服务），provider 也穿透 signal
 - 工具系统是开放的，将来加新工具不用改内核
