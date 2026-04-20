@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { getDb, getRawSqlite, resetDb } from '../client'
+import * as memoryRepo from './memories'
 import {
   addMemory,
   applyConsolidationPlan,
@@ -292,6 +293,97 @@ test('applyConsolidationPlan rolls back earlier writes when a later action is in
     assert.deepEqual(rows[0]?.tags, ['茶', 'tea'])
     assert.equal(rows[1]?.summary, '用户也喜欢咖啡')
     assert.deepEqual(rows[1]?.tags, ['咖啡', 'coffee'])
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('sqlite management query lists latest first and filters by summary or tags', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const latest = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-2',
+      content: 'User schedules deep work after midnight.',
+      summary: '用户习惯午夜后进入深度工作',
+      tags: ['night', 'midnight', 'coding'],
+      importance: 0.8,
+      createdAt: new Date('2026-04-18T01:00:00.000Z'),
+    })
+    const older = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: 'User asks to be called WJJ.',
+      summary: '用户偏好被叫作 WJJ',
+      tags: ['name', 'nickname'],
+      importance: 0.4,
+      createdAt: new Date('2026-04-17T09:00:00.000Z'),
+    })
+    addMemory({
+      agentId: 'agent-2',
+      sessionId: 'session-3',
+      content: 'Other agent works late too.',
+      summary: '另一个 agent 也会深夜工作',
+      tags: ['night'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-18T02:00:00.000Z'),
+    })
+
+    assert.equal(typeof memoryRepo.listSqliteMemoriesByAgent, 'function')
+
+    const listed = memoryRepo.listSqliteMemoriesByAgent?.('agent-1') ?? []
+    const summaryHits = memoryRepo.listSqliteMemoriesByAgent?.('agent-1', 'WJJ') ?? []
+    const tagHits = memoryRepo.listSqliteMemoriesByAgent?.('agent-1', 'midnight') ?? []
+
+    assert.deepEqual(listed.map((memory) => memory.id), [latest.id, older.id])
+    assert.deepEqual(summaryHits.map((memory) => memory.id), [older.id])
+    assert.deepEqual(tagHits.map((memory) => memory.id), [latest.id])
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('deleteSqliteMemory removes only memories owned by the given agent', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const ownMemory = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      content: 'User stores a local preference.',
+      summary: '用户偏好使用本地数据库',
+      tags: ['database', 'sqlite'],
+      importance: 0.7,
+      createdAt: new Date('2026-04-17T10:00:00.000Z'),
+    })
+    const foreignMemory = addMemory({
+      agentId: 'agent-2',
+      sessionId: 'session-3',
+      content: 'Another agent memory.',
+      summary: '另一个 agent 的记忆',
+      tags: ['foreign'],
+      importance: 0.5,
+      createdAt: new Date('2026-04-17T11:00:00.000Z'),
+    })
+
+    assert.equal(typeof memoryRepo.deleteSqliteMemoryByAgent, 'function')
+
+    const deleted = memoryRepo.deleteSqliteMemoryByAgent?.('agent-1', ownMemory.id)
+    const blocked = memoryRepo.deleteSqliteMemoryByAgent?.('agent-1', foreignMemory.id)
+
+    assert.equal(deleted, true)
+    assert.equal(blocked, false)
+    assert.equal(memoryRepo.getMemory(ownMemory.id), undefined)
+    assert.ok(memoryRepo.getMemory(foreignMemory.id))
   } finally {
     resetDb()
     rmSync(dir, { recursive: true, force: true })

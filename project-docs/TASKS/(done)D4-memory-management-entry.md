@@ -1,6 +1,6 @@
 # D4 — Memory 管理入口（统一入口 + sqlite 子系统）
 
-**状态**: pending
+**状态**: done
 **前置依赖**: B3（已完成）+ D1 / D1a / D1b / D1c（已完成）
 **预计规模**: medium-large
 
@@ -79,23 +79,23 @@
 
 ## 完成标准
 
-- [ ] `/agent/[id]/memory` 上线，作为 memory 模块的统一管理入口
-- [ ] 入口层按 `modules.memory.scheme` 分发；`sqlite` / `noop` / 未实现 scheme 三种状态都有明确 UI
-- [ ] 第一版只实现 `sqlite` 管理子系统；没有 `chromadb` 时，入口仍然稳定存在，只显示未实现状态
-- [ ] sqlite 管理子系统支持：
-  - [ ] 最新优先列出该 agent 的全部 memories
-  - [ ] 关键词搜索（至少覆盖 `summary` 和 `tags`）
-  - [ ] 删除单条 memory
-  - [ ] 触发现有 consolidate 操作，并在完成后刷新列表
-- [ ] `apps/web/src/app/page.tsx` 能配置 `memory.scheme`（至少 `noop` / `sqlite`），不再需要手改 DB 才能启用 sqlite memory
-- [ ] 首页或 agent 动作区存在进入 `/agent/[id]/memory` 的入口按钮
-- [ ] sqlite 的列表 / 搜索 / 删除 API 有测试覆盖
-- [ ] 手动验证：
-  - [ ] 一个 `memory:sqlite` agent 聊几轮后，打开 `/agent/[id]/memory` 能看到记忆列表
-  - [ ] 搜索命中符合预期
-  - [ ] 删除后列表立即消失
-  - [ ] 点击 consolidate 后能看到刷新结果
-  - [ ] 一个 `memory:noop` agent 打开同一路由时看到空状态而不是报错
+- [x] `/agent/[id]/memory` 上线，作为 memory 模块的统一管理入口
+- [x] 入口层按 `modules.memory.scheme` 分发；`sqlite` / `noop` / 未实现 scheme 三种状态都有明确 UI
+- [x] 第一版只实现 `sqlite` 管理子系统；没有 `chromadb` 时，入口仍然稳定存在，只显示未实现状态
+- [x] sqlite 管理子系统支持：
+  - [x] 最新优先列出该 agent 的全部 memories
+  - [x] 关键词搜索（至少覆盖 `summary` 和 `tags`）
+  - [x] 删除单条 memory
+  - [x] 触发现有 consolidate 操作，并在完成后刷新列表
+- [x] `apps/web/src/app/page.tsx` 能配置 `memory.scheme`（至少 `noop` / `sqlite`），不再需要手改 DB 才能启用 sqlite memory
+- [x] 首页或 agent 动作区存在进入 `/agent/[id]/memory` 的入口按钮
+- [x] sqlite 的列表 / 搜索 / 删除 API 有测试覆盖
+- [x] 手动验证：
+  - [x] 一个 `memory:sqlite` agent 聊几轮后，打开 `/agent/[id]/memory` 能看到记忆列表
+  - [x] 搜索命中符合预期
+  - [x] 删除后列表立即消失
+  - [x] 点击 consolidate 后能看到刷新结果
+  - [x] 一个 `memory:noop` agent 打开同一路由时看到空状态而不是报错
 
 ## 备注 / 注意事项
 
@@ -113,19 +113,9 @@ const memoryManagersByScheme = {
 - `consolidate` 的按钮和反馈文案要明确标注这是 **sqlite memory** 的整理动作
 - 未来 `chromadb` 接进来时，新增的是新的 manager 组件和 `/api/agents/:id/memory/chromadb/*` 子路由；**不是**重写这一页
 
-## 审核意见（2026-04-20, coordinator）
+## Completion Note
 
-- 结论：FAIL，任务退回 `(doing)`。
-- 代码层和自动化验证整体是有的，但这张卡把浏览器人工验证写进了完成标准，因此不能用 API / `curl` / typecheck 代替。
-- 当前缺失的关键证据是：
-- `memory:sqlite` agent 聊几轮后，打开 `/agent/[id]/memory` 能实际看到列表。
-- 点击 consolidate 后，页面能看到刷新后的结果。
-- `memory:noop` agent 打开同一路由时，页面显示空状态而不是报错。
-- 回来时请补完这些浏览器级验证，再把 Completion Note 里的 caveat 收敛掉；如果某条手测标准不再要求，需要先改 task 卡本身。
-
-## 审核意见（2026-04-20, coordinator, round 2）
-
-- 结论：FAIL，继续保持 `(doing)`。
-- 浏览器级验证这次已经补了，但分支里混入了不属于 D4 的文档改动：`project-docs/DESIGN.md` 被改回旧语义，同时还删除了 `project-docs/TASKS/(doing)C3-relationship-multi-dim.md`。
-- `(done)D4-memory-management-entry.md` 本身也没有清理旧的 FAIL 审核意见，文件状态和内容自相矛盾。
-- 回来时请把 D4 分支收敛到它自己的文件集合，恢复越界文档改动，并把 task 卡整理成单一、清晰的 `done` 状态后再提审。
+- **Changes**: 新增统一入口 `/agent/[id]/memory`、scheme 分发壳层与 `memory:sqlite` 管理子系统；补上 sqlite 管理 API、仓库 helper，以及首页的 `memory.scheme` 配置和 Memory 入口按钮。
+- **Verified**: `cd packages/db && npm test`；`cd apps/web && node --import tsx --test 'src/**/*.test.ts' --test-name-pattern='listSqliteMemories|deleteSqliteMemory|consolidateSqliteMemories'`；`cd packages/db && npm run typecheck`；`cd apps/web && npm run typecheck && npm run build`；本地起 `next start` + Anthropic mock 后，用 Playwright 完整走了 `memory:sqlite` 聊两轮 -> 打开 `/agent/[id]/memory` -> 点击 consolidate -> 验证刷新结果，以及 `memory:noop` 空状态页。
+- **Caveats**: 浏览器级验收使用的是本地 Anthropic 兼容 mock，而不是线上模型；本卡要求的页面行为已验证。
+- **Design deltas**: 无。
