@@ -1,118 +1,109 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  DEFAULT_BIG5,
-  DEFAULT_EMOTION_BASELINE,
-  DEFAULT_RELATIONSHIP_BASELINE,
   buildModules,
+  getEmotionFormState,
+  getMemoryFormState,
+  getPersonalityFormState,
   getRelationshipFormState,
-  stripManagedModules,
 } from './persona-modules'
 
-test('getRelationshipFormState reads multi-dim relationship config from modules', () => {
-  const state = getRelationshipFormState({
+test('scheme-only form helpers read current schemes from modules', () => {
+  const modules = {
+    personality: {
+      scheme: 'big-five',
+      big5: { openness: 0.9 },
+    },
+    emotion: {
+      scheme: 'dimensional',
+      baseline: { mood: 0.2 },
+    },
     relationship: {
       scheme: 'multi-dim',
-      baseline: {
-        trust: 0.7,
-        affinity: 0.6,
-        familiarity: 0.4,
-        respect: 0.8,
+      baseline: { trust: 0.7 },
+    },
+    memory: {
+      scheme: 'sqlite',
+      summarizeModel: 'memory-fast',
+    },
+  }
+
+  assert.deepEqual(getPersonalityFormState(modules, 'big-five'), { scheme: 'big-five' })
+  assert.deepEqual(getEmotionFormState(modules, 'noop'), { scheme: 'dimensional' })
+  assert.deepEqual(getRelationshipFormState(modules, 'noop'), { scheme: 'multi-dim' })
+  assert.deepEqual(getMemoryFormState(modules), { scheme: 'sqlite' })
+})
+
+test('buildModules preserves detailed module settings when scheme stays enabled', () => {
+  const result = buildModules(
+    {
+      personality: {
+        scheme: 'big-five',
+        big5: { openness: 0.88 },
+        speechStyle: '冷静',
       },
-      decayPerTurn: 0.15,
-      analysisModel: 'relationship-fast-model',
+      emotion: {
+        scheme: 'dimensional',
+        baseline: { mood: 0.2, energy: 0.6, stress: 0.1 },
+        analysisModel: 'emotion-fast',
+      },
+      relationship: {
+        scheme: 'multi-dim',
+        baseline: { trust: 0.7, affinity: 0.6, familiarity: 0.4, respect: 0.8 },
+        analysisModel: 'relationship-fast',
+      },
+      memory: {
+        scheme: 'sqlite',
+        summarizeModel: 'memory-fast',
+      },
     },
-  }, false)
+    { scheme: 'big-five' },
+    { scheme: 'dimensional' },
+    { scheme: 'multi-dim' },
+    { scheme: 'sqlite' },
+  )
 
-  assert.deepEqual(state, {
-    enabled: true,
-    baseline: {
-      trust: 0.7,
-      affinity: 0.6,
-      familiarity: 0.4,
-      respect: 0.8,
+  assert.deepEqual(result, {
+    personality: {
+      scheme: 'big-five',
+      big5: { openness: 0.88 },
+      speechStyle: '冷静',
     },
-    decayPerTurn: 0.15,
-    analysisModel: 'relationship-fast-model',
+    emotion: {
+      scheme: 'dimensional',
+      baseline: { mood: 0.2, energy: 0.6, stress: 0.1 },
+      analysisModel: 'emotion-fast',
+    },
+    relationship: {
+      scheme: 'multi-dim',
+      baseline: { trust: 0.7, affinity: 0.6, familiarity: 0.4, respect: 0.8 },
+      analysisModel: 'relationship-fast',
+    },
+    memory: {
+      scheme: 'sqlite',
+      summarizeModel: 'memory-fast',
+    },
   })
 })
 
-test('buildModules writes relationship multi-dim when enabled and noop when disabled', () => {
-  const enabledModules = buildModules(
-    {},
+test('buildModules removes values and writes noop markers when a scheme is disabled', () => {
+  const result = buildModules(
     {
-      enabled: true,
-      big5: { ...DEFAULT_BIG5 },
-      speechStyle: '',
-      background: '',
+      debug: { scheme: 'hello-world' },
+      values: { scheme: 'priority-list', priorities: ['A'] },
+      relationship: { scheme: 'multi-dim', baseline: { trust: 0.7 } },
     },
-    {
-      enabled: false,
-      baseline: { ...DEFAULT_EMOTION_BASELINE },
-      decayPerTurn: undefined,
-      analysisModel: null,
-    },
-    {
-      enabled: true,
-      baseline: { ...DEFAULT_RELATIONSHIP_BASELINE, trust: 0.65 },
-      decayPerTurn: 0.12,
-      analysisModel: 'relationship-fast-model',
-    },
-    {
-      scheme: 'noop',
-      summarizeModel: '',
-    },
-    [],
+    { scheme: 'noop' },
+    { scheme: 'noop' },
+    { scheme: 'noop' },
+    { scheme: 'noop' },
   )
 
-  assert.deepEqual(enabledModules.relationship, {
-    scheme: 'multi-dim',
-    baseline: {
-      trust: 0.65,
-      affinity: 0.4,
-      familiarity: 0.1,
-      respect: 0.5,
-    },
-    decayPerTurn: 0.12,
-    analysisModel: 'relationship-fast-model',
-  })
-
-  const disabledModules = buildModules(
-    {},
-    {
-      enabled: true,
-      big5: { ...DEFAULT_BIG5 },
-      speechStyle: '',
-      background: '',
-    },
-    {
-      enabled: false,
-      baseline: { ...DEFAULT_EMOTION_BASELINE },
-      decayPerTurn: undefined,
-      analysisModel: null,
-    },
-    {
-      enabled: false,
-      baseline: { ...DEFAULT_RELATIONSHIP_BASELINE },
-      decayPerTurn: undefined,
-      analysisModel: null,
-    },
-    {
-      scheme: 'noop',
-      summarizeModel: '',
-    },
-    [],
-  )
-
-  assert.deepEqual(disabledModules.relationship, { scheme: 'noop' })
-})
-
-test('stripManagedModules removes relationship from base modules', () => {
-  assert.deepEqual(stripManagedModules({
+  assert.deepEqual(result, {
     debug: { scheme: 'hello-world' },
-    relationship: { scheme: 'multi-dim' },
-    memory: { scheme: 'sqlite' },
-  }), {
-    debug: { scheme: 'hello-world' },
+    personality: { scheme: 'noop' },
+    emotion: { scheme: 'noop' },
+    relationship: { scheme: 'noop' },
+    memory: { scheme: 'noop' },
   })
 })

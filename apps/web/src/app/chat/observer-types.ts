@@ -27,7 +27,6 @@ export interface AgentModuleConfig {
 
 export interface AgentModules {
   personality?: AgentModuleConfig | null
-  values?: AgentModuleConfig | null
   memory?: AgentModuleConfig | null
   emotion?: AgentModuleConfig | null
   relationship?: AgentModuleConfig | null

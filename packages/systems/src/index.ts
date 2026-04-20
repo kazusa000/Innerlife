@@ -55,5 +55,4 @@ export {
   normalizeRelationshipConfig,
   normalizeRelationshipState,
 } from './relationship'
-export { ValuesPriorityListSystem } from './values'
 export { createSystems, systemRegistry } from './registry'

@@ -140,7 +140,6 @@ function MainTurnCallCard({
 
   const fragmentSections = [
     { key: 'personality', label: '性格', accent: CALL_ACCENTS.personality },
-    { key: 'values', label: '价值观', accent: CALL_ACCENTS.values },
     { key: 'emotion', label: '情绪', accent: CALL_ACCENTS.emotion },
     { key: 'memory', label: '记忆', accent: CALL_ACCENTS.memory },
     { key: 'relationship', label: '关系', accent: CALL_ACCENTS.relationship },

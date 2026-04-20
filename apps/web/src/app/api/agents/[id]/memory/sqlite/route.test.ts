@@ -3,9 +3,9 @@ import test from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { getDb, getRawSqlite, memoryRepo, resetDb } from '@mas/db'
+import { agentRepo, getDb, getRawSqlite, memoryRepo, resetDb } from '@mas/db'
 import { deleteSqliteMemory } from './[memoryId]/handler'
-import { listSqliteMemories } from './handler'
+import { listSqliteMemories, updateSqliteMemorySettings } from './handler'
 
 function bootstrapDb(dbPath: string) {
   resetDb()
@@ -142,9 +142,63 @@ test('listSqliteMemories returns latest-first rows and filters by summary or tag
     const tagResponse = listSqliteMemories('agent-1', 'night')
 
     assert.equal(listResponse.status, 200)
+    assert.equal((await listResponse.clone().json()).summarizeModel, 'memory-model')
     assert.deepEqual((await listResponse.json()).memories.map((memory: { id: string }) => memory.id), [latest.id, older.id])
     assert.deepEqual((await summaryResponse.json()).memories.map((memory: { id: string }) => memory.id), [older.id])
     assert.deepEqual((await tagResponse.json()).memories.map((memory: { id: string }) => memory.id), [latest.id])
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('updateSqliteMemorySettings trims and persists memory model override', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const response = updateSqliteMemorySettings('agent-1', '  qwen/qwen-2.5-7b-instruct  ')
+
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), {
+      agentId: 'agent-1',
+      scheme: 'sqlite',
+      summarizeModel: 'qwen/qwen-2.5-7b-instruct',
+    })
+    assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
+      memory: {
+        scheme: 'sqlite',
+        summarizeModel: 'qwen/qwen-2.5-7b-instruct',
+      },
+    })
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('updateSqliteMemorySettings clears override when passed empty text', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+
+    const response = updateSqliteMemorySettings('agent-1', '   ')
+
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), {
+      agentId: 'agent-1',
+      scheme: 'sqlite',
+      summarizeModel: null,
+    })
+    assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
+      memory: {
+        scheme: 'sqlite',
+      },
+    })
   } finally {
     resetDb()
     rmSync(dir, { recursive: true, force: true })

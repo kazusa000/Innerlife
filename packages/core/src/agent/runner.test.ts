@@ -240,13 +240,13 @@ test('runAgent snapshots normalized prompt fragments into observer metadata', as
       },
     },
     {
-      name: 'values:priority-list',
-      type: 'values',
+      name: 'emotion:dimensional',
+      type: 'emotion',
       async beforeLLM(ctx: TurnContext) {
         ctx.promptFragments.push({
-          source: 'values:priority-list',
+          source: 'emotion:dimensional',
           priority: 50,
-          content: 'values fragment',
+          content: 'emotion fragment',
         })
       },
     },
@@ -283,9 +283,9 @@ test('runAgent snapshots normalized prompt fragments into observer metadata', as
         content: 'personality fragment',
       },
       {
-        source: 'values',
+        source: 'emotion',
         priority: 50,
-        content: 'values fragment',
+        content: 'emotion fragment',
       },
     ],
   })
@@ -297,9 +297,9 @@ test('runAgent snapshots normalized prompt fragments into observer metadata', as
         content: 'personality fragment',
       },
       {
-        source: 'values',
+        source: 'emotion',
         priority: 50,
-        content: 'values fragment',
+        content: 'emotion fragment',
       },
     ],
   })

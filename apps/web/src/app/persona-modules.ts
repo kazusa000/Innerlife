@@ -1,89 +1,27 @@
-export type BigFiveKey =
-  | 'openness'
-  | 'conscientiousness'
-  | 'extraversion'
-  | 'agreeableness'
-  | 'neuroticism'
+export type PersonalityScheme = 'noop' | 'big-five'
+export type EmotionScheme = 'noop' | 'dimensional'
+export type RelationshipScheme = 'noop' | 'multi-dim'
+export type MemoryScheme = 'noop' | 'sqlite'
 
-export type BigFiveScores = Record<BigFiveKey, number>
-
-export type EmotionKey = 'mood' | 'energy' | 'stress'
-export type EmotionBaseline = Record<EmotionKey, number>
-
-export type RelationshipKey = 'trust' | 'affinity' | 'familiarity' | 'respect'
-export type RelationshipBaseline = Record<RelationshipKey, number>
-
-type PersonalityModule = {
+type ManagedModuleRecord = {
   scheme?: string
-  big5?: Partial<BigFiveScores>
-  speechStyle?: string
-  background?: string
-}
-
-type EmotionModule = {
-  scheme?: string
-  baseline?: Partial<EmotionBaseline>
-  decayPerTurn?: number
-  analysisModel?: string | null
-}
-
-type RelationshipModule = {
-  scheme?: string
-  baseline?: Partial<RelationshipBaseline>
-  decayPerTurn?: number
-  analysisModel?: string | null
-}
-
-type MemoryModule = {
-  scheme?: string
-  summarizeModel?: string | null
+  [key: string]: unknown
 }
 
 export type PersonalityFormState = {
-  enabled: boolean
-  big5: BigFiveScores
-  speechStyle: string
-  background: string
+  scheme: PersonalityScheme
 }
 
 export type EmotionFormState = {
-  enabled: boolean
-  baseline: EmotionBaseline
-  decayPerTurn?: number
-  analysisModel?: string | null
+  scheme: EmotionScheme
 }
 
 export type RelationshipFormState = {
-  enabled: boolean
-  baseline: RelationshipBaseline
-  decayPerTurn?: number
-  analysisModel?: string | null
+  scheme: RelationshipScheme
 }
 
 export type MemoryFormState = {
-  scheme: 'noop' | 'sqlite'
-  summarizeModel: string
-}
-
-export const DEFAULT_BIG5: BigFiveScores = {
-  openness: 0.5,
-  conscientiousness: 0.5,
-  extraversion: 0.5,
-  agreeableness: 0.5,
-  neuroticism: 0.5,
-}
-
-export const DEFAULT_EMOTION_BASELINE: EmotionBaseline = {
-  mood: 0,
-  energy: 0,
-  stress: 0,
-}
-
-export const DEFAULT_RELATIONSHIP_BASELINE: RelationshipBaseline = {
-  trust: 0.5,
-  affinity: 0.4,
-  familiarity: 0.1,
-  respect: 0.5,
+  scheme: MemoryScheme
 }
 
 export const DEFAULT_MODEL_BY_PROVIDER = {
@@ -95,273 +33,99 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-function clampTrait(value: unknown): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return 0.5
+function readModule(
+  modules: Record<string, unknown> | null | undefined,
+  key: string,
+): ManagedModuleRecord | null {
+  const value = modules?.[key]
+  if (typeof value === 'string') {
+    return { scheme: value }
   }
 
-  return Math.min(1, Math.max(0, value))
+  return isRecord(value) ? (value as ManagedModuleRecord) : null
 }
 
-function clampMood(value: unknown): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return 0
+function normalizeScheme<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  if (typeof value === 'string' && allowed.includes(value as T)) {
+    return value as T
   }
 
-  return Math.min(1, Math.max(-1, value))
-}
-
-function clampEmotionLevel(value: unknown): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return 0
-  }
-
-  return Math.min(1, Math.max(0, value))
-}
-
-function clampRelationshipLevel(value: unknown, fallback: number): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return fallback
-  }
-
-  return Math.min(1, Math.max(0, value))
-}
-
-function readPersonalityModule(
-  modules: Record<string, unknown> | null,
-): PersonalityModule | null {
-  if (!isRecord(modules)) {
-    return null
-  }
-
-  const personality = modules.personality
-  if (typeof personality === 'string') {
-    return { scheme: personality }
-  }
-
-  return isRecord(personality) ? (personality as PersonalityModule) : null
+  return fallback
 }
 
 export function getPersonalityFormState(
   modules: Record<string, unknown> | null,
-  defaultEnabled: boolean,
+  fallback: PersonalityScheme,
 ): PersonalityFormState {
-  const personality = readPersonalityModule(modules)
-
+  const personality = readModule(modules, 'personality')
   return {
-    enabled: personality ? personality.scheme !== 'noop' : defaultEnabled,
-    big5: {
-      openness: clampTrait(personality?.big5?.openness),
-      conscientiousness: clampTrait(personality?.big5?.conscientiousness),
-      extraversion: clampTrait(personality?.big5?.extraversion),
-      agreeableness: clampTrait(personality?.big5?.agreeableness),
-      neuroticism: clampTrait(personality?.big5?.neuroticism),
-    },
-    speechStyle: typeof personality?.speechStyle === 'string'
-      ? personality.speechStyle
-      : '',
-    background: typeof personality?.background === 'string'
-      ? personality.background
-      : '',
+    scheme: normalizeScheme(personality?.scheme, ['noop', 'big-five'], fallback),
   }
-}
-
-function readEmotionModule(
-  modules: Record<string, unknown> | null,
-): EmotionModule | null {
-  if (!isRecord(modules)) {
-    return null
-  }
-
-  const emotion = modules.emotion
-  if (typeof emotion === 'string') {
-    return { scheme: emotion }
-  }
-
-  return isRecord(emotion) ? (emotion as EmotionModule) : null
 }
 
 export function getEmotionFormState(
   modules: Record<string, unknown> | null,
-  defaultEnabled: boolean,
+  fallback: EmotionScheme,
 ): EmotionFormState {
-  const emotion = readEmotionModule(modules)
-
+  const emotion = readModule(modules, 'emotion')
   return {
-    enabled: emotion ? emotion.scheme !== 'noop' : defaultEnabled,
-    baseline: {
-      mood: clampMood(emotion?.baseline?.mood),
-      energy: clampEmotionLevel(emotion?.baseline?.energy),
-      stress: clampEmotionLevel(emotion?.baseline?.stress),
-    },
-    decayPerTurn:
-      typeof emotion?.decayPerTurn === 'number' ? emotion.decayPerTurn : undefined,
-    analysisModel:
-      typeof emotion?.analysisModel === 'string' ? emotion.analysisModel : null,
+    scheme: normalizeScheme(emotion?.scheme, ['noop', 'dimensional'], fallback),
   }
-}
-
-function readRelationshipModule(
-  modules: Record<string, unknown> | null,
-): RelationshipModule | null {
-  if (!isRecord(modules)) {
-    return null
-  }
-
-  const relationship = modules.relationship
-  if (typeof relationship === 'string') {
-    return { scheme: relationship }
-  }
-
-  return isRecord(relationship) ? (relationship as RelationshipModule) : null
 }
 
 export function getRelationshipFormState(
   modules: Record<string, unknown> | null,
-  defaultEnabled: boolean,
+  fallback: RelationshipScheme,
 ): RelationshipFormState {
-  const relationship = readRelationshipModule(modules)
-
+  const relationship = readModule(modules, 'relationship')
   return {
-    enabled: relationship ? relationship.scheme !== 'noop' : defaultEnabled,
-    baseline: {
-      trust: clampRelationshipLevel(
-        relationship?.baseline?.trust,
-        DEFAULT_RELATIONSHIP_BASELINE.trust,
-      ),
-      affinity: clampRelationshipLevel(
-        relationship?.baseline?.affinity,
-        DEFAULT_RELATIONSHIP_BASELINE.affinity,
-      ),
-      familiarity: clampRelationshipLevel(
-        relationship?.baseline?.familiarity,
-        DEFAULT_RELATIONSHIP_BASELINE.familiarity,
-      ),
-      respect: clampRelationshipLevel(
-        relationship?.baseline?.respect,
-        DEFAULT_RELATIONSHIP_BASELINE.respect,
-      ),
-    },
-    decayPerTurn:
-      typeof relationship?.decayPerTurn === 'number' ? relationship.decayPerTurn : undefined,
-    analysisModel:
-      typeof relationship?.analysisModel === 'string' ? relationship.analysisModel : null,
+    scheme: normalizeScheme(relationship?.scheme, ['noop', 'multi-dim'], fallback),
   }
-}
-
-export function readValuePriorities(modules: Record<string, unknown> | null | undefined) {
-  if (!isRecord(modules)) {
-    return []
-  }
-
-  const values = modules.values
-  if (!isRecord(values) || !Array.isArray(values.priorities)) {
-    return []
-  }
-
-  return values.priorities
-    .filter((value): value is string => typeof value === 'string')
-    .map(value => value.trim())
-    .filter(Boolean)
-}
-
-function readMemoryModule(
-  modules: Record<string, unknown> | null,
-): MemoryModule | null {
-  if (!isRecord(modules)) {
-    return null
-  }
-
-  const memory = modules.memory
-  if (typeof memory === 'string') {
-    return { scheme: memory }
-  }
-
-  return isRecord(memory) ? (memory as MemoryModule) : null
 }
 
 export function getMemoryFormState(
   modules: Record<string, unknown> | null,
 ): MemoryFormState {
-  const memory = readMemoryModule(modules)
-  const scheme = memory?.scheme === 'sqlite' ? 'sqlite' : 'noop'
-
+  const memory = readModule(modules, 'memory')
   return {
-    scheme,
-    summarizeModel:
-      typeof memory?.summarizeModel === 'string' ? memory.summarizeModel : '',
+    scheme: normalizeScheme(memory?.scheme, ['noop', 'sqlite'], 'noop'),
   }
 }
 
-export function stripManagedModules(modules: Record<string, unknown> | null) {
-  if (!isRecord(modules)) {
-    return {}
+function applyScheme(
+  current: unknown,
+  scheme: string,
+): Record<string, unknown> {
+  if (scheme === 'noop') {
+    return { scheme: 'noop' }
   }
 
-  const { personality: _personality, values: _values, ...rest } = modules
-  delete rest.emotion
-  delete rest.relationship
-  delete rest.memory
-  return rest
+  if (isRecord(current)) {
+    return { ...current, scheme }
+  }
+
+  return { scheme }
 }
 
 export function buildModules(
-  baseModules: Record<string, unknown>,
+  baseModules: Record<string, unknown> | null | undefined,
   personality: PersonalityFormState,
   emotion: EmotionFormState,
   relationship: RelationshipFormState,
   memory: MemoryFormState,
-  valuePriorities: string[],
 ) {
-  const next: Record<string, unknown> = { ...baseModules }
+  const next: Record<string, unknown> = isRecord(baseModules) ? { ...baseModules } : {}
 
-  next.personality = personality.enabled
-    ? {
-        scheme: 'big-five',
-        big5: personality.big5,
-        speechStyle: personality.speechStyle.trim(),
-        background: personality.background.trim(),
-      }
-    : { scheme: 'noop' }
+  delete next.values
 
-  next.emotion = emotion.enabled
-    ? {
-        scheme: 'dimensional',
-        baseline: emotion.baseline,
-        ...(typeof emotion.decayPerTurn === 'number'
-          ? { decayPerTurn: emotion.decayPerTurn }
-          : {}),
-        ...(emotion.analysisModel ? { analysisModel: emotion.analysisModel } : {}),
-      }
-    : { scheme: 'noop' }
-
-  next.relationship = relationship.enabled
-    ? {
-        scheme: 'multi-dim',
-        baseline: relationship.baseline,
-        ...(typeof relationship.decayPerTurn === 'number'
-          ? { decayPerTurn: relationship.decayPerTurn }
-          : {}),
-        ...(relationship.analysisModel ? { analysisModel: relationship.analysisModel } : {}),
-      }
-    : { scheme: 'noop' }
-
-  next.memory = memory.scheme === 'sqlite'
-    ? {
-        scheme: 'sqlite',
-        ...(memory.summarizeModel.trim()
-          ? { summarizeModel: memory.summarizeModel.trim() }
-          : {}),
-      }
-    : { scheme: 'noop' }
-
-  const priorities = valuePriorities.map(value => value.trim()).filter(Boolean)
-  if (priorities.length > 0) {
-    next.values = {
-      scheme: 'priority-list',
-      priorities,
-    }
-  }
+  next.personality = applyScheme(next.personality, personality.scheme)
+  next.emotion = applyScheme(next.emotion, emotion.scheme)
+  next.relationship = applyScheme(next.relationship, relationship.scheme)
+  next.memory = applyScheme(next.memory, memory.scheme)
 
   return next
 }

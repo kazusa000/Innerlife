@@ -23,7 +23,6 @@ export const CALL_ACCENTS: Record<string, AccentTone> = {
   relationship: { color: '#38bdf8', soft: 'rgba(56, 189, 248, 0.14)' },
   compaction: { color: 'var(--orange)', soft: 'rgba(251, 146, 60, 0.14)' },
   personality: { color: 'var(--indigo)', soft: 'rgba(129, 140, 248, 0.14)' },
-  values: { color: '#fbbf24', soft: 'rgba(251, 191, 36, 0.14)' },
 }
 
 export function CodeBlock({

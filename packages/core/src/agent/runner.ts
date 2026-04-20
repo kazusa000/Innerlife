@@ -342,7 +342,7 @@ function composeSystemPrompt(basePrompt: string, fragments: TurnContext['promptF
 
 function normalizePromptFragmentSource(source: string): string {
   const [prefix] = source.split(':')
-  return ['personality', 'values', 'emotion', 'memory', 'relationship'].includes(prefix)
+  return ['personality', 'emotion', 'memory', 'relationship'].includes(prefix)
     ? prefix
     : source
 }

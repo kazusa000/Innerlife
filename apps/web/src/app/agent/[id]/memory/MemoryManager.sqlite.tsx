@@ -44,6 +44,10 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const [memories, setMemories] = useState<SqliteMemory[]>([])
+  const [memoryModel, setMemoryModel] = useState('')
+  const [memoryModelDraft, setMemoryModelDraft] = useState('')
+  const [memoryModelDirty, setMemoryModelDirty] = useState(false)
+  const [savingModel, setSavingModel] = useState(false)
   const [loading, setLoading] = useState(true)
   const [isConsolidating, setIsConsolidating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -71,6 +75,12 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         throw new Error(typeof data?.error === 'string' ? data.error : 'Failed to load sqlite memories')
       }
 
+      const nextSummarizeModel =
+        typeof data.summarizeModel === 'string' ? data.summarizeModel : ''
+      if (!memoryModelDirty) {
+        setMemoryModel(nextSummarizeModel)
+        setMemoryModelDraft(nextSummarizeModel)
+      }
       setMemories(Array.isArray(data.memories) ? data.memories : [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load sqlite memories')
@@ -135,8 +145,76 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     }
   }
 
+  async function handleSaveMemoryModel() {
+    setSavingModel(true)
+    setError(null)
+    setNotice(null)
+
+    try {
+      const response = await fetch(`/api/agents/${agentId}/memory/sqlite`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summarizeModel: memoryModelDraft }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Failed to save memory model override')
+      }
+
+      const nextValue = typeof data.summarizeModel === 'string' ? data.summarizeModel : ''
+      setMemoryModel(nextValue)
+      setMemoryModelDraft(nextValue)
+      setMemoryModelDirty(false)
+      setNotice(
+        nextValue
+          ? `Memory model override 已保存：${nextValue}`
+          : 'Memory model override 已清空，后续会继承 persona model。',
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save memory model override')
+    } finally {
+      setSavingModel(false)
+    }
+  }
+
   return (
     <div className="sqlite-manager">
+      <section className="sqlite-settings-card">
+        <div className="sqlite-settings-head">
+          <div>
+            <p className="sqlite-settings-label">模型设置</p>
+            <h3 className="sqlite-settings-title">Memory model override</h3>
+          </div>
+          <span className="sqlite-settings-pill">retrieve · summarize · consolidate</span>
+        </div>
+        <p className="sqlite-copy">
+          记忆系统相关的 LLM 设置统一放在这里。留空时会继承当前 persona 的主模型。
+        </p>
+        <div className="sqlite-settings-controls">
+          <label className="sqlite-search sqlite-model-field">
+            <span>Memory model</span>
+            <input
+              className="sqlite-input"
+              value={memoryModelDraft}
+              onChange={(event) => {
+                const nextValue = event.target.value
+                setMemoryModelDraft(nextValue)
+                setMemoryModelDirty(nextValue.trim() !== memoryModel.trim())
+              }}
+              placeholder="例如 qwen/qwen-2.5-7b-instruct；留空则继承 persona model"
+            />
+          </label>
+          <button
+            type="button"
+            className="sqlite-button sqlite-button-primary"
+            onClick={handleSaveMemoryModel}
+            disabled={savingModel || isConsolidating || memoryModelDraft.trim() === memoryModel.trim()}
+          >
+            {savingModel ? 'Saving…' : 'Save memory model'}
+          </button>
+        </div>
+      </section>
+
       <div className="sqlite-toolbar">
         <label className="sqlite-search">
           <span>Search</span>
@@ -238,11 +316,61 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           gap: 16px;
           flex-wrap: wrap;
         }
+        .sqlite-settings-card {
+          border: 1px solid rgba(129, 140, 248, 0.18);
+          border-radius: 22px;
+          padding: 16px;
+          background:
+            linear-gradient(160deg, rgba(129, 140, 248, 0.12), rgba(255, 255, 255, 0.03)),
+            rgba(10, 13, 24, 0.88);
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .sqlite-settings-head {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+        .sqlite-settings-label {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--fg-subtle);
+          margin-bottom: 8px;
+        }
+        .sqlite-settings-title {
+          font-size: 20px;
+        }
+        .sqlite-settings-pill {
+          font-size: 11px;
+          line-height: 1;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #d9ddff;
+          border: 1px solid rgba(129, 140, 248, 0.28);
+          border-radius: 999px;
+          padding: 6px 10px;
+          background: rgba(129, 140, 248, 0.14);
+        }
+        .sqlite-settings-controls {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          flex-wrap: wrap;
+          align-items: flex-end;
+        }
         .sqlite-search {
           display: flex;
           flex-direction: column;
           gap: 8px;
           min-width: min(100%, 360px);
+        }
+        .sqlite-model-field {
+          flex: 1;
+          min-width: min(100%, 420px);
         }
         .sqlite-search span {
           font-size: 12px;

@@ -42,47 +42,9 @@ test('createSystems accepts object scheme configuration', () => {
   assert.equal(systems[0]?.name, 'debug:hello-world')
 })
 
-test('createSystems treats disabled values configs as noop', () => {
+test('createSystems ignores legacy values configs', () => {
+  assert.deepEqual(createSystems({ values: { scheme: 'priority-list' } }), [])
   assert.deepEqual(createSystems({ values: { scheme: 'noop' } }), [])
-  assert.deepEqual(createSystems({ values: {} }), [])
-})
-
-test('createSystems instantiates values priority-list system and preserves order', async () => {
-  const [system] = createSystems({
-    values: {
-      scheme: 'priority-list',
-      priorities: ['A', 'B', 'C'],
-    },
-  })
-
-  assert.equal(system?.name, 'values:priority-list')
-
-  const ctx = createTurnContext()
-  await system?.beforeLLM?.(ctx)
-
-  assert.deepEqual(ctx.promptFragments, [
-    {
-      source: 'values:priority-list',
-      priority: 50,
-      content: 'Values (in priority order):\n1. A\n2. B\n3. C',
-    },
-  ])
-})
-
-test('createSystems skips values fragment when priorities are empty', async () => {
-  const [system] = createSystems({
-    values: {
-      scheme: 'priority-list',
-      priorities: [],
-    },
-  })
-
-  assert.equal(system?.name, 'values:priority-list')
-
-  const ctx = createTurnContext()
-  await system?.beforeLLM?.(ctx)
-
-  assert.deepEqual(ctx.promptFragments, [])
 })
 
 test('createSystems instantiates summary compaction system from string scheme', () => {
