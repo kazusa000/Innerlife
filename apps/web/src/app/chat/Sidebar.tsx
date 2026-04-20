@@ -1,17 +1,6 @@
 'use client'
 
-interface Session {
-  id: string
-  title: string | null
-  updatedAt: number | string
-}
-
 interface Props {
-  sessions: Session[]
-  currentId: string | null
-  onSelect: (id: string) => void
-  onNew: () => void
-  onDelete: (id: string) => void
   agentName?: string
   onBack?: () => void
 }
@@ -30,29 +19,7 @@ function initials(name: string) {
   return s.toUpperCase()
 }
 
-function timeAgo(ts: number | string) {
-  const t = typeof ts === 'number' ? ts : new Date(ts).getTime()
-  if (!Number.isFinite(t)) return ''
-  const diff = Date.now() - t
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return 'now'
-  if (m < 60) return `${m}m`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h`
-  const d = Math.floor(h / 24)
-  if (d < 7) return `${d}d`
-  return `${Math.floor(d / 7)}w`
-}
-
-export function Sidebar({
-  sessions,
-  currentId,
-  onSelect,
-  onNew,
-  onDelete,
-  agentName,
-  onBack,
-}: Props) {
+export function Sidebar({ agentName, onBack }: Props) {
   return (
     <aside className="sidebar">
       {agentName && (
@@ -87,64 +54,19 @@ export function Sidebar({
         </div>
       )}
 
-      <div className="new-wrap">
-        <button onClick={onNew} className="new-btn">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-            <path
-              d="M7 2v10M2 7h10"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-            />
-          </svg>
-          New chat
-        </button>
+      <div className="rail-copy">
+        <p className="rail-label">Single thread</p>
+        <h2 className="rail-title">One ongoing conversation</h2>
+        <p className="rail-sub">
+          你和这个 persona 只有一条对话线。底层 session 仍然存在，但只用于内部章节和状态边界，不再作为前端可操作对象。
+        </p>
       </div>
 
-      <div className="list">
-        {sessions.length === 0 && (
-          <div className="empty">
-            <p className="empty-title">No chats yet</p>
-            <p className="empty-sub">Your conversations will live here.</p>
-          </div>
-        )}
-        {sessions.map((s) => {
-          const active = s.id === currentId
-          return (
-            <div
-              key={s.id}
-              onClick={() => onSelect(s.id)}
-              className={`item ${active ? 'active' : ''}`}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') onSelect(s.id)
-              }}
-            >
-              <div className="item-body">
-                <span className="item-title">{s.title || 'New chat'}</span>
-                <span className="item-time">{timeAgo(s.updatedAt)}</span>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (confirm('Delete this chat?')) onDelete(s.id)
-                }}
-                className="del-btn"
-                aria-label="Delete chat"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-                  <path
-                    d="M2.5 2.5l7 7M9.5 2.5l-7 7"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            </div>
-          )
-        })}
+      <div className="rail-note">
+        <span className="rail-note-title">Current behavior</span>
+        <p className="rail-note-body">
+          进入聊天时会自动解析当前 active session。网页端不再提供新建、切换或删除 session。
+        </p>
       </div>
 
       <style jsx>{`
@@ -153,10 +75,14 @@ export function Sidebar({
           flex-shrink: 0;
           display: flex;
           flex-direction: column;
+          gap: 18px;
           border-right: 1px solid var(--border-subtle);
-          background: rgba(255, 255, 255, 0.015);
+          background:
+            radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 45%),
+            rgba(255, 255, 255, 0.015);
           backdrop-filter: blur(8px);
           -webkit-backdrop-filter: blur(8px);
+          padding-bottom: 18px;
         }
         .agent-head {
           display: flex;
@@ -226,138 +152,57 @@ export function Sidebar({
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-
-        .new-wrap {
-          padding: 12px;
+        .rail-copy {
+          margin: 0 14px;
+          padding: 18px 16px;
+          border-radius: calc(var(--radius) + 6px);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+            rgba(12, 16, 24, 0.48);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
         }
-        .new-btn {
-          width: 100%;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          padding: 10px 14px;
-          border-radius: var(--radius);
-          border: 1px dashed var(--border);
-          background: transparent;
-          color: var(--fg-muted);
-          font-size: 13px;
-          font-weight: 500;
-          cursor: pointer;
-          transition:
-            background var(--dur) var(--ease),
-            border-color var(--dur) var(--ease),
-            color var(--dur) var(--ease);
-        }
-        .new-btn:hover {
-          background: var(--indigo-soft);
-          border-color: var(--indigo);
-          color: var(--fg);
-        }
-
-        .list {
-          flex: 1;
-          overflow-y: auto;
-          padding: 4px 8px 12px;
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-        }
-
-        .empty {
-          padding: 32px 16px;
-          text-align: center;
-        }
-        .empty-title {
-          font-size: 13px;
-          color: var(--fg-muted);
-          font-weight: 500;
-          margin-bottom: 4px;
-        }
-        .empty-sub {
-          font-size: 11.5px;
-          color: var(--fg-subtle);
-          line-height: 1.5;
-        }
-
-        .item {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 10px 12px;
-          border-radius: 12px;
-          cursor: pointer;
-          transition:
-            background var(--dur) var(--ease),
-            color var(--dur) var(--ease);
-          position: relative;
-        }
-        .item:hover {
-          background: var(--bg-glass);
-        }
-        .item.active {
-          background: var(--indigo-soft);
-        }
-        .item.active::before {
-          content: '';
-          position: absolute;
-          left: 4px;
-          top: 50%;
-          transform: translateY(-50%);
-          width: 3px;
-          height: 16px;
-          background: var(--indigo);
-          border-radius: 999px;
-        }
-        .item-body {
-          flex: 1;
-          min-width: 0;
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-          padding-left: 4px;
-        }
-        .item-title {
-          font-size: 13px;
-          color: var(--fg-muted);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .item.active .item-title {
-          color: var(--fg);
-          font-weight: 500;
-        }
-        .item-time {
+        .rail-label {
+          margin: 0 0 8px;
           font-size: 11px;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
           color: var(--fg-subtle);
-          font-variant-numeric: tabular-nums;
         }
-        .del-btn {
-          flex-shrink: 0;
-          width: 24px;
-          height: 24px;
-          border-radius: 8px;
-          background: transparent;
-          border: none;
-          color: var(--fg-subtle);
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          opacity: 0;
-          transition:
-            opacity var(--dur) var(--ease),
-            background var(--dur) var(--ease),
-            color var(--dur) var(--ease);
+        .rail-title {
+          margin: 0;
+          font-family: var(--font-display);
+          font-size: 24px;
+          line-height: 1.05;
+          color: var(--fg);
+          letter-spacing: -0.03em;
         }
-        .item:hover .del-btn,
-        .item.active .del-btn {
-          opacity: 1;
+        .rail-sub {
+          margin: 14px 0 0;
+          color: var(--fg-muted);
+          line-height: 1.6;
+          font-size: 13px;
         }
-        .del-btn:hover {
-          background: rgba(248, 113, 113, 0.12);
-          color: var(--danger);
+        .rail-note {
+          margin: 0 14px;
+          padding: 14px 16px;
+          border-radius: var(--radius);
+          border: 1px solid var(--border-subtle);
+          background: rgba(255, 255, 255, 0.03);
+        }
+        .rail-note-title {
+          display: block;
+          margin-bottom: 8px;
+          color: var(--fg);
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+        }
+        .rail-note-body {
+          margin: 0;
+          color: var(--fg-muted);
+          font-size: 12px;
+          line-height: 1.55;
         }
       `}</style>
     </aside>

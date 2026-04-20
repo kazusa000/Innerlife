@@ -46,7 +46,6 @@ function renderDbMessage(m: DbMessage): ChatMessage | null {
 interface Props {
   sessionId: string
   agentModules: AgentModules | null
-  onFirstMessage?: () => void
 }
 
 function isAbortError(error: unknown): boolean {
@@ -153,7 +152,7 @@ async function loadLatestObserverTurn(sessionId: string): Promise<LiveCall[]> {
     .map((item) => item.call)
 }
 
-export function ChatArea({ sessionId, agentModules, onFirstMessage }: Props) {
+export function ChatArea({ sessionId, agentModules }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -242,7 +241,6 @@ export function ChatArea({ sessionId, agentModules, onFirstMessage }: Props) {
     if (!input.trim() || isStreaming) return
 
     const userMessage = input.trim()
-    const isFirst = messages.length === 0
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
     setIsStreaming(true)
@@ -406,7 +404,6 @@ export function ChatArea({ sessionId, agentModules, onFirstMessage }: Props) {
       abortControllerRef.current = null
       setIsStreaming(false)
       setCurrentTools([])
-      if (isFirst) onFirstMessage?.()
     }
   }
 

@@ -159,13 +159,7 @@ export default function HomePage() {
   }
 
   async function handleChat(agentId: string) {
-    const res = await fetch('/api/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agentId }),
-    })
-    const data = await res.json()
-    router.push(`/chat?agent=${agentId}&session=${data.session.id}`)
+    router.push(`/chat?agent=${agentId}`)
   }
 
   function openManager(
