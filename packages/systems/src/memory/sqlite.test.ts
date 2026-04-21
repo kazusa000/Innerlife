@@ -113,6 +113,8 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
     const system = new MemorySqliteSystem({
       retrieveTopK: 5,
       embeddingModel: 'qwen/qwen3-embedding-0.6b',
+      retrievePrompt: '你是记忆语义分析器，只输出 retrieval_query、time_range、focus。',
+      fragmentPrompt: '以下是你可直接依赖的记忆，请优先从中回答。',
       embedder: createEmbedder({
         我猫叫什么: [1, 0],
         用户告诉过我的猫叫什么名字: [1, 0],
@@ -122,7 +124,7 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
 
     await system.beforeTurn?.(ctx)
     assert.equal(ctx.pendingMemoryQuery?.kind, 'sqlite')
-    assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /retrieval_query/i)
+    assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /记忆语义分析器/)
 
     const retrieved = await ctx.pendingMemoryQuery?.retrieve({
       retrievalQuery: '用户告诉过我的猫叫什么名字',
@@ -136,13 +138,8 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
     const loaded = ctx.state.memories as Array<{ id: string; displaySummary: string }>
     assert.deepEqual(loaded.map((memory) => memory.id), [catMemory.id])
     assert.equal(ctx.promptFragments[0]?.priority, 30)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /以下是本轮回复可直接依赖的相关记忆/)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /可用的回忆/)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /不要再声称自己记不住/)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /优先直接复述命中的相关记忆/)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /不要先说“这是第一次对话”或“没有历史记录”/)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /最相关记忆（优先回答）/)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /只有当最相关记忆不足以回答时，才参考下面的补充记忆/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /以下是你可直接依赖的记忆/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /最相关记忆：/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /橘子的猫/)
   } finally {
     resetDb()
@@ -220,6 +217,7 @@ test('memory sqlite retrieval skips semantic embeddings for pure time recall and
 test('memory sqlite system prepares a pending write with display_summary and retrieval_text', { concurrency: false }, async () => {
   const system = new MemorySqliteSystem({
     summarizeModel: 'memory-model',
+    summarizePrompt: '请把这一轮对话整理成 display_summary、retrieval_text、tags、importance。',
     embedder: createEmbedder({}),
   })
   const ctx = createContext('我猫叫橘子')
@@ -233,9 +231,7 @@ test('memory sqlite system prepares a pending write with display_summary and ret
 
   assert.equal(ctx.pendingMemoryWrite?.kind, 'sqlite')
   assert.equal(ctx.pendingMemoryWrite?.model, 'memory-model')
-  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /display_summary/i)
-  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /retrieval_text/i)
-  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /自然语言完整描述可检索的事实/)
+  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /整理成 display_summary、retrieval_text、tags、importance/)
 })
 
 test('memory sqlite system uses memory model override for retrieval queries too', { concurrency: false }, async () => {

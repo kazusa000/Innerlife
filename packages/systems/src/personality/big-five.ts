@@ -20,6 +20,7 @@ interface BigFiveConfig {
   big5?: Partial<BigFiveScores>
   speechStyle?: string
   background?: string
+  prompt?: string
 }
 
 const DEFAULT_BIG5: BigFiveScores = {
@@ -93,6 +94,7 @@ function normalizeConfig(config: unknown) {
     },
     speechStyle: readText(record.speechStyle),
     background: readText(record.background),
+    prompt: readText(record.prompt),
   }
 }
 
@@ -128,6 +130,10 @@ export class BigFivePersonalitySystem implements AgentSystem {
 
     if (this.config.background) {
       lines.push(`- 背景故事：${this.config.background}`)
+    }
+
+    if (this.config.prompt) {
+      lines.push(`- 额外人格约束：${this.config.prompt}`)
     }
 
     lines.push('- 回答时保持以上人格倾向，但仍然优先保证信息准确、判断清晰、对用户有帮助。')

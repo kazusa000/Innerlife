@@ -203,13 +203,82 @@ export function listSqliteMemoriesByAgent(agentId: string, query?: string) {
     `WHERE agent_id = ?
        AND (
          lower(display_summary) LIKE ?
+         OR lower(retrieval_text) LIKE ?
          OR lower(tags) LIKE ?
        )
      ORDER BY created_at DESC`,
     agentId,
     wildcard,
     wildcard,
+    wildcard,
   )
+}
+
+export function listSqliteMemoriesPageByAgent(input: {
+  agentId: string
+  query?: string
+  page: number
+  pageSize: number
+}) {
+  const normalizedPage = Math.max(1, Math.floor(input.page))
+  const normalizedPageSize = Math.max(1, Math.min(100, Math.floor(input.pageSize)))
+  const normalizedQuery = input.query?.trim().toLowerCase()
+  const sqlite = getMemoryRawSqlite()
+  const offset = (normalizedPage - 1) * normalizedPageSize
+
+  if (!normalizedQuery) {
+    const totalRow = sqlite.prepare(`
+      SELECT COUNT(*) as total
+      FROM memories
+      WHERE agent_id = ?
+    `).get(input.agentId) as { total: number } | undefined
+
+    return {
+      total: totalRow?.total ?? 0,
+      page: normalizedPage,
+      pageSize: normalizedPageSize,
+      memories: selectMemories(
+        'WHERE agent_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+        input.agentId,
+        normalizedPageSize,
+        offset,
+      ),
+    }
+  }
+
+  const wildcard = `%${normalizedQuery}%`
+  const totalRow = sqlite.prepare(`
+    SELECT COUNT(*) as total
+    FROM memories
+    WHERE agent_id = ?
+      AND (
+        lower(display_summary) LIKE ?
+        OR lower(retrieval_text) LIKE ?
+        OR lower(tags) LIKE ?
+      )
+  `).get(input.agentId, wildcard, wildcard, wildcard) as { total: number } | undefined
+
+  return {
+    total: totalRow?.total ?? 0,
+    page: normalizedPage,
+    pageSize: normalizedPageSize,
+    memories: selectMemories(
+      `WHERE agent_id = ?
+         AND (
+           lower(display_summary) LIKE ?
+           OR lower(retrieval_text) LIKE ?
+           OR lower(tags) LIKE ?
+         )
+       ORDER BY created_at DESC
+       LIMIT ? OFFSET ?`,
+      input.agentId,
+      wildcard,
+      wildcard,
+      wildcard,
+      normalizedPageSize,
+      offset,
+    ),
+  }
 }
 
 export function listMemoriesByAgentOldestFirst(agentId: string) {

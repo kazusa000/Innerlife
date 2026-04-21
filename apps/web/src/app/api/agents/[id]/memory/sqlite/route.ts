@@ -8,8 +8,13 @@ export async function GET(
   initDb()
   const { id } = await params
   const url = new URL(request.url)
+  const page = Number(url.searchParams.get('page') ?? '1')
+  const pageSize = Number(url.searchParams.get('pageSize') ?? '20')
 
-  return listSqliteMemories(id, url.searchParams.get('q') ?? undefined)
+  return listSqliteMemories(id, url.searchParams.get('q') ?? undefined, {
+    page: Number.isFinite(page) ? page : 1,
+    pageSize: Number.isFinite(pageSize) ? pageSize : 20,
+  })
 }
 
 export async function PATCH(
@@ -19,12 +24,5 @@ export async function PATCH(
   initDb()
   const { id } = await params
   const body = await request.json()
-  if (!body || typeof body !== 'object' || Array.isArray(body) || !('summarizeModel' in body)) {
-    return Response.json({ error: 'summarizeModel is required' }, { status: 400 })
-  }
-
-  return updateSqliteMemorySettings(
-    id,
-    (body as { summarizeModel: unknown }).summarizeModel,
-  )
+  return updateSqliteMemorySettings(id, body)
 }

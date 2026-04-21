@@ -53,7 +53,7 @@ export async function consolidateSqliteMemories(
   const provider = deps.provider ?? createProvider(agent.provider)
   const memorySettings = resolveMemorySqliteConfig(memoryConfig)
   const model = memorySettings.summarizeModel ?? agent.model
-  const systemPrompt = buildMemoryConsolidationPrompt()
+  const systemPrompt = buildMemoryConsolidationPrompt(memorySettings.consolidatePrompt)
   const phaseMetadata = { phase: 'consolidate' as const }
   const messages: Message[] = [
     {

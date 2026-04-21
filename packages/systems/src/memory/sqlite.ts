@@ -73,6 +73,10 @@ interface MemoryModuleConfig {
   embeddingModel: string
   retrieveTopK: number
   embedder: MemoryEmbedder
+  retrievePrompt: string | null
+  summarizePrompt: string | null
+  fragmentPrompt: string | null
+  consolidatePrompt: string | null
 }
 
 export interface MemoryConsolidationKeepAction {
@@ -110,6 +114,10 @@ const WRITE_GUIDANCE = [
   'tags 至少提供 4 个简短、可复用的中文标签。',
 ].join('\n')
 
+function readOptionalText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
 function readConfig(config: unknown): MemoryModuleConfig {
   const embedder = createOpenRouterMemoryEmbedder()
 
@@ -119,6 +127,10 @@ function readConfig(config: unknown): MemoryModuleConfig {
       embeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
       retrieveTopK: DEFAULT_RETRIEVE_TOP_K,
       embedder,
+      retrievePrompt: null,
+      summarizePrompt: null,
+      fragmentPrompt: null,
+      consolidatePrompt: null,
     }
   }
 
@@ -138,6 +150,10 @@ function readConfig(config: unknown): MemoryModuleConfig {
       record.embedder && typeof record.embedder === 'object' && 'embed' in record.embedder
         ? record.embedder as MemoryEmbedder
         : embedder,
+    retrievePrompt: readOptionalText(record.retrievePrompt),
+    summarizePrompt: readOptionalText(record.summarizePrompt),
+    fragmentPrompt: readOptionalText(record.fragmentPrompt),
+    consolidatePrompt: readOptionalText(record.consolidatePrompt),
   }
 }
 
@@ -147,6 +163,10 @@ export function resolveMemorySqliteConfig(config: unknown) {
     summarizeModel: resolved.summarizeModel,
     embeddingModel: resolved.embeddingModel,
     retrieveTopK: resolved.retrieveTopK,
+    retrievePrompt: resolved.retrievePrompt,
+    summarizePrompt: resolved.summarizePrompt,
+    fragmentPrompt: resolved.fragmentPrompt,
+    consolidatePrompt: resolved.consolidatePrompt,
   }
 }
 
@@ -157,7 +177,11 @@ export function isSqliteMemoryConfig(config: unknown): boolean {
     && (config as Record<string, unknown>).scheme === 'sqlite'
 }
 
-function buildSummaryPrompt(): string {
+function buildSummaryPrompt(promptOverride?: string | null): string {
+  if (promptOverride?.trim()) {
+    return promptOverride.trim()
+  }
+
   return [
     '你负责把一轮已经完成的对话整理成后续可用的长期记忆。',
     '只允许使用提供的本轮对话文本，不要补充不存在的信息。',
@@ -169,7 +193,11 @@ function buildSummaryPrompt(): string {
   ].join('\n')
 }
 
-function buildRetrievePrompt(): string {
+function buildRetrievePrompt(promptOverride?: string | null): string {
+  if (promptOverride?.trim()) {
+    return promptOverride.trim()
+  }
+
   return [
     '你要为 sqlite 记忆系统准备一份语义检索查询。',
     '你会收到电脑当前的本地时间，以及用户最新一条消息。',
@@ -194,12 +222,20 @@ function buildRetrievePrompt(): string {
   ].join('\n')
 }
 
-function renderMemoryFragment(memories: MemoryRecord[]): string | null {
+function renderMemoryFragment(memories: MemoryRecord[], promptOverride?: string | null): string | null {
   if (memories.length === 0) {
     return null
   }
 
   const [primaryMemory, ...secondaryMemories] = memories
+
+  if (promptOverride?.trim()) {
+    return [
+      promptOverride.trim(),
+      `最相关记忆：${primaryMemory.displaySummary}`,
+      ...secondaryMemories.map((memory) => `补充记忆：${memory.displaySummary}`),
+    ].join('\n')
+  }
 
   return [
     '以下是本轮回复可直接依赖的相关记忆：',
@@ -405,7 +441,11 @@ function parseMemoryQueryResponse(responseText: string): MemoryQueryResult {
   return { retrievalQuery, timeRange, focus }
 }
 
-export function buildMemoryConsolidationPrompt(): string {
+export function buildMemoryConsolidationPrompt(promptOverride?: string | null): string {
+  if (promptOverride?.trim()) {
+    return promptOverride.trim()
+  }
+
   return [
     '你要为单个 agent 整理已经存储的 sqlite 记忆。',
     '只允许使用提供的记忆列表，不要补充外部信息。',
@@ -521,6 +561,9 @@ export class MemorySqliteSystem implements AgentSystem {
   private readonly embeddingModel: string
   private readonly retrieveTopK: number
   private readonly embedder: MemoryEmbedder
+  private readonly retrievePrompt: string | null
+  private readonly summarizePrompt: string | null
+  private readonly fragmentPrompt: string | null
 
   constructor(config?: unknown) {
     const resolved = readConfig(config)
@@ -528,6 +571,9 @@ export class MemorySqliteSystem implements AgentSystem {
     this.embeddingModel = resolved.embeddingModel
     this.retrieveTopK = resolved.retrieveTopK
     this.embedder = resolved.embedder
+    this.retrievePrompt = resolved.retrievePrompt
+    this.summarizePrompt = resolved.summarizePrompt
+    this.fragmentPrompt = resolved.fragmentPrompt
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
@@ -537,7 +583,7 @@ export class MemorySqliteSystem implements AgentSystem {
       model: this.summarizeModel,
       reasoning: { effort: 'none' },
       responseFormat: MEMORY_QUERY_RESPONSE_FORMAT,
-      prompt: buildRetrievePrompt(),
+      prompt: buildRetrievePrompt(this.retrievePrompt),
       inputText: buildRetrieveInputText(ctx.input.text),
       parse: parseMemoryQueryResponse,
       retrieve: async (query) => {
@@ -565,7 +611,7 @@ export class MemorySqliteSystem implements AgentSystem {
 
   async beforeLLM(ctx: TurnContext): Promise<void> {
     const memories = Array.isArray(ctx.state.memories) ? ctx.state.memories : []
-    const content = renderMemoryFragment(memories)
+    const content = renderMemoryFragment(memories, this.fragmentPrompt)
     if (!content) {
       return
     }
@@ -589,7 +635,7 @@ export class MemorySqliteSystem implements AgentSystem {
       model: this.summarizeModel,
       reasoning: { effort: 'none' },
       responseFormat: MEMORY_WRITE_RESPONSE_FORMAT,
-      prompt: buildSummaryPrompt(),
+      prompt: buildSummaryPrompt(this.summarizePrompt),
       sourceText,
       parse: parseMemoryWriteResponse,
       persist: async (result) => {

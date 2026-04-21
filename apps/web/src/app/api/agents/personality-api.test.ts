@@ -33,7 +33,7 @@ function bootstrapDb(dbPath: string) {
       'agent-1',
       'Agent One',
       'claude-sonnet-4-6',
-      '{"personality":{"scheme":"big-five","big5":{"openness":0.68,"conscientiousness":0.61,"extraversion":0.44,"agreeableness":0.72,"neuroticism":0.33},"speechStyle":"冷静、直接","background":"做过多年产品设计"},"emotion":{"scheme":"dimensional","baseline":{"mood":0.2,"energy":0.5,"stress":0.1}},"memory":{"scheme":"sqlite","summarizeModel":"memory-fast"}}'
+      '{"personality":{"scheme":"big-five","big5":{"openness":0.68,"conscientiousness":0.61,"extraversion":0.44,"agreeableness":0.72,"neuroticism":0.33},"speechStyle":"冷静、直接","background":"做过多年产品设计","prompt":"回答时保持克制、像真实朋友，不要过度热情。"},"emotion":{"scheme":"dimensional","baseline":{"mood":0.2,"energy":0.5,"stress":0.1}},"memory":{"scheme":"sqlite","summarizeModel":"memory-fast"}}'
     );
     INSERT INTO agents (id, name, model, modules) VALUES (
       'agent-2',
@@ -122,6 +122,7 @@ test('getBigFivePersonalityConfig returns current personality fields for big-fiv
       },
       speechStyle: '冷静、直接',
       background: '做过多年产品设计',
+      prompt: '回答时保持克制、像真实朋友，不要过度热情。',
     })
   } finally {
     resetDb()
@@ -166,6 +167,7 @@ test('updateBigFivePersonalityConfig only mutates modules.personality and preser
         extraversion: 0.57,
       },
       speechStyle: '更克制、更短句',
+      prompt: '语气像熟人，不要把自己说得太完美。',
     })
 
     assert.equal(response.status, 200)
@@ -181,6 +183,7 @@ test('updateBigFivePersonalityConfig only mutates modules.personality and preser
       },
       speechStyle: '更克制、更短句',
       background: '做过多年产品设计',
+      prompt: '语气像熟人，不要把自己说得太完美。',
     })
 
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
@@ -195,6 +198,7 @@ test('updateBigFivePersonalityConfig only mutates modules.personality and preser
         },
         speechStyle: '更克制、更短句',
         background: '做过多年产品设计',
+        prompt: '语气像熟人，不要把自己说得太完美。',
       },
       emotion: {
         scheme: 'dimensional',

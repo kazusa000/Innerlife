@@ -44,7 +44,7 @@ function bootstrapDb(dbPath: string) {
       'agent-1',
       'Agent One',
       'claude-sonnet-4-6',
-      '{"emotion":{"scheme":"dimensional","baseline":{"mood":0.35,"energy":0.62,"stress":0.18},"decayPerTurn":0.12,"analysisModel":"emotion-fast"},"memory":{"scheme":"sqlite","summarizeModel":"memory-fast"}}'
+      '{"emotion":{"scheme":"dimensional","baseline":{"mood":0.35,"energy":0.62,"stress":0.18},"decayPerTurn":0.12,"analysisModel":"emotion-fast","fragmentPrompt":"回答时让情绪轻微影响语气，不要直接解释数值。","analysisPrompt":"你负责分析这一轮对情绪状态的影响，只输出 JSON。"},"memory":{"scheme":"sqlite","summarizeModel":"memory-fast"}}'
     );
     INSERT INTO agents (id, name, model, modules) VALUES (
       'agent-2',
@@ -150,6 +150,8 @@ test('getDimensionalEmotionConfig returns config and recent history', async () =
     })
     assert.equal(data.decayPerTurn, 0.12)
     assert.equal(data.analysisModel, 'emotion-fast')
+    assert.equal(data.fragmentPrompt, '回答时让情绪轻微影响语气，不要直接解释数值。')
+    assert.equal(data.analysisPrompt, '你负责分析这一轮对情绪状态的影响，只输出 JSON。')
     assert.deepEqual(data.currentState, {
       mood: 0.28,
       energy: 0.49,
@@ -202,6 +204,8 @@ test('updateDimensionalEmotionConfig only mutates modules.emotion and preserves 
       },
       decayPerTurn: 0.2,
       analysisModel: 'emotion-cheap',
+      fragmentPrompt: '语气跟着情绪走，但不要像播报状态。',
+      analysisPrompt: '请判断这轮对 mood/energy/stress 的变化，只输出 JSON。',
     })
 
     assert.equal(response.status, 200)
@@ -215,6 +219,8 @@ test('updateDimensionalEmotionConfig only mutates modules.emotion and preserves 
       },
       decayPerTurn: 0.2,
       analysisModel: 'emotion-cheap',
+      fragmentPrompt: '语气跟着情绪走，但不要像播报状态。',
+      analysisPrompt: '请判断这轮对 mood/energy/stress 的变化，只输出 JSON。',
       currentState: {
         mood: 0.28,
         energy: 0.49,
@@ -246,6 +252,8 @@ test('updateDimensionalEmotionConfig only mutates modules.emotion and preserves 
         },
         decayPerTurn: 0.2,
         analysisModel: 'emotion-cheap',
+        fragmentPrompt: '语气跟着情绪走，但不要像播报状态。',
+        analysisPrompt: '请判断这轮对 mood/energy/stress 的变化，只输出 JSON。',
       },
       memory: {
         scheme: 'sqlite',
@@ -302,6 +310,8 @@ test('updateDimensionalEmotionConfig allows manually overriding current emotion 
         },
         decayPerTurn: 0.12,
         analysisModel: 'emotion-fast',
+        fragmentPrompt: '回答时让情绪轻微影响语气，不要直接解释数值。',
+        analysisPrompt: '你负责分析这一轮对情绪状态的影响，只输出 JSON。',
       },
       memory: {
         scheme: 'sqlite',

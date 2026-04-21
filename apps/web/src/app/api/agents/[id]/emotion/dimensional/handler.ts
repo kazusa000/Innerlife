@@ -13,6 +13,8 @@ type DimensionalConfig = {
   baseline: EmotionBaseline
   decayPerTurn?: number
   analysisModel: string | null
+  fragmentPrompt: string | null
+  analysisPrompt: string | null
 }
 
 type HistoryEntry = {
@@ -78,6 +80,8 @@ function normalizeDimensionalConfig(module: unknown): DimensionalConfig {
     baseline: normalizeBaseline(record?.baseline),
     decayPerTurn: clampDecay(record?.decayPerTurn, undefined),
     analysisModel: readText(record?.analysisModel),
+    fragmentPrompt: readText(record?.fragmentPrompt),
+    analysisPrompt: readText(record?.analysisPrompt),
   }
 }
 
@@ -104,6 +108,8 @@ function buildPayload(agentId: string, config: DimensionalConfig) {
     baseline: config.baseline,
     decayPerTurn: config.decayPerTurn ?? null,
     analysisModel: config.analysisModel,
+    fragmentPrompt: config.fragmentPrompt,
+    analysisPrompt: config.analysisPrompt,
     currentState,
     history,
   }
@@ -145,6 +151,20 @@ function parsePatchBody(body: unknown) {
     }
   }
 
+  if (body.fragmentPrompt !== undefined && body.fragmentPrompt !== null && typeof body.fragmentPrompt !== 'string') {
+    return {
+      ok: false as const,
+      response: Response.json({ error: 'fragmentPrompt must be a string or null' }, { status: 400 }),
+    }
+  }
+
+  if (body.analysisPrompt !== undefined && body.analysisPrompt !== null && typeof body.analysisPrompt !== 'string') {
+    return {
+      ok: false as const,
+      response: Response.json({ error: 'analysisPrompt must be a string or null' }, { status: 400 }),
+    }
+  }
+
   return {
     ok: true as const,
     value: body as {
@@ -152,6 +172,8 @@ function parsePatchBody(body: unknown) {
       currentState?: Partial<EmotionBaseline>
       decayPerTurn?: number
       analysisModel?: string | null
+      fragmentPrompt?: string | null
+      analysisPrompt?: string | null
     },
   }
 }
@@ -197,6 +219,14 @@ export function updateDimensionalEmotionConfig(agentId: string, body: unknown) {
       parsed.value.analysisModel !== undefined
         ? readText(parsed.value.analysisModel)
         : current.analysisModel,
+    fragmentPrompt:
+      parsed.value.fragmentPrompt !== undefined
+        ? readText(parsed.value.fragmentPrompt)
+        : current.fragmentPrompt,
+    analysisPrompt:
+      parsed.value.analysisPrompt !== undefined
+        ? readText(parsed.value.analysisPrompt)
+        : current.analysisPrompt,
   }
 
   const nextModules = isRecord(agent.modules) ? { ...agent.modules } : {}
@@ -205,6 +235,8 @@ export function updateDimensionalEmotionConfig(agentId: string, body: unknown) {
     baseline: next.baseline,
     ...(typeof next.decayPerTurn === 'number' ? { decayPerTurn: next.decayPerTurn } : {}),
     ...(next.analysisModel ? { analysisModel: next.analysisModel } : {}),
+    ...(next.fragmentPrompt ? { fragmentPrompt: next.fragmentPrompt } : {}),
+    ...(next.analysisPrompt ? { analysisPrompt: next.analysisPrompt } : {}),
   }
   agentRepo.updateAgent(agentId, { modules: nextModules })
 

@@ -44,7 +44,7 @@ function bootstrapDb(dbPath: string) {
       'agent-1',
       'Agent One',
       'claude-sonnet-4-6',
-      '{"relationship":{"scheme":"multi-dim","baseline":{"trust":0.55,"affinity":0.48,"familiarity":0.22,"respect":0.7},"decayPerTurn":0.1,"analysisModel":"relationship-fast"},"memory":{"scheme":"sqlite","summarizeModel":"memory-fast"}}'
+      '{"relationship":{"scheme":"multi-dim","baseline":{"trust":0.55,"affinity":0.48,"familiarity":0.22,"respect":0.7},"decayPerTurn":0.1,"analysisModel":"relationship-fast","fragmentPrompt":"让关系状态轻微影响亲疏与措辞，不要直说分数。","analysisPrompt":"你负责分析这一轮对关系状态的影响，只输出 JSON。"},"memory":{"scheme":"sqlite","summarizeModel":"memory-fast"}}'
     );
     INSERT INTO agents (id, name, model, modules) VALUES (
       'agent-2',
@@ -166,6 +166,8 @@ test('getMultiDimRelationshipConfig returns config, current dimensions and histo
     })
     assert.equal(data.decayPerTurn, 0.1)
     assert.equal(data.analysisModel, 'relationship-fast')
+    assert.equal(data.fragmentPrompt, '让关系状态轻微影响亲疏与措辞，不要直说分数。')
+    assert.equal(data.analysisPrompt, '你负责分析这一轮对关系状态的影响，只输出 JSON。')
     assert.deepEqual(data.currentState, {
       trust: 0.63,
       affinity: 0.52,
@@ -218,6 +220,8 @@ test('updateMultiDimRelationshipConfig only mutates modules.relationship and pre
       },
       decayPerTurn: 0.18,
       analysisModel: 'relationship-cheap',
+      fragmentPrompt: '关系变化影响语气，但不要显得像系统播报。',
+      analysisPrompt: '请判断这轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。',
     })
 
     assert.equal(response.status, 200)
@@ -232,6 +236,8 @@ test('updateMultiDimRelationshipConfig only mutates modules.relationship and pre
       },
       decayPerTurn: 0.18,
       analysisModel: 'relationship-cheap',
+      fragmentPrompt: '关系变化影响语气，但不要显得像系统播报。',
+      analysisPrompt: '请判断这轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。',
       currentState: {
         trust: 0.63,
         affinity: 0.52,
@@ -275,6 +281,8 @@ test('updateMultiDimRelationshipConfig only mutates modules.relationship and pre
         },
         decayPerTurn: 0.18,
         analysisModel: 'relationship-cheap',
+        fragmentPrompt: '关系变化影响语气，但不要显得像系统播报。',
+        analysisPrompt: '请判断这轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。',
       },
       memory: {
         scheme: 'sqlite',

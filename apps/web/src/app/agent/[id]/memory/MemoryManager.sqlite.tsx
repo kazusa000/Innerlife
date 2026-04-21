@@ -1,6 +1,8 @@
 'use client'
 
-import { useDeferredValue, useEffect, useState, useTransition } from 'react'
+import { Fragment, useDeferredValue, useEffect, useRef, useState, useTransition } from 'react'
+import PromptLab from '../PromptLab'
+import styles from '../manager-ui.module.css'
 import { getSqliteMemoryToolbarState } from './MemoryManager.sqlite.state'
 
 interface AgentMemoryMeta {
@@ -19,9 +21,19 @@ interface SqliteMemory {
   id: string
   sessionId: string
   summary: string
+  retrievalText: string
   tags: string[]
   importance: number
   createdAt: string
+}
+
+interface MemorySettings {
+  summarizeModel: string
+  embeddingModel: string
+  retrievePrompt: string
+  summarizePrompt: string
+  fragmentPrompt: string
+  consolidatePrompt: string
 }
 
 interface ConsolidationReport {
@@ -32,56 +44,114 @@ interface ConsolidationReport {
   merged: number
 }
 
+interface MemoryListResponse {
+  memories: SqliteMemory[]
+  page: number
+  pageSize: number
+  total: number
+  summarizeModel: string | null
+  embeddingModel: string | null
+  retrievePrompt: string | null
+  summarizePrompt: string | null
+  fragmentPrompt: string | null
+  consolidatePrompt: string | null
+}
+
+function readErrorMessage(value: unknown, fallback: string) {
+  if (
+    value !== null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && 'error' in value
+    && typeof value.error === 'string'
+  ) {
+    return value.error
+  }
+
+  return fallback
+}
+
+const PAGE_SIZE = 10
 const DATE_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
   year: 'numeric',
-  month: 'short',
-  day: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
   hour: '2-digit',
   minute: '2-digit',
 })
 
+function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySettings>): MemorySettings {
+  return {
+    summarizeModel: typeof data.summarizeModel === 'string' ? data.summarizeModel : '',
+    embeddingModel: typeof data.embeddingModel === 'string' ? data.embeddingModel : '',
+    retrievePrompt: typeof data.retrievePrompt === 'string' ? data.retrievePrompt : '',
+    summarizePrompt: typeof data.summarizePrompt === 'string' ? data.summarizePrompt : '',
+    fragmentPrompt: typeof data.fragmentPrompt === 'string' ? data.fragmentPrompt : '',
+    consolidatePrompt: typeof data.consolidatePrompt === 'string' ? data.consolidatePrompt : '',
+  }
+}
+
+function areSettingsEqual(left: MemorySettings, right: MemorySettings) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const [page, setPage] = useState(1)
   const [memories, setMemories] = useState<SqliteMemory[]>([])
-  const [memoryModel, setMemoryModel] = useState('')
-  const [memoryModelDraft, setMemoryModelDraft] = useState('')
-  const [memoryModelDirty, setMemoryModelDirty] = useState(false)
-  const [savingModel, setSavingModel] = useState(false)
+  const [total, setTotal] = useState(0)
+  const [savedSettings, setSavedSettings] = useState<MemorySettings>(() => normalizeSettings({}))
+  const [draftSettings, setDraftSettings] = useState<MemorySettings>(() => normalizeSettings({}))
+  const settingsDirtyRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [isConsolidating, setIsConsolidating] = useState(false)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+
+  const settingsDirty = !areSettingsEqual(savedSettings, draftSettings)
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const toolbarState = getSqliteMemoryToolbarState({
     loading,
     pending,
     isConsolidating,
-    memoryCount: memories.length,
+    memoryCount: total,
   })
 
-  async function refresh(search = deferredQuery) {
+  async function refresh(search = deferredQuery, nextPage = page) {
     setLoading(true)
     setError(null)
 
     try {
-      const searchText = search.trim()
-      const response = await fetch(
-        `/api/agents/${agentId}/memory/sqlite${searchText ? `?q=${encodeURIComponent(searchText)}` : ''}`,
-        { cache: 'no-store' },
-      )
-      const data = await response.json()
+      const params = new URLSearchParams()
+      if (search.trim()) {
+        params.set('q', search.trim())
+      }
+      params.set('page', String(nextPage))
+      params.set('pageSize', String(PAGE_SIZE))
+
+      const response = await fetch(`/api/agents/${agentId}/memory/sqlite?${params.toString()}`, {
+        cache: 'no-store',
+      })
+      const data = await response.json() as unknown
       if (!response.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : '加载 sqlite 记忆失败')
+        throw new Error(readErrorMessage(data, '加载 sqlite 记忆失败'))
       }
 
-      const nextSummarizeModel =
-        typeof data.summarizeModel === 'string' ? data.summarizeModel : ''
-      if (!memoryModelDirty) {
-        setMemoryModel(nextSummarizeModel)
-        setMemoryModelDraft(nextSummarizeModel)
+      const payload = data as MemoryListResponse
+      const settings = normalizeSettings(payload)
+      setMemories(Array.isArray(payload.memories) ? payload.memories : [])
+      setTotal(typeof payload.total === 'number' ? payload.total : 0)
+      setPage(typeof payload.page === 'number' ? payload.page : nextPage)
+      setSavedSettings(settings)
+      if (!settingsDirtyRef.current) {
+        setDraftSettings(settings)
       }
-      setMemories(Array.isArray(data.memories) ? data.memories : [])
+      if (expandedId && !(payload.memories ?? []).some((memory) => memory.id === expandedId)) {
+        setExpandedId(null)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载 sqlite 记忆失败')
     } finally {
@@ -90,8 +160,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   }
 
   useEffect(() => {
-    void refresh(deferredQuery)
-  }, [agentId, deferredQuery])
+    void refresh(deferredQuery, page)
+  }, [agentId, deferredQuery, page])
+
+  function updateSetting<K extends keyof MemorySettings>(key: K, value: MemorySettings[K]) {
+    settingsDirtyRef.current = true
+    setDraftSettings((current) => ({ ...current, [key]: value }))
+  }
 
   async function handleDelete(memoryId: string) {
     if (!window.confirm('要删除这条 sqlite 记忆吗？')) {
@@ -118,7 +193,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
 
   async function handleConsolidate() {
     setError(null)
-    setNotice('正在整理 sqlite memories，这一步可能需要接近 1 分钟。')
+    setNotice('正在整理 sqlite 记忆，这一步可能需要几十秒。')
     setIsConsolidating(true)
 
     try {
@@ -145,8 +220,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     }
   }
 
-  async function handleSaveMemoryModel() {
-    setSavingModel(true)
+  async function handleSaveSettings() {
     setError(null)
     setNotice(null)
 
@@ -154,82 +228,46 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       const response = await fetch(`/api/agents/${agentId}/memory/sqlite`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ summarizeModel: memoryModelDraft }),
+        body: JSON.stringify({
+          summarizeModel: draftSettings.summarizeModel,
+          embeddingModel: draftSettings.embeddingModel,
+          retrievePrompt: draftSettings.retrievePrompt,
+          summarizePrompt: draftSettings.summarizePrompt,
+          fragmentPrompt: draftSettings.fragmentPrompt,
+          consolidatePrompt: draftSettings.consolidatePrompt,
+        }),
       })
-      const data = await response.json()
+      const data = await response.json() as Partial<MemorySettings> & { error?: string }
       if (!response.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : '保存记忆模型覆盖失败')
+        throw new Error(typeof data?.error === 'string' ? data.error : '保存记忆配置失败')
       }
 
-      const nextValue = typeof data.summarizeModel === 'string' ? data.summarizeModel : ''
-      setMemoryModel(nextValue)
-      setMemoryModelDraft(nextValue)
-      setMemoryModelDirty(false)
-      setNotice(
-        nextValue
-          ? `记忆模型覆盖已保存：${nextValue}`
-          : '记忆模型覆盖已清空，后续会继承虚拟人的主模型。',
-      )
+      const normalized = normalizeSettings(data)
+      setSavedSettings(normalized)
+      setDraftSettings(normalized)
+      settingsDirtyRef.current = false
+      setNotice('记忆模型和全部 prompt 已保存。')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存记忆模型覆盖失败')
-    } finally {
-      setSavingModel(false)
+      setError(err instanceof Error ? err.message : '保存记忆配置失败')
     }
   }
 
   return (
-    <div className="sqlite-manager">
-      <section className="sqlite-settings-card">
-        <div className="sqlite-settings-head">
-          <div>
-            <p className="sqlite-settings-label">模型设置</p>
-            <h3 className="sqlite-settings-title">记忆模型覆盖</h3>
-          </div>
-          <span className="sqlite-settings-pill">检索 · 总结 · 整理</span>
+    <section className={styles.workspace}>
+      <div className={styles.hero}>
+        <div>
+          <p className={styles.eyebrow}>记忆管理</p>
+          <h3 className={styles.title}>sqlite Memory Console</h3>
+          <p className={styles.copy}>
+            上面统一放记忆链路的模型和全部 prompt，下面是可搜索、可翻页、可展开的记忆表。
+            这页不再用卡片流，而是像真正的运营控制台一样按行浏览 memory。
+          </p>
         </div>
-        <p className="sqlite-copy">
-          记忆系统相关的 LLM 设置统一放在这里。留空时会继承当前虚拟人的主模型。
-        </p>
-        <div className="sqlite-settings-controls">
-          <label className="sqlite-search sqlite-model-field">
-            <span>记忆模型</span>
-            <input
-              className="sqlite-input"
-              value={memoryModelDraft}
-              onChange={(event) => {
-                const nextValue = event.target.value
-                setMemoryModelDraft(nextValue)
-                setMemoryModelDirty(nextValue.trim() !== memoryModel.trim())
-              }}
-              placeholder="例如 qwen/qwen-2.5-7b-instruct；留空则继承虚拟人主模型"
-            />
-          </label>
+        <div className={styles.heroActions}>
+          <span className={styles.statusPill}>{toolbarState.status ?? `共 ${total} 条`}</span>
           <button
             type="button"
-            className="sqlite-button sqlite-button-primary"
-            onClick={handleSaveMemoryModel}
-            disabled={savingModel || isConsolidating || memoryModelDraft.trim() === memoryModel.trim()}
-          >
-            {savingModel ? '保存中…' : '保存记忆模型'}
-          </button>
-        </div>
-      </section>
-
-      <div className="sqlite-toolbar">
-        <label className="sqlite-search">
-          <span>搜索</span>
-          <input
-            className="sqlite-input"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="按 summary 或 tags 搜索"
-          />
-        </label>
-
-        <div className="sqlite-toolbar-actions">
-          <button
-            type="button"
-            className="sqlite-button"
+            className={styles.secondaryButton}
             onClick={() => startTransition(() => { void refresh() })}
             disabled={toolbarState.refreshDisabled}
           >
@@ -237,283 +275,250 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </button>
           <button
             type="button"
-            className="sqlite-button sqlite-button-primary"
+            className={styles.primaryButton}
             onClick={handleConsolidate}
-              disabled={toolbarState.consolidateDisabled}
+            disabled={toolbarState.consolidateDisabled}
           >
             {toolbarState.consolidateLabel}
+          </button>
+          <button
+            type="button"
+            className={styles.primaryButton}
+            onClick={() => void handleSaveSettings()}
+            disabled={!settingsDirty || isConsolidating}
+          >
+            保存配置
           </button>
         </div>
       </div>
 
-      {notice && <p className="sqlite-notice">{notice}</p>}
-      {error && <p className="sqlite-error">{error}</p>}
+      {notice && <p className={styles.notice}>{notice}</p>}
+      {error && <p className={styles.error}>{error}</p>}
 
-      <div className="sqlite-summary-row">
-        <p className="sqlite-copy">
-          当前 sqlite 记忆：<strong>{memories.length}</strong>
-          {deferredQuery.trim() ? `，筛选词：${deferredQuery.trim()}` : ''}
-        </p>
-        {toolbarState.status && <span className="sqlite-status">{toolbarState.status}</span>}
+      <div className={styles.grid}>
+        <section className={styles.panel}>
+          <div className={styles.panelHead}>
+            <div>
+              <p className={styles.panelLabel}>模型设置</p>
+              <h4 className={styles.panelTitle}>LLM & Embedding</h4>
+            </div>
+            <span className={styles.panelPill}>检索 · 总结 · 整理</span>
+          </div>
+          <p className={styles.panelCopy}>
+            记忆相关的模型设置统一收在这里。留空会继承虚拟人的主模型；embedding 模型则回退到系统默认值。
+          </p>
+          <div className={styles.fieldGrid}>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Memory Model</span>
+              <input
+                className={styles.input}
+                value={draftSettings.summarizeModel}
+                onChange={(event) => updateSetting('summarizeModel', event.target.value)}
+                placeholder="例如 qwen/qwen-2.5-7b-instruct"
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Embedding Model</span>
+              <input
+                className={styles.input}
+                value={draftSettings.embeddingModel}
+                onChange={(event) => updateSetting('embeddingModel', event.target.value)}
+                placeholder="例如 openai/text-embedding-3-small"
+              />
+            </label>
+          </div>
+        </section>
+
+        <PromptLab
+          fields={[
+            {
+              key: 'retrievePrompt',
+              label: 'Retrieve Prompt',
+              helper: '语义检索改写和 time_range 提取的 prompt。现在如果你拆成双 analyzer，这里仍可以作为统一入口再细分。',
+              value: draftSettings.retrievePrompt,
+              placeholder: '留空则使用系统默认的 retrieval analyzer prompt。',
+              rows: 7,
+            },
+            {
+              key: 'summarizePrompt',
+              label: 'Summarize Prompt',
+              helper: '把一轮对话写成 display_summary / retrieval_text / tags / importance 的 prompt。',
+              value: draftSettings.summarizePrompt,
+              placeholder: '留空则使用系统默认的 summarize prompt。',
+              rows: 7,
+            },
+            {
+              key: 'fragmentPrompt',
+              label: 'Fragment Prompt',
+              helper: '控制命中记忆如何注入主 prompt。这里适合写“把这些记忆当作回忆来回答”的包装文案。',
+              value: draftSettings.fragmentPrompt,
+              placeholder: '留空则使用系统默认的 memory fragment prompt。',
+              rows: 7,
+            },
+            {
+              key: 'consolidatePrompt',
+              label: 'Consolidate Prompt',
+              helper: '控制 memory consolidate 时如何 rewrite / merge / keep。',
+              value: draftSettings.consolidatePrompt,
+              placeholder: '留空则使用系统默认的 consolidate prompt。',
+              rows: 7,
+            },
+          ]}
+          onChange={(key, value) => updateSetting(key as keyof MemorySettings, value)}
+        />
       </div>
 
-      {loading && memories.length === 0 ? (
-        <div className="sqlite-empty">
-          <h3>正在加载 sqlite 记忆…</h3>
+      <section className={styles.panel}>
+        <div className={styles.panelHead}>
+          <div>
+            <p className={styles.tableLabel}>记忆表</p>
+            <h4 className={styles.panelTitle}>Memory Rows</h4>
+          </div>
+          <span className={styles.panelPill}>
+            第 {page} / {pageCount} 页
+          </span>
         </div>
-      ) : memories.length === 0 ? (
-        <div className="sqlite-empty">
-          <h3>还没有可管理的 sqlite 记忆</h3>
-          <p>先去聊天几轮让系统写入 memory，或者清空搜索词查看全部结果。</p>
+
+        <div className={styles.tableToolbar}>
+          <label className={styles.searchField}>
+            <span className={styles.fieldLabel}>搜索</span>
+            <input
+              className={styles.searchInput}
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setPage(1)
+              }}
+              placeholder="按摘要、检索文本或 tags 搜索"
+            />
+          </label>
+
+          <div className={styles.toolbarActions}>
+            <span className={styles.statusText}>
+              当前结果 {memories.length} / 总数 {total}
+              {deferredQuery.trim() ? ` · 搜索词：${deferredQuery.trim()}` : ''}
+            </span>
+          </div>
         </div>
-      ) : (
-        <div className="sqlite-grid">
-          {memories.map((memory) => (
-            <article key={memory.id} className="sqlite-memory-card">
-              <div className="sqlite-memory-head">
-                <div>
-                  <p className="sqlite-memory-meta">会话 {memory.sessionId}</p>
-                  <h3>{memory.summary}</h3>
-                </div>
+
+        {loading && memories.length === 0 ? (
+          <div className={styles.emptyState}>
+            <h3>正在加载 sqlite 记忆…</h3>
+          </div>
+        ) : memories.length === 0 ? (
+          <div className={styles.emptyState}>
+            <h3>还没有可管理的 sqlite 记忆</h3>
+            <p className={styles.emptyCopy}>先去聊天几轮让系统写入 memory，或者清空搜索词查看全部结果。</p>
+          </div>
+        ) : (
+          <>
+            <div className={styles.tableWrap}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>摘要</th>
+                    <th>时间</th>
+                    <th>会话</th>
+                    <th>重要性</th>
+                    <th>标签</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {memories.map((memory) => {
+                    const expanded = expandedId === memory.id
+                    return (
+                      <Fragment key={memory.id}>
+                        <tr key={memory.id}>
+                          <td>
+                            <button
+                              type="button"
+                              className={styles.tableRowButton}
+                              onClick={() => setExpandedId(expanded ? null : memory.id)}
+                            >
+                              <span className={styles.tablePrimary}>{memory.summary}</span>
+                              <span className={styles.tableSecondary}>{expanded ? '点击收起详情' : '点击展开详情'}</span>
+                            </button>
+                          </td>
+                          <td className={styles.statusText}>{DATE_FORMATTER.format(new Date(memory.createdAt))}</td>
+                          <td className={styles.mono}>{memory.sessionId}</td>
+                          <td className={styles.mono}>{memory.importance.toFixed(2)}</td>
+                          <td>
+                            <div className={styles.chips}>
+                              {memory.tags.slice(0, 3).map((tag) => (
+                                <span key={`${memory.id}-${tag}`} className={styles.chip}>{tag}</span>
+                              ))}
+                              {memory.tags.length > 3 && (
+                                <span className={styles.chip}>+{memory.tags.length - 3}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className={styles.dangerButton}
+                              onClick={() => void handleDelete(memory.id)}
+                              disabled={toolbarState.deleteDisabled}
+                            >
+                              删除
+                            </button>
+                          </td>
+                        </tr>
+                        {expanded && (
+                          <tr className={styles.expandedRow}>
+                            <td colSpan={6}>
+                              <div className={styles.expandedGrid}>
+                                <div>
+                                  <p className={styles.fieldLabel}>retrieval_text</p>
+                                  <p className={styles.panelCopy}>{memory.retrievalText}</p>
+                                </div>
+                                <dl className={styles.metaList}>
+                                  <div>
+                                    <dt>ID</dt>
+                                    <dd className={styles.mono}>{memory.id}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>全部标签</dt>
+                                    <dd>{memory.tags.join(' / ') || '无'}</dd>
+                                  </div>
+                                </dl>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className={styles.pagination}>
+              <span className={styles.statusText}>
+                显示 {(page - 1) * PAGE_SIZE + 1} - {Math.min(page * PAGE_SIZE, total)} / {total}
+              </span>
+              <div className={styles.pagerGroup}>
                 <button
                   type="button"
-                  className="sqlite-button sqlite-button-danger"
-                  onClick={() => handleDelete(memory.id)}
-                  disabled={toolbarState.deleteDisabled}
+                  className={styles.pagerButton}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={page <= 1 || loading}
                 >
-                  删除
+                  上一页
+                </button>
+                <button
+                  type="button"
+                  className={styles.pagerButton}
+                  onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                  disabled={page >= pageCount || loading}
+                >
+                  下一页
                 </button>
               </div>
-
-              <div className="sqlite-memory-details">
-                <span>{DATE_FORMATTER.format(new Date(memory.createdAt))}</span>
-                <span>重要性 {memory.importance.toFixed(2)}</span>
-                <span>{memory.id}</span>
-              </div>
-
-              <div className="sqlite-tags">
-                {memory.tags.map((tag) => (
-                  <span key={`${memory.id}-${tag}`} className="sqlite-tag">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
-
-      <style jsx>{`
-        .sqlite-manager {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-        .sqlite-toolbar {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-end;
-          gap: 16px;
-          flex-wrap: wrap;
-        }
-        .sqlite-settings-card {
-          border: 1px solid rgba(129, 140, 248, 0.18);
-          border-radius: 22px;
-          padding: 16px;
-          background:
-            linear-gradient(160deg, rgba(129, 140, 248, 0.12), rgba(255, 255, 255, 0.03)),
-            rgba(10, 13, 24, 0.88);
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-        .sqlite-settings-head {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: flex-start;
-          flex-wrap: wrap;
-        }
-        .sqlite-settings-label {
-          font-size: 11px;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: var(--fg-subtle);
-          margin-bottom: 8px;
-        }
-        .sqlite-settings-title {
-          font-size: 20px;
-        }
-        .sqlite-settings-pill {
-          font-size: 11px;
-          line-height: 1;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: #d9ddff;
-          border: 1px solid rgba(129, 140, 248, 0.28);
-          border-radius: 999px;
-          padding: 6px 10px;
-          background: rgba(129, 140, 248, 0.14);
-        }
-        .sqlite-settings-controls {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          flex-wrap: wrap;
-          align-items: flex-end;
-        }
-        .sqlite-search {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          min-width: min(100%, 360px);
-        }
-        .sqlite-model-field {
-          flex: 1;
-          min-width: min(100%, 420px);
-        }
-        .sqlite-search span {
-          font-size: 12px;
-          color: var(--fg-muted);
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-        }
-        .sqlite-input {
-          width: 100%;
-          border-radius: 16px;
-          border: 1px solid var(--border);
-          background: rgba(255, 255, 255, 0.04);
-          color: var(--fg);
-          padding: 12px 14px;
-          outline: none;
-        }
-        .sqlite-toolbar-actions {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-        .sqlite-button {
-          border: 1px solid var(--border);
-          border-radius: 999px;
-          padding: 10px 14px;
-          background: rgba(255, 255, 255, 0.04);
-          color: var(--fg);
-          cursor: pointer;
-        }
-        .sqlite-button:disabled {
-          opacity: 0.55;
-          cursor: not-allowed;
-        }
-        .sqlite-button-primary {
-          border-color: rgba(52, 211, 153, 0.3);
-          background: rgba(52, 211, 153, 0.16);
-        }
-        .sqlite-button-danger {
-          border-color: rgba(248, 113, 113, 0.25);
-          background: rgba(248, 113, 113, 0.12);
-          color: #ffd8d8;
-        }
-        .sqlite-notice,
-        .sqlite-error {
-          border-radius: 16px;
-          padding: 12px 14px;
-          line-height: 1.6;
-        }
-        .sqlite-notice {
-          background: rgba(52, 211, 153, 0.12);
-          border: 1px solid rgba(52, 211, 153, 0.22);
-          color: #b9f5d7;
-        }
-        .sqlite-error {
-          background: rgba(248, 113, 113, 0.12);
-          border: 1px solid rgba(248, 113, 113, 0.22);
-          color: #ffd8d8;
-        }
-        .sqlite-summary-row {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        .sqlite-copy {
-          color: var(--fg-muted);
-          line-height: 1.6;
-        }
-        .sqlite-status {
-          font-size: 12px;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: var(--fg-subtle);
-        }
-        .sqlite-empty {
-          border: 1px dashed var(--border);
-          border-radius: 20px;
-          padding: 22px;
-          background: rgba(255, 255, 255, 0.03);
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .sqlite-empty p {
-          color: var(--fg-muted);
-          line-height: 1.7;
-        }
-        .sqlite-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 16px;
-        }
-        .sqlite-memory-card {
-          border-radius: 22px;
-          border: 1px solid rgba(129, 140, 248, 0.18);
-          background:
-            linear-gradient(160deg, rgba(129, 140, 248, 0.12), rgba(255, 255, 255, 0.03)),
-            rgba(10, 13, 24, 0.88);
-          padding: 16px;
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-        }
-        .sqlite-memory-head {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: flex-start;
-        }
-        .sqlite-memory-head h3 {
-          font-size: 18px;
-          line-height: 1.5;
-        }
-        .sqlite-memory-meta {
-          font-size: 11px;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: var(--fg-subtle);
-          margin-bottom: 8px;
-        }
-        .sqlite-memory-details {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          color: var(--fg-muted);
-          font-size: 13px;
-          word-break: break-all;
-        }
-        .sqlite-tags {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-        .sqlite-tag {
-          border-radius: 999px;
-          padding: 6px 10px;
-          font-size: 12px;
-          background: rgba(129, 140, 248, 0.16);
-          border: 1px solid rgba(129, 140, 248, 0.24);
-          color: #d9ddff;
-        }
-      `}</style>
-    </div>
+            </div>
+          </>
+        )}
+      </section>
+    </section>
   )
 }

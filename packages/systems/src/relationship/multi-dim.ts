@@ -23,6 +23,8 @@ interface RelationshipConfig {
   baseline?: Partial<RelationshipDimensions>
   decayPerTurn?: number
   analysisModel?: string | null
+  fragmentPrompt?: string | null
+  analysisPrompt?: string | null
 }
 
 function clampUnit(value: unknown, fallback = 0): number {
@@ -69,6 +71,14 @@ function normalizeConfig(config: unknown) {
     analysisModel:
       typeof record.analysisModel === 'string' && record.analysisModel.trim()
         ? record.analysisModel.trim()
+        : null,
+    fragmentPrompt:
+      typeof record.fragmentPrompt === 'string' && record.fragmentPrompt.trim()
+        ? record.fragmentPrompt.trim()
+        : null,
+    analysisPrompt:
+      typeof record.analysisPrompt === 'string' && record.analysisPrompt.trim()
+        ? record.analysisPrompt.trim()
         : null,
   }
 }
@@ -117,7 +127,21 @@ function renderRespect(value: number): string {
   return '尊重感很高'
 }
 
-export function buildRelationshipFragment(state: RelationshipDimensions): string {
+export function buildRelationshipFragment(
+  state: RelationshipDimensions,
+  promptOverride?: string | null,
+): string {
+  if (promptOverride?.trim()) {
+    return [
+      '当前关系状态参考：',
+      `- trust：${renderTrust(state.trust)}（${state.trust.toFixed(2)}）`,
+      `- affinity：${renderAffinity(state.affinity)}（${state.affinity.toFixed(2)}）`,
+      `- familiarity：${renderFamiliarity(state.familiarity)}（${state.familiarity.toFixed(2)}）`,
+      `- respect：${renderRespect(state.respect)}（${state.respect.toFixed(2)}）`,
+      promptOverride.trim(),
+    ].join('\n')
+  }
+
   return [
     '当前你与用户的关系状态（会随互动缓慢变化）：',
     `- trust：${renderTrust(state.trust)}（${state.trust.toFixed(2)}）`,
@@ -143,6 +167,7 @@ function buildAnalysisRequest(
   baseline: RelationshipDimensions,
   decayPerTurn: number,
   model: string | null,
+  promptOverride?: string | null,
 ): PendingRelationshipAnalysis {
   const assistantText = ctx.response
     ? extractConversationText(ctx.response.content as ConversationMessage['content'])
@@ -169,7 +194,9 @@ function buildAnalysisRequest(
   return {
     kind: 'multi-dim',
     model,
-    systemPrompt: '你负责分析单轮对话对关系状态的影响，只输出 JSON。',
+    systemPrompt: promptOverride?.trim()
+      ? promptOverride.trim()
+      : '你负责分析单轮对话对关系状态的影响，只输出 JSON。',
     messages: [
       {
         role: 'user',
@@ -260,7 +287,10 @@ export class MultiDimRelationshipSystem implements AgentSystem {
     ctx.promptFragments.push({
       source: this.name,
       priority: 40,
-      content: buildRelationshipFragment(readCurrentState(ctx, this.config.baseline)),
+      content: buildRelationshipFragment(
+        readCurrentState(ctx, this.config.baseline),
+        this.config.fragmentPrompt,
+      ),
     })
   }
 
@@ -275,6 +305,7 @@ export class MultiDimRelationshipSystem implements AgentSystem {
       this.config.baseline,
       this.config.decayPerTurn,
       this.config.analysisModel,
+      this.config.analysisPrompt,
     )
   }
 

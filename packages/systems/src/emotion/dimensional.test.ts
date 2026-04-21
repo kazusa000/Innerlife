@@ -101,6 +101,8 @@ test('dimensional emotion loads baseline, injects a fragment, and persists the u
       stress: 0.1,
     },
     decayPerTurn: 0.15,
+    fragmentPrompt: '回答时让情绪轻微渗进语气，但不要播报状态值。',
+    analysisPrompt: '请判断这一轮对 mood/energy/stress 的变化，只输出 JSON。',
   })
 
   const ctx = createContext(agentId, sessionId, '你怎么这么慢')
@@ -114,11 +116,11 @@ test('dimensional emotion loads baseline, injects a fragment, and persists the u
 
   await system.beforeLLM?.(ctx)
   assert.equal(ctx.promptFragments[0]?.priority, 20)
-  assert.match(ctx.promptFragments[0]?.content ?? '', /当前情绪/)
+  assert.match(ctx.promptFragments[0]?.content ?? '', /回答时让情绪轻微渗进语气/)
 
   await system.afterLLM?.(ctx)
   assert.equal(ctx.pendingEmotionAnalysis?.kind, 'dimensional')
-  assert.match(ctx.pendingEmotionAnalysis?.systemPrompt ?? '', /只输出 JSON/)
+  assert.match(ctx.pendingEmotionAnalysis?.systemPrompt ?? '', /请判断这一轮对 mood\/energy\/stress 的变化/)
   assert.match(
     JSON.stringify(ctx.pendingEmotionAnalysis?.messages ?? []),
     /分析这一轮已经完成的对话/,

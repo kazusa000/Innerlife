@@ -9,6 +9,8 @@ export type RelationshipModuleRecord = {
   baseline?: Record<string, unknown>
   decayPerTurn?: number
   analysisModel?: string | null
+  fragmentPrompt?: string | null
+  analysisPrompt?: string | null
 }
 
 export function readRelationshipModule(

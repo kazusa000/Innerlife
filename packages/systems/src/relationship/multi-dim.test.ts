@@ -84,6 +84,8 @@ test('multi-dim relationship loads baseline, injects a fragment, and persists th
         respect: 0.5,
       },
       decayPerTurn: 0.1,
+      fragmentPrompt: '让关系状态轻微影响亲疏感和分寸，不要复述分数。',
+      analysisPrompt: '请判断这一轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。',
     })
     const ctx = createContext('你上次记错了我的名字')
 
@@ -97,11 +99,11 @@ test('multi-dim relationship loads baseline, injects a fragment, and persists th
 
     await system.beforeLLM?.(ctx)
     assert.equal(ctx.promptFragments[0]?.priority, 40)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /熟悉度/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /亲疏感和分寸/)
 
     await system.afterLLM?.(ctx)
     assert.equal(ctx.pendingRelationshipAnalysis?.kind, 'multi-dim')
-    assert.match(ctx.pendingRelationshipAnalysis?.systemPrompt ?? '', /只输出 JSON/)
+    assert.match(ctx.pendingRelationshipAnalysis?.systemPrompt ?? '', /trust\/affinity\/familiarity\/respect/)
     assert.match(JSON.stringify(ctx.pendingRelationshipAnalysis?.messages ?? []), /分析这一轮已经完成的对话/)
 
     ctx.relationshipAnalysis = {

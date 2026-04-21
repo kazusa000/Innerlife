@@ -9,6 +9,7 @@ export type PersonalityModuleRecord = {
   big5?: Record<string, unknown>
   speechStyle?: string
   background?: string
+  prompt?: string
 }
 
 export function readPersonalityModule(

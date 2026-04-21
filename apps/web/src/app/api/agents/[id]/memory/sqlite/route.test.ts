@@ -38,7 +38,7 @@ function bootstrapDb(dbPath: string, memoryDbPath: string) {
   `)
   getRawSqlite().exec(`
     INSERT INTO agents (id, name, model, modules)
-    VALUES ('agent-1', 'Agent One', 'claude-sonnet-4-6', '{"memory":{"scheme":"sqlite","summarizeModel":"memory-model"}}');
+    VALUES ('agent-1', 'Agent One', 'claude-sonnet-4-6', '{"memory":{"scheme":"sqlite","summarizeModel":"memory-model","embeddingModel":"memory-embed","retrievePrompt":"提炼检索查询","summarizePrompt":"生成记忆摘要","fragmentPrompt":"把这些记忆当作回忆来回答","consolidatePrompt":"整理记忆"}}');
     INSERT INTO agents (id, name, model, modules)
     VALUES ('agent-2', 'Agent Two', 'claude-sonnet-4-6', '{"memory":{"scheme":"noop"}}');
     INSERT INTO sessions (id, agent_id) VALUES ('session-1', 'agent-1');
@@ -106,7 +106,7 @@ test('listSqliteMemories returns 400 when the agent memory scheme is not sqlite'
   }
 })
 
-test('listSqliteMemories returns latest-first rows and filters by summary or tags', async () => {
+test('listSqliteMemories returns paginated latest-first rows and filters by summary or tags', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
   const dbPath = join(dir, 'test.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -135,14 +135,32 @@ test('listSqliteMemories returns latest-first rows and filters by summary or tag
       tags: ['night'],
       createdAt: '2026-04-18T03:00:00.000Z',
     })
+    const oldest = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '用户提到旧画面',
+      tags: ['画面'],
+      createdAt: '2026-04-16T09:00:00.000Z',
+    })
 
-    const listResponse = listSqliteMemories('agent-1')
+    const listResponse = listSqliteMemories('agent-1', undefined, { page: 1, pageSize: 2 })
+    const secondPageResponse = listSqliteMemories('agent-1', undefined, { page: 2, pageSize: 2 })
     const summaryResponse = listSqliteMemories('agent-1', 'WJJ')
     const tagResponse = listSqliteMemories('agent-1', 'night')
 
     assert.equal(listResponse.status, 200)
-    assert.equal((await listResponse.clone().json()).summarizeModel, 'memory-model')
-    assert.deepEqual((await listResponse.json()).memories.map((memory: { id: string }) => memory.id), [latest.id, older.id])
+    const listData = await listResponse.clone().json()
+    assert.equal(listData.summarizeModel, 'memory-model')
+    assert.equal(listData.embeddingModel, 'memory-embed')
+    assert.equal(listData.retrievePrompt, '提炼检索查询')
+    assert.equal(listData.summarizePrompt, '生成记忆摘要')
+    assert.equal(listData.fragmentPrompt, '把这些记忆当作回忆来回答')
+    assert.equal(listData.consolidatePrompt, '整理记忆')
+    assert.equal(listData.page, 1)
+    assert.equal(listData.pageSize, 2)
+    assert.equal(listData.total, 3)
+    assert.deepEqual(listData.memories.map((memory: { id: string }) => memory.id), [latest.id, older.id])
+    assert.deepEqual((await secondPageResponse.json()).memories.map((memory: { id: string }) => memory.id), [oldest.id])
     assert.deepEqual((await summaryResponse.json()).memories.map((memory: { id: string }) => memory.id), [older.id])
     assert.deepEqual((await tagResponse.json()).memories.map((memory: { id: string }) => memory.id), [latest.id])
   } finally {
@@ -152,7 +170,7 @@ test('listSqliteMemories returns latest-first rows and filters by summary or tag
   }
 })
 
-test('updateSqliteMemorySettings trims and persists memory model override', async () => {
+test('updateSqliteMemorySettings trims and persists model and prompt overrides', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
   const dbPath = join(dir, 'test.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -160,18 +178,35 @@ test('updateSqliteMemorySettings trims and persists memory model override', asyn
   try {
     bootstrapDb(dbPath, memoryDbPath)
 
-    const response = updateSqliteMemorySettings('agent-1', '  qwen/qwen-2.5-7b-instruct  ')
+    const response = updateSqliteMemorySettings('agent-1', {
+      summarizeModel: '  qwen/qwen-2.5-7b-instruct  ',
+      embeddingModel: '  qwen/qwen3-embedding-8b  ',
+      retrievePrompt: '  生成检索锚点  ',
+      summarizePrompt: '  生成展示摘要和检索文本  ',
+      fragmentPrompt: '  把这些记忆当作回忆来回答  ',
+      consolidatePrompt: '  重新整理相近记忆  ',
+    })
 
     assert.equal(response.status, 200)
     assert.deepEqual(await response.json(), {
       agentId: 'agent-1',
       scheme: 'sqlite',
       summarizeModel: 'qwen/qwen-2.5-7b-instruct',
+      embeddingModel: 'qwen/qwen3-embedding-8b',
+      retrievePrompt: '生成检索锚点',
+      summarizePrompt: '生成展示摘要和检索文本',
+      fragmentPrompt: '把这些记忆当作回忆来回答',
+      consolidatePrompt: '重新整理相近记忆',
     })
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       memory: {
         scheme: 'sqlite',
         summarizeModel: 'qwen/qwen-2.5-7b-instruct',
+        embeddingModel: 'qwen/qwen3-embedding-8b',
+        retrievePrompt: '生成检索锚点',
+        summarizePrompt: '生成展示摘要和检索文本',
+        fragmentPrompt: '把这些记忆当作回忆来回答',
+        consolidatePrompt: '重新整理相近记忆',
       },
     })
   } finally {
@@ -181,7 +216,7 @@ test('updateSqliteMemorySettings trims and persists memory model override', asyn
   }
 })
 
-test('updateSqliteMemorySettings clears override when passed empty text', async () => {
+test('updateSqliteMemorySettings clears overrides when passed empty text', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
   const dbPath = join(dir, 'test.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -189,13 +224,25 @@ test('updateSqliteMemorySettings clears override when passed empty text', async 
   try {
     bootstrapDb(dbPath, memoryDbPath)
 
-    const response = updateSqliteMemorySettings('agent-1', '   ')
+    const response = updateSqliteMemorySettings('agent-1', {
+      summarizeModel: '   ',
+      embeddingModel: '   ',
+      retrievePrompt: '   ',
+      summarizePrompt: '   ',
+      fragmentPrompt: '   ',
+      consolidatePrompt: '   ',
+    })
 
     assert.equal(response.status, 200)
     assert.deepEqual(await response.json(), {
       agentId: 'agent-1',
       scheme: 'sqlite',
       summarizeModel: null,
+      embeddingModel: null,
+      retrievePrompt: null,
+      summarizePrompt: null,
+      fragmentPrompt: null,
+      consolidatePrompt: null,
     })
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       memory: {

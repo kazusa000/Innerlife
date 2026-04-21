@@ -5,7 +5,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-export function listSqliteMemories(agentId: string, query?: string) {
+type MemoryListOptions = {
+  page?: number
+  pageSize?: number
+}
+
+function readOptionalText(value: unknown) {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
+export function listSqliteMemories(agentId: string, query?: string, options: MemoryListOptions = {}) {
   const agent = agentRepo.getAgent(agentId)
   if (!agent) {
     return Response.json({ error: 'Not found' }, { status: 404 })
@@ -15,15 +29,30 @@ export function listSqliteMemories(agentId: string, query?: string) {
     return Response.json({ error: 'Agent memory scheme must be sqlite' }, { status: 400 })
   }
 
-  const memories = memoryRepo.listSqliteMemoriesByAgent(agentId, query)
   const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+  const page = typeof options.page === 'number' ? options.page : 1
+  const pageSize = typeof options.pageSize === 'number' ? options.pageSize : 20
+  const result = memoryRepo.listSqliteMemoriesPageByAgent({
+    agentId,
+    query,
+    page,
+    pageSize,
+  })
 
   return Response.json({
     agentId,
     scheme: 'sqlite',
     query: query?.trim() ?? '',
+    page: result.page,
+    pageSize: result.pageSize,
+    total: result.total,
     summarizeModel: memoryConfig.summarizeModel,
-    memories: memories.map((memory) => ({
+    embeddingModel: memoryConfig.embeddingModel,
+    retrievePrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.retrievePrompt),
+    summarizePrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.summarizePrompt),
+    fragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fragmentPrompt),
+    consolidatePrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.consolidatePrompt),
+    memories: result.memories.map((memory) => ({
       id: memory.id,
       sessionId: memory.sessionId,
       summary: memory.displaySummary,
@@ -35,7 +64,7 @@ export function listSqliteMemories(agentId: string, query?: string) {
   })
 }
 
-export function updateSqliteMemorySettings(agentId: string, summarizeModel: unknown) {
+export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   const agent = agentRepo.getAgent(agentId)
   if (!agent) {
     return Response.json({ error: 'Not found' }, { status: 404 })
@@ -45,30 +74,50 @@ export function updateSqliteMemorySettings(agentId: string, summarizeModel: unkn
     return Response.json({ error: 'Agent memory scheme must be sqlite' }, { status: 400 })
   }
 
-  if (
-    summarizeModel !== undefined
-    && summarizeModel !== null
-    && typeof summarizeModel !== 'string'
-  ) {
-    return Response.json(
-      { error: 'summarizeModel must be a string or null' },
-      { status: 400 },
-    )
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return Response.json({ error: 'Request body must be an object' }, { status: 400 })
+  }
+
+  const body = input as Record<string, unknown>
+  const stringOrNullFields = [
+    'summarizeModel',
+    'embeddingModel',
+    'retrievePrompt',
+    'summarizePrompt',
+    'fragmentPrompt',
+    'consolidatePrompt',
+  ] as const
+
+  for (const field of stringOrNullFields) {
+    const value = body[field]
+    if (value !== undefined && value !== null && typeof value !== 'string') {
+      return Response.json(
+        { error: `${field} must be a string or null` },
+        { status: 400 },
+      )
+    }
   }
 
   const nextModules = isRecord(agent.modules) ? { ...agent.modules } : {}
   const nextMemory: Record<string, unknown> = isRecord(nextModules.memory)
     ? { ...nextModules.memory }
     : { scheme: 'sqlite' }
-  const nextSummarizeModel = typeof summarizeModel === 'string'
-    ? summarizeModel.trim() || null
-    : null
+  const nextValues = {
+    summarizeModel: readOptionalText(body.summarizeModel),
+    embeddingModel: readOptionalText(body.embeddingModel),
+    retrievePrompt: readOptionalText(body.retrievePrompt),
+    summarizePrompt: readOptionalText(body.summarizePrompt),
+    fragmentPrompt: readOptionalText(body.fragmentPrompt),
+    consolidatePrompt: readOptionalText(body.consolidatePrompt),
+  }
 
   nextMemory.scheme = 'sqlite'
-  if (nextSummarizeModel) {
-    nextMemory.summarizeModel = nextSummarizeModel
-  } else {
-    delete nextMemory.summarizeModel
+  for (const [key, value] of Object.entries(nextValues)) {
+    if (value) {
+      nextMemory[key] = value
+    } else {
+      delete nextMemory[key]
+    }
   }
   nextModules.memory = nextMemory
 
@@ -77,6 +126,11 @@ export function updateSqliteMemorySettings(agentId: string, summarizeModel: unkn
   return Response.json({
     agentId,
     scheme: 'sqlite',
-    summarizeModel: nextSummarizeModel,
+    summarizeModel: nextValues.summarizeModel,
+    embeddingModel: nextValues.embeddingModel,
+    retrievePrompt: nextValues.retrievePrompt,
+    summarizePrompt: nextValues.summarizePrompt,
+    fragmentPrompt: nextValues.fragmentPrompt,
+    consolidatePrompt: nextValues.consolidatePrompt,
   })
 }

@@ -12,6 +12,8 @@ interface EmotionConfig {
   baseline?: Partial<EmotionStateVector>
   decayPerTurn?: number
   analysisModel?: string | null
+  fragmentPrompt?: string | null
+  analysisPrompt?: string | null
 }
 
 const DEFAULT_BASELINE: EmotionStateVector = {
@@ -64,6 +66,14 @@ function normalizeConfig(config: unknown) {
       typeof record.analysisModel === 'string' && record.analysisModel.trim()
         ? record.analysisModel.trim()
         : null,
+    fragmentPrompt:
+      typeof record.fragmentPrompt === 'string' && record.fragmentPrompt.trim()
+        ? record.fragmentPrompt.trim()
+        : null,
+    analysisPrompt:
+      typeof record.analysisPrompt === 'string' && record.analysisPrompt.trim()
+        ? record.analysisPrompt.trim()
+        : null,
   }
 }
 
@@ -115,7 +125,17 @@ function readCurrentState(ctx: TurnContext, fallback: EmotionStateVector): Emoti
   return normalizeStateVector(record)
 }
 
-function buildEmotionFragment(state: EmotionStateVector): string {
+function buildEmotionFragment(state: EmotionStateVector, promptOverride?: string | null): string {
+  if (promptOverride?.trim()) {
+    return [
+      '当前情绪状态参考：',
+      `- 心情 mood：${renderMood(state.mood)}（${state.mood.toFixed(2)}）`,
+      `- 精力 energy：${renderEnergy(state.energy)}（${state.energy.toFixed(2)}）`,
+      `- 压力 stress：${renderStress(state.stress)}（${state.stress.toFixed(2)}）`,
+      promptOverride.trim(),
+    ].join('\n')
+  }
+
   return [
     '当前情绪（会随对话变化）：',
     `- 心情 mood：${renderMood(state.mood)}（${state.mood.toFixed(2)}）`,
@@ -131,6 +151,7 @@ function buildAnalysisRequest(
   baseline: EmotionStateVector,
   decayPerTurn: number,
   model: string | null,
+  promptOverride?: string | null,
 ): PendingEmotionAnalysis {
   const assistantText = ctx.response
     ? extractConversationText(ctx.response.content as ConversationMessage['content'])
@@ -158,7 +179,9 @@ function buildAnalysisRequest(
   return {
     kind: 'dimensional',
     model,
-    systemPrompt: '你负责分析单轮对话对情绪状态的影响，只输出 JSON。',
+    systemPrompt: promptOverride?.trim()
+      ? promptOverride.trim()
+      : '你负责分析单轮对话对情绪状态的影响，只输出 JSON。',
     messages: [
       {
         role: 'user',
@@ -214,7 +237,7 @@ export class DimensionalEmotionSystem implements AgentSystem {
     ctx.promptFragments.push({
       source: this.name,
       priority: 20,
-      content: buildEmotionFragment(currentState),
+      content: buildEmotionFragment(currentState, this.config.fragmentPrompt),
     })
   }
 
@@ -230,6 +253,7 @@ export class DimensionalEmotionSystem implements AgentSystem {
       this.config.baseline,
       this.config.decayPerTurn,
       this.config.analysisModel,
+      this.config.analysisPrompt,
     )
   }
 
