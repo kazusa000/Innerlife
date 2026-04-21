@@ -318,6 +318,14 @@ export function deleteSqliteMemoryByAgent(agentId: string, memoryId: string) {
   return result.changes > 0
 }
 
+export function deleteMemoriesByAgent(agentId: string) {
+  const sqlite = getMemoryRawSqlite()
+  sqlite.prepare(`
+    DELETE FROM memories
+    WHERE agent_id = ?
+  `).run(agentId)
+}
+
 export function updateSqliteMemoryLayerByAgent(agentId: string, memoryId: string, layer: MemoryLayer) {
   const sqlite = getMemoryRawSqlite()
   const result = sqlite.prepare(`

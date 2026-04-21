@@ -1,15 +1,5 @@
-import {
-  runAgent,
-  createProvider,
-  getDefaultTools,
-} from '@mas/core'
-import type { AgentConfig, Message } from '@mas/core'
-import { messageRepo, sessionRepo, agentRepo } from '@mas/db'
-import { createDbObserver, createNoopObserver } from '@mas/observer'
-import { createSystems } from '@mas/systems'
+import { executeChatTurn } from '@mas/turing/chat-executor'
 import { initDb } from '@/lib/db-init'
-
-const INTERRUPTED_SUFFIX = ' —（中断）'
 
 export async function POST(request: Request) {
   initDb()
@@ -24,44 +14,10 @@ export async function POST(request: Request) {
     })
   }
 
-  const userMessageId = messageRepo.addMessage({
-    sessionId,
-    role: 'user',
-    content: JSON.stringify([{ type: 'text', text: userMessage }]),
-  })
-
-  const dbMessages = messageRepo.getSessionMessages(sessionId)
-  const messages: Message[] = dbMessages.map((m) => ({
-    role: m.role as Message['role'],
-    content: JSON.parse(m.content),
-  }))
-
-  // Load agent config from session
-  const session = sessionRepo.getSession(sessionId)
-  const agent = session ? agentRepo.getAgent(session.agentId) : null
-
-  const provider = createProvider(agent?.provider)
-  const tools = getDefaultTools()
-  const systems = createSystems(agent?.modules ?? null)
-  const toolPrompt = 'You can use the web_fetch tool to fetch web pages. Be concise.'
-  const config: AgentConfig = {
-    id: agent?.id ?? 'default',
-    model: agent?.model ?? 'claude-sonnet-4-6',
-    systemPrompt: agent?.description
-      ? `You are ${agent.name}. ${agent.description}. ${toolPrompt}`
-      : `You are a helpful AI assistant. ${toolPrompt}`,
-    tools,
-    maxTurns: 10,
-    sessionId,
-    userId: 'default-user',
-  }
-
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
       let closed = false
-      let assistantText = ''
-      let turnStatus: 'complete' | 'aborted' | 'error' = 'complete'
 
       const push = (payload: unknown) => {
         if (closed) return
@@ -75,103 +31,37 @@ export async function POST(request: Request) {
         controller.close()
       }
 
-      const persistInterruptedMessage = () => {
-        const content = assistantText
-          ? `${assistantText}${INTERRUPTED_SUFFIX}`
-          : '（中断）'
-
-        messageRepo.addMessage({
-          sessionId,
-          role: 'assistant',
-          content: JSON.stringify([{ type: 'text', text: content }]),
-        })
-      }
-
-      const observer =
-        process.env.OBSERVER_ENABLED === '1'
-          ? createDbObserver({
-              sessionId,
-              userMessageId,
-              model: config.model,
-              onEvent: (event) => push(event),
-            })
-          : createNoopObserver()
-
       try {
-        push({
-          type: 'turn_start',
-          payload: {
-            sessionId,
+        const result = await executeChatTurn({
+          sessionId,
+          userMessage,
+          signal: request.signal,
+          onEvent: (event) => {
+            const serializable =
+              event.type === 'error'
+                ? { type: 'error', error: event.error.message || String(event.error) }
+                : event.type === 'system_error'
+                  ? {
+                      type: 'system_error',
+                      system: event.system,
+                      phase: event.phase,
+                      error: event.error.message || String(event.error),
+                    }
+                  : event
+            push(serializable)
           },
         })
-
-        for await (const event of runAgent(
-          config,
-          messages,
-          provider,
-          systems,
-          observer,
-          request.signal,
-        )) {
-          if (event.type === 'error') {
-            console.error('[agent error]', event.error)
-          }
-
-          if (event.type === 'text_delta') {
-            assistantText += event.text
-          }
-
-          const serializable =
-            event.type === 'error'
-              ? { type: 'error', error: event.error.message || String(event.error) }
-              : event.type === 'system_error'
-                ? {
-                    type: 'system_error',
-                    system: event.system,
-                    phase: event.phase,
-                    error: event.error.message || String(event.error),
-                  }
-              : event
-          push(serializable)
-
-          if (event.type === 'complete') {
-            messageRepo.addMessage({
-              sessionId,
-              role: 'assistant',
-              content: JSON.stringify(event.response.content),
-              tokenCount: event.response.usage.outputTokens,
-            })
-            assistantText = ''
-            turnStatus = 'complete'
-          }
-
-          if (event.type === 'aborted') {
-            persistInterruptedMessage()
-            turnStatus = 'aborted'
-          }
-
-          if (event.type === 'error') {
-            turnStatus = 'error'
-          }
+        if (result.status === 'error') {
+          console.error('[agent error] turn ended with error status')
         }
       } catch (err) {
         if (!request.signal.aborted) {
-          turnStatus = 'error'
           push({
             type: 'error',
             error: err instanceof Error ? err.message : String(err),
           })
-        } else {
-          turnStatus = 'aborted'
         }
       } finally {
-        push({
-          type: 'turn_end',
-          payload: {
-            sessionId,
-            status: turnStatus,
-          },
-        })
         close()
       }
     },

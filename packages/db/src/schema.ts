@@ -162,3 +162,49 @@ export const daemonState = sqliteTable('daemon_state', {
     .notNull()
     .$defaultFn(() => new Date()),
 })
+
+export const turingTestRuns = sqliteTable('turing_test_runs', {
+  id: text('id').primaryKey(),
+  sourceAgentId: text('source_agent_id')
+    .notNull()
+    .references(() => agents.id),
+  tempAgentId: text('temp_agent_id').references(() => agents.id),
+  tempSessionId: text('temp_session_id').references(() => sessions.id),
+  status: text('status', {
+    enum: ['queued', 'preparing', 'running', 'interrupting', 'interrupted', 'completed', 'failed', 'cleaned'],
+  }).notNull().default('queued'),
+  currentStage: text('current_stage'),
+  abortReason: text('abort_reason'),
+  judgeProvider: text('judge_provider'),
+  judgeModel: text('judge_model'),
+  reportJson: text('report_json'),
+  transcriptJson: text('transcript_json'),
+  error: text('error'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  startedAt: integer('started_at', { mode: 'timestamp_ms' }),
+  finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
+  cleanedAt: integer('cleaned_at', { mode: 'timestamp_ms' }),
+}, (table) => ({
+  statusIdx: index('idx_turing_test_runs_status_created_at').on(table.status, table.createdAt),
+  sourceAgentIdx: index('idx_turing_test_runs_source_agent_id').on(table.sourceAgentId, table.createdAt),
+}))
+
+export const turingTestEvents = sqliteTable('turing_test_events', {
+  id: text('id').primaryKey(),
+  runId: text('run_id')
+    .notNull()
+    .references(() => turingTestRuns.id),
+  kind: text('kind').notNull(),
+  message: text('message').notNull(),
+  payloadJson: text('payload_json'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (table) => ({
+  runCreatedAtIdx: index('idx_turing_test_events_run_created_at').on(table.runId, table.createdAt),
+}))
