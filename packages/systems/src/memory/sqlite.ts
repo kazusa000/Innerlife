@@ -3,6 +3,8 @@ import type {
   AgentSystem,
   MemoryRecord,
   MemoryQueryResult,
+  MemorySemanticAnalysisResult,
+  MemoryTimeAnalysisResult,
   MemoryResponseFormat,
   PendingMemoryQuery,
   MemoryWriteResult,
@@ -17,17 +19,14 @@ import {
 
 const DEFAULT_RETRIEVE_TOP_K = 5
 const MAX_MEMORY_CONTENT_CHARS = 500
-const MEMORY_QUERY_RESPONSE_FORMAT: MemoryResponseFormat = {
+const MEMORY_TIME_ANALYZER_RESPONSE_FORMAT: MemoryResponseFormat = {
   type: 'json_schema',
   jsonSchema: {
-    name: 'memory_query',
+    name: 'memory_time_query',
     strict: true,
     schema: {
       type: 'object',
       properties: {
-        retrieval_query: {
-          type: ['string', 'null'],
-        },
         time_range: {
           type: ['object', 'null'],
           properties: {
@@ -37,11 +36,28 @@ const MEMORY_QUERY_RESPONSE_FORMAT: MemoryResponseFormat = {
           required: ['start', 'end'],
           additionalProperties: false,
         },
+      },
+      required: ['time_range'],
+      additionalProperties: false,
+    },
+  },
+}
+const MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT: MemoryResponseFormat = {
+  type: 'json_schema',
+  jsonSchema: {
+    name: 'memory_semantic_query',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        retrieval_query: {
+          type: ['string', 'null'],
+        },
         focus: {
           type: ['string', 'null'],
         },
       },
-      required: ['retrieval_query', 'time_range', 'focus'],
+      required: ['retrieval_query', 'focus'],
       additionalProperties: false,
     },
   },
@@ -74,6 +90,8 @@ interface MemoryModuleConfig {
   retrieveTopK: number
   embedder: MemoryEmbedder
   retrievePrompt: string | null
+  timeAnalyzerPrompt: string | null
+  semanticAnalyzerPrompt: string | null
   summarizePrompt: string | null
   fragmentPrompt: string | null
   consolidatePrompt: string | null
@@ -139,6 +157,8 @@ function readConfig(config: unknown): MemoryModuleConfig {
       retrieveTopK: DEFAULT_RETRIEVE_TOP_K,
       embedder,
       retrievePrompt: null,
+      timeAnalyzerPrompt: null,
+      semanticAnalyzerPrompt: null,
       summarizePrompt: null,
       fragmentPrompt: null,
       consolidatePrompt: null,
@@ -162,6 +182,8 @@ function readConfig(config: unknown): MemoryModuleConfig {
         ? record.embedder as MemoryEmbedder
         : embedder,
     retrievePrompt: readOptionalText(record.retrievePrompt),
+    timeAnalyzerPrompt: readOptionalText(record.timeAnalyzerPrompt),
+    semanticAnalyzerPrompt: readOptionalText(record.semanticAnalyzerPrompt),
     summarizePrompt: readOptionalText(record.summarizePrompt),
     fragmentPrompt: readOptionalText(record.fragmentPrompt),
     consolidatePrompt: readOptionalText(record.consolidatePrompt),
@@ -175,6 +197,8 @@ export function resolveMemorySqliteConfig(config: unknown) {
     embeddingModel: resolved.embeddingModel,
     retrieveTopK: resolved.retrieveTopK,
     retrievePrompt: resolved.retrievePrompt,
+    timeAnalyzerPrompt: resolved.timeAnalyzerPrompt,
+    semanticAnalyzerPrompt: resolved.semanticAnalyzerPrompt,
     summarizePrompt: resolved.summarizePrompt,
     fragmentPrompt: resolved.fragmentPrompt,
     consolidatePrompt: resolved.consolidatePrompt,
@@ -204,32 +228,62 @@ export function buildSummaryPrompt(promptOverride?: string | null): string {
   ].join('\n')
 }
 
-export function buildRetrievePrompt(promptOverride?: string | null): string {
+function resolveTimeAnalyzerPromptOverride(config: Pick<MemoryModuleConfig, 'timeAnalyzerPrompt' | 'retrievePrompt'>) {
+  return config.timeAnalyzerPrompt ?? config.retrievePrompt
+}
+
+function resolveSemanticAnalyzerPromptOverride(config: Pick<MemoryModuleConfig, 'semanticAnalyzerPrompt' | 'retrievePrompt'>) {
+  return config.semanticAnalyzerPrompt ?? config.retrievePrompt
+}
+
+export function buildTimeAnalyzerPrompt(promptOverride?: string | null): string {
   if (promptOverride?.trim()) {
     return promptOverride.trim()
   }
 
   return [
-    '你要为 sqlite 记忆系统准备一份语义检索查询。',
+    '你是 sqlite 记忆系统的时间分析器。',
     '你会收到电脑当前的本地时间，以及用户最新一条消息。',
     '请严格返回如下 JSON 结构：',
-    '{"retrieval_query": string | null, "time_range": {"start": string, "end": string} | null, "focus": string | null}',
-    'retrieval_query 只保留最短、最稳定、最能检索的主题锚点，通常就是一个名词或很短的名词短语；不要写解释句。',
-    '时间信息绝不进入 retrieval_query；时间只进入 time_range。',
-    'retrieval_query 不要包含说话者、提问动作、讨论动作，也不要包含“内容/事情/对话/讨论”这类回顾外壳，也不要复述整个时间回顾问句。',
-    '去掉时间和回顾外壳后，如果没有稳定主题锚点，就返回 "retrieval_query": null；纯回顾问法本身不是主题锚点。',
-    'retrieval_query 和 focus 默认使用与用户消息相同的语言；中文提问就用中文，不要改成英文。',
+    '{"time_range": {"start": string, "end": string} | null}',
     '如果用户没有表达时间意图，返回 "time_range": null。',
-    '如果用户表达了时间意图，请基于当前本地时间返回尽量精确的绝对 time_range；time_range 负责“什么时候”，retrieval_query 只负责“是什么”。',
+    '如果用户表达了时间意图，请基于当前本地时间返回尽量精确的绝对 time_range。',
     '如果问题明显是在回顾已经发生过的内容，time_range 必须落在已经过去的时间窗口里，不要返回未来时间；优先选择最近一个已经结束的过去时段。',
     '如果用户是在泛指过去互动、先前对话、此前提到过的事，即使没有明确时间粒度，也视为时间意图；返回覆盖足够宽的过去区间并以当前本地时间为结束的非空 time_range，不要返回 null。',
-    '如果用户只是在回顾某个时间段里聊过什么、说过什么、讨论过什么，retrieval_query 可以为 null，但 time_range 不应为 null。',
+    '这类泛指过去互动的问法，start 不要贴近当前时间到只剩几秒或几分钟；应覆盖明显更长的过去区间。',
+    '如果去掉回顾语气后仍然存在明确的主题锚点，而原句又没有明确时间表达，则不要仅因为“记得/聊过/提到过”就补一个 time_range；这种情况下 time_range 应为 null。',
+    '如果用户只是在回顾某个时间段里聊过什么、说过什么、讨论过什么，time_range 不应为 null。',
     '“今天”表示当前本地自然日，“昨天”表示前一个本地自然日，不是滚动的 24 小时窗口。',
     '上午=06:00-11:59，下午=12:00-17:59，晚上=18:00-23:59，凌晨=00:00-05:59，全部按本地时间理解。',
     '“刚刚/刚才/前面/上一句”要对应最近几分钟的短时间窗口，不是单一时间点。',
     '“今天上午/今天下午/今晚/昨晚/今早/昨天上午”要对应最窄、最贴近原话的局部时间窗口，不要扩大成整天，不要跨到其他时段，也不要跨到下一天；如果该时段尚未发生，就回指最近一个已经结束的同类过去时段。',
-    'focus 只写简短关注点；没有明显 focus 就返回 null。',
     '"start" 和 "end" 必须是 ISO 8601 datetime 字符串。',
+    '不要输出 markdown、代码块或任何额外说明。',
+  ].join('\n')
+}
+
+export function buildSemanticAnalyzerPrompt(promptOverride?: string | null): string {
+  if (promptOverride?.trim()) {
+    return promptOverride.trim()
+  }
+
+  return [
+    '你是 sqlite 记忆系统的语义分析器。',
+    '你会收到用户最新一条消息。',
+    '请严格返回如下 JSON 结构：',
+    '{"retrieval_query": string | null, "focus": string | null}',
+    'retrieval_query 只保留最短、最稳定、最能检索的主题锚点，通常就是一个名词或很短的名词短语；不要写解释句。',
+    '时间信息绝不进入 retrieval_query。',
+    'retrieval_query 不要包含说话者、提问动作、讨论动作，也不要包含“内容/事情/对话/讨论”这类回顾外壳，也不要复述整个时间回顾问句。',
+    '去掉时间和回顾外壳后，如果还剩下具体对象、主题、画面、名字、食物、bug、地点、关系或意象，就保留它，不要误判成 null。',
+    'retrieval_query 必须是一个自足的短语，不要输出“猫的”这类残缺片段；必要时补成“猫名字”“bug 修复”“海边灯塔画面”这种完整但简短的主题表达。',
+    '如果原句是在回顾某个时间段里聊过的对象、场景、画面、名字或事件类型，去掉时间后剩下的那部分仍然是主题锚点。',
+    '只要存在稳定主题锚点，就必须把它放进 retrieval_query；focus 只能补充说明，不能替代 retrieval_query。',
+    '如果原句里明确出现了“画面”“场景”“名字”“地点”“食物”“bug”这类名词短语，而去掉时间后它们仍然存在，则 retrieval_query 不能为 null。',
+    '如果剩下的主题本身就是一个抽象名词，但它已经明确指向用户要找的对象，例如“画面”“场景”“名字”“梦境”“氛围”，就直接把这个词作为 retrieval_query，不要返回 null。',
+    '去掉时间和回顾外壳后，如果没有稳定主题锚点，就返回 "retrieval_query": null；纯回顾问法本身不是主题锚点。',
+    'retrieval_query 和 focus 默认使用与用户消息相同的语言；中文提问就用中文，不要改成英文。',
+    'focus 只写简短关注点；没有明显 focus 就返回 null。',
     '不要输出 markdown、代码块或任何额外说明。',
   ].join('\n')
 }
@@ -334,11 +388,15 @@ function formatLocalMemoryPromptTime(date: Date): string {
   return `${year}-${month}-${day} ${hours}:${minutes} ${formatOffset(localMinutes)}`
 }
 
-function buildRetrieveInputText(userText: string, now = new Date()) {
+function buildTimeAnalyzerInputText(userText: string, now = new Date()) {
   return [
     `当前本地时间：${formatLocalIsoDateTime(now)}`,
     `用户消息：${userText}`,
   ].join('\n')
+}
+
+function buildSemanticAnalyzerInputText(userText: string) {
+  return `用户消息：${userText}`
 }
 
 function buildSourceText(ctx: TurnContext): string {
@@ -448,32 +506,45 @@ function parseTimeRange(value: unknown): MemoryQueryResult['timeRange'] {
   return { start, end }
 }
 
-function parseMemoryQueryResponse(responseText: string): MemoryQueryResult {
+function parseTimeAnalyzerResponse(responseText: string): MemoryTimeAnalysisResult {
   let parsed: unknown
   try {
     parsed = extractJson(responseText)
   } catch {
-    throw new Error('Memory query call returned invalid JSON')
+    throw new Error('Memory time analyzer returned invalid JSON')
   }
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Memory query call did not return a JSON object')
+    throw new Error('Memory time analyzer did not return a JSON object')
+  }
+
+  const record = parsed as Record<string, unknown>
+  const timeRange = parseTimeRange(record.time_range)
+
+  return { timeRange }
+}
+
+function parseSemanticAnalyzerResponse(responseText: string): MemorySemanticAnalysisResult {
+  let parsed: unknown
+  try {
+    parsed = extractJson(responseText)
+  } catch {
+    throw new Error('Memory semantic analyzer returned invalid JSON')
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Memory semantic analyzer did not return a JSON object')
   }
 
   const record = parsed as Record<string, unknown>
   const retrievalQuery = typeof record.retrieval_query === 'string' && record.retrieval_query.trim()
     ? record.retrieval_query.trim()
     : null
-  const timeRange = parseTimeRange(record.time_range)
   const focus = typeof record.focus === 'string' && record.focus.trim()
     ? record.focus.trim()
     : null
 
-  if (!retrievalQuery && !timeRange) {
-    throw new Error('Memory query call returned neither retrieval_query nor time_range')
-  }
-
-  return { retrievalQuery, timeRange, focus }
+  return { retrievalQuery, focus }
 }
 
 export function buildMemoryConsolidationPrompt(promptOverride?: string | null): string {
@@ -597,7 +668,9 @@ export class MemorySqliteSystem implements AgentSystem {
   private readonly embeddingModel: string
   private readonly retrieveTopK: number
   private readonly embedder: MemoryEmbedder
-  private readonly retrievePrompt: string | null
+  private readonly legacyRetrievePrompt: string | null
+  private readonly timeAnalyzerPrompt: string | null
+  private readonly semanticAnalyzerPrompt: string | null
   private readonly summarizePrompt: string | null
   private readonly fragmentPrompt: string | null
 
@@ -607,21 +680,52 @@ export class MemorySqliteSystem implements AgentSystem {
     this.embeddingModel = resolved.embeddingModel
     this.retrieveTopK = resolved.retrieveTopK
     this.embedder = resolved.embedder
-    this.retrievePrompt = resolved.retrievePrompt
+    this.legacyRetrievePrompt = resolved.retrievePrompt
+    this.timeAnalyzerPrompt = resolved.timeAnalyzerPrompt
+    this.semanticAnalyzerPrompt = resolved.semanticAnalyzerPrompt
     this.summarizePrompt = resolved.summarizePrompt
     this.fragmentPrompt = resolved.fragmentPrompt
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
+    const timePromptOverride = resolveTimeAnalyzerPromptOverride({
+      timeAnalyzerPrompt: this.timeAnalyzerPrompt,
+      retrievePrompt: this.legacyRetrievePrompt,
+    })
+    const semanticPromptOverride = resolveSemanticAnalyzerPromptOverride({
+      semanticAnalyzerPrompt: this.semanticAnalyzerPrompt,
+      retrievePrompt: this.legacyRetrievePrompt,
+    })
     const pending: PendingMemoryQuery = {
       kind: 'sqlite',
       system: this.name,
       model: this.summarizeModel,
       reasoning: { effort: 'none' },
-      responseFormat: MEMORY_QUERY_RESPONSE_FORMAT,
-      prompt: buildRetrievePrompt(this.retrievePrompt),
-      inputText: buildRetrieveInputText(ctx.input.text),
-      parse: parseMemoryQueryResponse,
+      timeAnalyzer: {
+        prompt: buildTimeAnalyzerPrompt(timePromptOverride),
+        inputText: buildTimeAnalyzerInputText(ctx.input.text),
+        responseFormat: MEMORY_TIME_ANALYZER_RESPONSE_FORMAT,
+        parse: parseTimeAnalyzerResponse,
+      },
+      semanticAnalyzer: {
+        prompt: buildSemanticAnalyzerPrompt(semanticPromptOverride),
+        inputText: buildSemanticAnalyzerInputText(ctx.input.text),
+        responseFormat: MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT,
+        parse: parseSemanticAnalyzerResponse,
+      },
+      merge: ({ time, semantic }) => {
+        const merged = {
+          retrievalQuery: semantic.retrievalQuery,
+          focus: semantic.focus,
+          timeRange: time?.timeRange ?? null,
+        }
+
+        if (!merged.retrievalQuery && !merged.timeRange) {
+          throw new Error('Memory query analyzers returned neither retrieval_query nor time_range')
+        }
+
+        return merged
+      },
       retrieve: async (query) => {
         const usePureTimeRecall = query.timeRange && !query.retrievalQuery
         const queryTexts = (usePureTimeRecall ? [] : [ctx.input.text, query.retrievalQuery])

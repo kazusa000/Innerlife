@@ -10,6 +10,8 @@ import {
   getMemoryFocus,
   getMemoryRetrievalQuery,
   getMemoryReport,
+  getMemorySemanticAnalyzer,
+  getMemoryTimeAnalyzer,
   getMemoryTimeRange,
   getMemoryWritten,
   formatImportance,
@@ -36,6 +38,8 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
   const retrievalQuery = getMemoryRetrievalQuery(call)
   const focus = getMemoryFocus(call)
   const timeRange = getMemoryTimeRange(call)
+  const timeAnalyzer = getMemoryTimeAnalyzer(call)
+  const semanticAnalyzer = getMemorySemanticAnalyzer(call)
   const hits = getMemoryHits(call)
   const written = getMemoryWritten(call)
   const report = getMemoryReport(call)
@@ -87,7 +91,36 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
         >
           {phase === 'retrieve' && (
             <>
-              <CollapsibleSection title={OBSERVER_UI_COPY.keywords} accent={CALL_ACCENTS.memory.color} defaultOpen>
+              <CollapsibleSection title="Time Analyzer" accent={CALL_ACCENTS.memory.color} defaultOpen>
+                <DetailList
+                  rows={[
+                    {
+                      label: OBSERVER_UI_COPY.timeRange,
+                      value: timeAnalyzer?.timeRange ? (
+                        <DetailList
+                          rows={[
+                            { label: '开始', value: timeAnalyzer.timeRange.start },
+                            { label: '结束', value: timeAnalyzer.timeRange.end },
+                          ]}
+                        />
+                      ) : '无',
+                    },
+                    { label: '错误', value: timeAnalyzer?.error ?? '无' },
+                  ]}
+                />
+              </CollapsibleSection>
+
+              <CollapsibleSection title="Semantic Analyzer" accent={CALL_ACCENTS.memory.color} defaultOpen>
+                <DetailList
+                  rows={[
+                    { label: '检索改写', value: semanticAnalyzer?.retrievalQuery ?? '无' },
+                    { label: '聚焦点', value: semanticAnalyzer?.focus ?? '无' },
+                    { label: '错误', value: semanticAnalyzer?.error ?? '无' },
+                  ]}
+                />
+              </CollapsibleSection>
+
+              <CollapsibleSection title="Merged Query" accent={CALL_ACCENTS.memory.color} defaultOpen>
                 <DetailList
                   rows={[
                     { label: '检索改写', value: retrievalQuery ?? '无' },

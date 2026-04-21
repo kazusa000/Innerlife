@@ -1,6 +1,6 @@
 # D1d — Memory 查询拆分为双 LLM 分析器
 
-**状态**: pending
+**状态**: done
 **前置依赖**: 当前 `memory:sqlite` embedding 检索链路已完成；与 Daemon / STM / LTM 无依赖
 **预计规模**: medium
 
@@ -50,50 +50,50 @@
 ## 完成标准
 
 ### 数据与调用链（可自动验证）
-- [ ] `memory.retrieve` 不再用一个 LLM prompt 同时产出 `retrieval_query + time_range + focus`
-- [ ] 改为两个独立 pending/query 调用：
-- [ ] `time analyzer` 只输出 `time_range`
-- [ ] `semantic analyzer` 只输出 `retrieval_query + focus`
-- [ ] 两个 analyzer 都走结构化输出（沿用现有 OpenRouter `json_schema` 路径）
-- [ ] 两个 analyzer 的输出会在进入 repository 检索前合并成统一 metadata
-- [ ] `retrieval_query` 允许为 `null`
-- [ ] `time_range` 允许为 `null`
-- [ ] 纯时间回顾问题（如 `我刚刚和你说了什么`）在 merged metadata 中表现为：
-- [ ] `retrieval_query = null`
-- [ ] `time_range != null`
-- [ ] 时间 + 主题混合问题（如 `前天上午聊的画面`）在 merged metadata 中表现为：
-- [ ] `retrieval_query != null`
-- [ ] `time_range != null`
-- [ ] 纯主题问题（如 `你还记得我养的猫叫什么吗`）在 merged metadata 中表现为：
-- [ ] `retrieval_query != null`
-- [ ] `time_range = null`
+- [x] `memory.retrieve` 不再用一个 LLM prompt 同时产出 `retrieval_query + time_range + focus`
+- [x] 改为两个独立 pending/query 调用：
+- [x] `time analyzer` 只输出 `time_range`
+- [x] `semantic analyzer` 只输出 `retrieval_query + focus`
+- [x] 两个 analyzer 都走结构化输出（OpenRouter `json_schema`）
+- [x] 两个 analyzer 的输出会在进入 repository 检索前合并成统一 metadata
+- [x] `retrieval_query` 允许为 `null`
+- [x] `time_range` 允许为 `null`
+- [x] 纯时间回顾问题（如 `我刚刚和你说了什么`）在 merged metadata 中表现为：
+- [x] `retrieval_query = null`
+- [x] `time_range != null`
+- [x] 时间 + 主题混合问题（如 `前天上午聊的画面`）在 merged metadata 中表现为：
+- [x] `retrieval_query != null`
+- [x] `time_range != null`
+- [x] 纯主题问题（如 `你还记得我养的猫叫什么吗`）在 merged metadata 中表现为：
+- [x] `retrieval_query != null`
+- [x] `time_range = null`
 
 ### Observer（必须包含在本卡）
-- [ ] `memory.retrieve` 的 Observer 信息能区分两个 analyzer，而不是继续只有一个模糊的 retrieve 黑盒
-- [ ] 聊天页抽屉可见：
-- [ ] `time analyzer` 的输出
-- [ ] `semantic analyzer` 的输出
-- [ ] merged 后的最终 memory query metadata
-- [ ] 独立 `/observer` 页面也能看到同样的信息，不要求重做布局，但不能只剩原始 JSON 才能读懂
-- [ ] 如果某个 analyzer 失败，Observer 能明确看出失败的是哪一个 analyzer
-- [ ] 最终 merged metadata 至少包含：
-- [ ] `retrievalQuery`
-- [ ] `focus`
-- [ ] `timeRange`
+- [x] `memory.retrieve` 的 Observer 信息能区分两个 analyzer，而不是继续只有一个模糊的 retrieve 黑盒
+- [x] 聊天页抽屉可见：
+- [x] `time analyzer` 的输出
+- [x] `semantic analyzer` 的输出
+- [x] merged 后的最终 memory query metadata
+- [x] 独立 `/observer` 页面也能看到同样的信息，不要求重做布局，但不能只剩原始 JSON 才能读懂
+- [x] 如果某个 analyzer 失败，Observer 能明确看出失败的是哪一个 analyzer
+- [x] 最终 merged metadata 至少包含：
+- [x] `retrievalQuery`
+- [x] `focus`
+- [x] `timeRange`
 
 ### 测试与验证
-- [ ] 单测补齐：
-- [ ] `semantic analyzer` 解析结果测试
-- [ ] `time analyzer` 解析结果测试
-- [ ] merge 行为测试
-- [ ] `runner` / memory retrieve 调用次数测试（确认 memory 查询分析确实变成两次 LLM 调用）
-- [ ] Observer 渲染测试更新
-- [ ] 至少做一轮真实对话验证，不只跑单测；需要结合 Observer 确认两个 analyzer 都实际被调用并落出可读结果
-- [ ] 至少覆盖以下 3 类真实问法：
-- [ ] 纯时间：`我刚刚和你说了什么`
-- [ ] 时间 + 主题：`你还记得前天上午聊的画面吗`
-- [ ] 纯主题：`你还记得我养的猫叫什么吗`
-- [ ] `typecheck / test` 通过
+- [x] 单测补齐：
+- [x] `semantic analyzer` 解析结果测试
+- [x] `time analyzer` 解析结果测试
+- [x] merge 行为测试
+- [x] `runner` / memory retrieve 调用次数测试（确认 memory 查询分析确实变成两次 LLM 调用）
+- [x] Observer 渲染测试更新
+- [x] 至少做一轮真实对话验证，不只跑单测；需要结合 Observer 确认两个 analyzer 都实际被调用并落出可读结果
+- [x] 至少覆盖以下 3 类真实问法：
+- [x] 纯时间：`我刚刚和你说了什么`
+- [x] 时间 + 主题：`你还记得前天上午聊的画面吗`
+- [x] 纯主题：`你还记得我养的猫叫什么吗`
+- [x] `typecheck / test` 通过
 
 ## 非目标（明确不做）
 
@@ -123,3 +123,21 @@
 - 单 analyzer 方案里，`retrieval_query` 容易被时间表达和“内容/事情/讨论”这类回顾外壳污染
 - 离线实验显示：拆成 `time analyzer + semantic analyzer` 后，主题锚点提炼明显更干净；这张卡就是把那条路线正式落进项目
 - 如果最终实现需要为 Observer 增加更细的 `phase` / `subkind` / metadata 字段，优先保持命名清晰，不要做“靠 message 文本猜是哪条 analyzer”的隐式方案
+
+## Completion Note
+
+- 当前主线已经真正把 `memory.retrieve` 拆成了两条并行 analyzer：
+  - `time analyzer` 只负责 `time_range`
+  - `semantic analyzer` 只负责 `retrieval_query + focus`
+- memory 管理页的单个 `Retrieve Prompt` 已改成：
+  - `Time Analyzer Prompt`
+  - `Semantic Analyzer Prompt`
+- 旧 `retrievePrompt` 仍保留兼容读取；若旧 agent 还没迁移，会作为两个 analyzer 的 effective prompt 使用；管理页首次保存会写入新字段并清掉 legacy 字段。
+- Observer 仍保留单条 `memory.retrieve` call，但 metadata 已拆成：
+  - `timeAnalyzer`
+  - `semanticAnalyzer`
+  - `mergedQuery`
+- 真实 `/api/chat` 验证里，已确认：
+  - 纯时间问法会得到 `retrieval_query = null`
+  - 纯主题问法默认不再脑补 `time_range`
+  - 时间 + 主题混合问法会在 Observer 中分别显示两条 analyzer 的输出和 merged 结果

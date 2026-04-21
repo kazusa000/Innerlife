@@ -68,6 +68,17 @@ export interface MemoryTimeRange {
   end: string
 }
 
+export interface MemoryTimeAnalyzerMeta {
+  timeRange: MemoryTimeRange | null
+  error: string | null
+}
+
+export interface MemorySemanticAnalyzerMeta {
+  retrievalQuery: string | null
+  focus: string | null
+  error: string | null
+}
+
 export interface CompactionInfo {
   beforeMessageCount: number | null
   afterMessageCount: number | null
@@ -243,15 +254,21 @@ export function getMemoryReport(call: LiveCall): MemoryReport | null {
 }
 
 export function getMemoryRetrievalQuery(call: LiveCall): string | null {
-  return readString(getMetadata(call)?.retrievalQuery)
+  const metadata = getMetadata(call)
+  const merged = isRecord(metadata?.mergedQuery) ? metadata?.mergedQuery : null
+  return readString(merged?.retrievalQuery) ?? readString(metadata?.retrievalQuery)
 }
 
 export function getMemoryFocus(call: LiveCall): string | null {
-  return readString(getMetadata(call)?.focus)
+  const metadata = getMetadata(call)
+  const merged = isRecord(metadata?.mergedQuery) ? metadata?.mergedQuery : null
+  return readString(merged?.focus) ?? readString(metadata?.focus)
 }
 
 export function getMemoryTimeRange(call: LiveCall): MemoryTimeRange | null {
-  const timeRange = getMetadata(call)?.timeRange
+  const metadata = getMetadata(call)
+  const merged = isRecord(metadata?.mergedQuery) ? metadata?.mergedQuery : null
+  const timeRange = merged?.timeRange ?? metadata?.timeRange
   if (!isRecord(timeRange)) {
     return null
   }
@@ -263,6 +280,46 @@ export function getMemoryTimeRange(call: LiveCall): MemoryTimeRange | null {
   }
 
   return { start, end }
+}
+
+function readMemoryTimeRange(value: unknown): MemoryTimeRange | null {
+  const timeRange = value
+  if (!isRecord(timeRange)) {
+    return null
+  }
+
+  const start = readString(timeRange.start)
+  const end = readString(timeRange.end)
+  if (!start || !end) {
+    return null
+  }
+
+  return { start, end }
+}
+
+export function getMemoryTimeAnalyzer(call: LiveCall): MemoryTimeAnalyzerMeta | null {
+  const analyzer = getMetadata(call)?.timeAnalyzer
+  if (!isRecord(analyzer)) {
+    return null
+  }
+
+  return {
+    timeRange: readMemoryTimeRange(analyzer.timeRange),
+    error: readString(analyzer.error),
+  }
+}
+
+export function getMemorySemanticAnalyzer(call: LiveCall): MemorySemanticAnalyzerMeta | null {
+  const analyzer = getMetadata(call)?.semanticAnalyzer
+  if (!isRecord(analyzer)) {
+    return null
+  }
+
+  return {
+    retrievalQuery: readString(analyzer.retrievalQuery),
+    focus: readString(analyzer.focus),
+    error: readString(analyzer.error),
+  }
 }
 
 export function getCompactionInfo(call: LiveCall): CompactionInfo | null {

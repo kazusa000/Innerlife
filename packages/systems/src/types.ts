@@ -88,6 +88,22 @@ export interface MemoryQueryResult {
   focus: string | null
 }
 
+export interface MemoryTimeAnalysisResult {
+  timeRange: MemoryTimeRange | null
+}
+
+export interface MemorySemanticAnalysisResult {
+  retrievalQuery: string | null
+  focus: string | null
+}
+
+export interface PendingMemoryQueryAnalyzer<Result> {
+  prompt: string
+  inputText: string
+  responseFormat?: MemoryResponseFormat
+  parse(responseText: string): Result
+}
+
 export interface PendingMemoryWrite {
   kind: 'sqlite'
   system: string
@@ -105,10 +121,12 @@ export interface PendingMemoryQuery {
   system: string
   model?: string | null
   reasoning?: MemoryReasoningConfig
-  responseFormat?: MemoryResponseFormat
-  prompt: string
-  inputText: string
-  parse(responseText: string): MemoryQueryResult
+  timeAnalyzer: PendingMemoryQueryAnalyzer<MemoryTimeAnalysisResult>
+  semanticAnalyzer: PendingMemoryQueryAnalyzer<MemorySemanticAnalysisResult>
+  merge(input: {
+    time: MemoryTimeAnalysisResult | null
+    semantic: MemorySemanticAnalysisResult
+  }): MemoryQueryResult
   retrieve(query: MemoryQueryResult): Promise<MemoryRecord[]> | MemoryRecord[]
 }
 

@@ -331,9 +331,10 @@ function MemorySection({
 export function MemoryView({ metadata }: { metadata: unknown }) {
   const record = readRecord(metadata)
   const phase = readText(record?.phase) ?? 'unknown'
-  const retrievalQuery = readText(record?.retrievalQuery)
-  const focus = readText(record?.focus)
-  const timeRange = readRecord(record?.timeRange)
+  const mergedQuery = readRecord(record?.mergedQuery)
+  const retrievalQuery = readText(mergedQuery?.retrievalQuery) ?? readText(record?.retrievalQuery)
+  const focus = readText(mergedQuery?.focus) ?? readText(record?.focus)
+  const timeRange = readRecord(mergedQuery?.timeRange) ?? readRecord(record?.timeRange)
   const timeRangeStart = readText(timeRange?.start)
   const timeRangeEnd = readText(timeRange?.end)
   const written = readRecord(record?.written)
@@ -359,20 +360,19 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
 
       {phase === 'retrieve' && (
         <>
-          <MemorySection title={OBSERVER_UI_COPY.keywords}>
+          <MemorySection title="Time Analyzer">
             <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
-              {JSON.stringify({ retrievalQuery, focus }, null, 2)}
+              {JSON.stringify(readRecord(record?.timeAnalyzer) ?? null, null, 2)}
             </pre>
           </MemorySection>
-          <MemorySection title={OBSERVER_UI_COPY.timeRange}>
+          <MemorySection title="Semantic Analyzer">
             <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
-              {JSON.stringify(
-                timeRangeStart && timeRangeEnd
-                  ? { start: timeRangeStart, end: timeRangeEnd }
-                  : null,
-                null,
-                2,
-              )}
+              {JSON.stringify(readRecord(record?.semanticAnalyzer) ?? null, null, 2)}
+            </pre>
+          </MemorySection>
+          <MemorySection title="Merged Query">
+            <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+              {JSON.stringify({ retrievalQuery, focus, timeRange: timeRangeStart && timeRangeEnd ? { start: timeRangeStart, end: timeRangeEnd } : null }, null, 2)}
             </pre>
           </MemorySection>
           <MemorySection title={OBSERVER_UI_COPY.hits}>

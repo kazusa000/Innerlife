@@ -96,8 +96,12 @@ function createTextMessage(role: Message['role'], text: string): Message {
   }
 }
 
-function isMemoryRetrievePrompt(systemPrompt: string): boolean {
-  return systemPrompt.includes('sqlite 记忆系统准备一份语义检索查询')
+function isMemoryTimePrompt(systemPrompt: string): boolean {
+  return systemPrompt.includes('sqlite 记忆系统的时间分析器')
+}
+
+function isMemorySemanticPrompt(systemPrompt: string): boolean {
+  return systemPrompt.includes('sqlite 记忆系统的语义分析器')
 }
 
 function createEmbedder(map: Record<string, number[]>) {
@@ -154,7 +158,26 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
         responseFormat: params.responseFormat,
       })
 
-      if (isMemoryRetrievePrompt(params.systemPrompt)) {
+      if (isMemoryTimePrompt(params.systemPrompt)) {
+        yield {
+          type: 'message_complete',
+          response: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  time_range: null,
+                }),
+              },
+            ],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 5, outputTokens: 2 },
+          },
+        }
+        return
+      }
+
+      if (isMemorySemanticPrompt(params.systemPrompt)) {
         yield {
           type: 'message_complete',
           response: {
@@ -163,7 +186,6 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
                 type: 'text',
                 text: JSON.stringify({
                   retrieval_query: '用户告诉过我的猫叫什么名字',
-                  time_range: null,
                   focus: '猫的名字',
                 }),
               },
@@ -252,20 +274,31 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
               },
             }
           : undefined,
-        kind: isMemoryRetrievePrompt(request.systemPrompt)
-          ? 'retrieve'
+        kind: isMemoryTimePrompt(request.systemPrompt)
+          ? 'retrieve_time'
+          : isMemorySemanticPrompt(request.systemPrompt)
+            ? 'retrieve_semantic'
           : request.systemPrompt.includes('"display_summary": string')
             ? 'summarize'
             : 'turn',
       })),
       [
         {
-          kind: 'retrieve',
+          kind: 'retrieve_time',
           model: 'memory-model',
           reasoning: { effort: 'none' },
           responseFormat: {
             type: 'json_schema',
-            jsonSchema: { name: 'memory_query' },
+            jsonSchema: { name: 'memory_time_query' },
+          },
+        },
+        {
+          kind: 'retrieve_semantic',
+          model: 'memory-model',
+          reasoning: { effort: 'none' },
+          responseFormat: {
+            type: 'json_schema',
+            jsonSchema: { name: 'memory_semantic_query' },
           },
         },
         {
@@ -287,6 +320,20 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
     )
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
+      timeAnalyzer: {
+        timeRange: null,
+        error: null,
+      },
+      semanticAnalyzer: {
+        retrievalQuery: '用户告诉过我的猫叫什么名字',
+        focus: '猫的名字',
+        error: null,
+      },
+      mergedQuery: {
+        retrievalQuery: '用户告诉过我的猫叫什么名字',
+        focus: '猫的名字',
+        timeRange: null,
+      },
       retrievalQuery: '用户告诉过我的猫叫什么名字',
       focus: '猫的名字',
       timeRange: null,
@@ -353,7 +400,29 @@ test('runAgent supports pure time-range recall without a retrieval query', async
 
     const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
     const provider = new FakeProvider(async function* (params) {
-      if (isMemoryRetrievePrompt(params.systemPrompt)) {
+      if (isMemoryTimePrompt(params.systemPrompt)) {
+        yield {
+          type: 'message_complete',
+          response: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  time_range: {
+                    start: '2026-04-19T00:00:00.000Z',
+                    end: '2026-04-19T23:59:59.000Z',
+                  },
+                }),
+              },
+            ],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 5, outputTokens: 2 },
+          },
+        }
+        return
+      }
+
+      if (isMemorySemanticPrompt(params.systemPrompt)) {
         yield {
           type: 'message_complete',
           response: {
@@ -362,16 +431,12 @@ test('runAgent supports pure time-range recall without a retrieval query', async
                 type: 'text',
                 text: JSON.stringify({
                   retrieval_query: null,
-                  time_range: {
-                    start: '2026-04-19T00:00:00.000Z',
-                    end: '2026-04-19T23:59:59.000Z',
-                  },
                   focus: '昨天发生的事',
                 }),
               },
             ],
             stopReason: 'end_turn',
-            usage: { inputTokens: 5, outputTokens: 4 },
+            usage: { inputTokens: 4, outputTokens: 3 },
           },
         }
         return
@@ -452,6 +517,18 @@ test('runAgent supports pure time-range recall without a retrieval query', async
     assert.equal(retrieveMetadata?.focus, '昨天发生的事')
     assert.equal(retrieveMetadata?.hitCount, 1)
     assert.deepEqual(retrieveMetadata?.memoryIds, [existingMemory.id])
+    assert.deepEqual((observerEnds[0]?.metadata as { timeAnalyzer?: unknown })?.timeAnalyzer, {
+      timeRange: {
+        start: '2026-04-19T00:00:00.000Z',
+        end: '2026-04-19T23:59:59.000Z',
+      },
+      error: null,
+    })
+    assert.deepEqual((observerEnds[0]?.metadata as { semanticAnalyzer?: unknown })?.semanticAnalyzer, {
+      retrievalQuery: null,
+      focus: '昨天发生的事',
+      error: null,
+    })
     assert.deepEqual(retrieveMetadata?.timeRange, {
       start: '2026-04-19T00:00:00.000Z',
       end: '2026-04-19T23:59:59.000Z',
@@ -476,8 +553,20 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
   }
 
   const provider = new FakeProvider(async function* (params) {
-    if (isMemoryRetrievePrompt(params.systemPrompt)) {
+    if (isMemoryTimePrompt(params.systemPrompt)) {
       throw new Error('memory query failed')
+    }
+
+    if (isMemorySemanticPrompt(params.systemPrompt)) {
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: JSON.stringify({ retrieval_query: null, focus: null }) }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 2, outputTokens: 2 },
+        },
+      }
+      return
     }
 
     if (params.systemPrompt.includes('"display_summary": string')) {
@@ -545,6 +634,9 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
   assert.equal(events.at(-1)?.type, 'complete')
   assert.deepEqual(observerEnds[0]?.metadata, {
     phase: 'retrieve',
+    timeAnalyzer: { timeRange: null, error: 'memory query failed' },
+    semanticAnalyzer: { retrievalQuery: null, focus: null, error: null },
+    mergedQuery: { retrievalQuery: null, focus: null, timeRange: null },
     retrievalQuery: null,
     focus: null,
     timeRange: null,
@@ -570,13 +662,30 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
         ctx.pendingMemoryQuery = {
           kind: 'sqlite',
           system: 'memory:sqlite',
-          prompt: '你要为 sqlite 记忆系统准备一份语义检索查询。',
-          inputText: ctx.input.text,
-          parse() {
+          timeAnalyzer: {
+            prompt: 'time analyzer prompt',
+            inputText: ctx.input.text,
+            responseFormat: undefined,
+            parse() {
+              return { timeRange: null }
+            },
+          },
+          semanticAnalyzer: {
+            prompt: 'semantic analyzer prompt',
+            inputText: ctx.input.text,
+            responseFormat: undefined,
+            parse() {
+              return {
+                retrievalQuery: '用户关于猫说过的话',
+                focus: '猫',
+              }
+            },
+          },
+          merge({ time, semantic }) {
             return {
-              retrievalQuery: '用户关于猫说过的话',
-              timeRange: null,
-              focus: '猫',
+              retrievalQuery: semantic.retrievalQuery,
+              timeRange: time?.timeRange ?? null,
+              focus: semantic.focus,
             }
           },
           retrieve() {
@@ -587,11 +696,23 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
     },
   ]
   const provider = new FakeProvider(async function* (params) {
-    if (isMemoryRetrievePrompt(params.systemPrompt)) {
+    if (params.systemPrompt === 'time analyzer prompt') {
       yield {
         type: 'message_complete',
         response: {
-          content: [{ type: 'text', text: JSON.stringify({ retrieval_query: '用户关于猫说过的话', time_range: null, focus: '猫' }) }],
+          content: [{ type: 'text', text: JSON.stringify({ time_range: null }) }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 4, outputTokens: 1 },
+        },
+      }
+      return
+    }
+
+    if (params.systemPrompt === 'semantic analyzer prompt') {
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: JSON.stringify({ retrieval_query: '用户关于猫说过的话', focus: '猫' }) }],
           stopReason: 'end_turn',
           usage: { inputTokens: 4, outputTokens: 4 },
         },
@@ -634,6 +755,9 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
   assert.equal(events.at(-1)?.type, 'complete')
   assert.deepEqual(observerEnds[0]?.metadata, {
     phase: 'retrieve',
+    timeAnalyzer: { timeRange: null, error: null },
+    semanticAnalyzer: { retrievalQuery: '用户关于猫说过的话', focus: '猫', error: null },
+    mergedQuery: { retrievalQuery: '用户关于猫说过的话', focus: '猫', timeRange: null },
     retrievalQuery: '用户关于猫说过的话',
     focus: '猫',
     timeRange: null,
@@ -657,7 +781,7 @@ test('runAgent emits system_error without fallback retrieval when memory query r
 
   let queryCalls = 0
   const provider = new FakeProvider(async function* (params) {
-    if (isMemoryRetrievePrompt(params.systemPrompt)) {
+    if (isMemoryTimePrompt(params.systemPrompt)) {
       queryCalls += 1
       yield {
         type: 'message_complete',
@@ -667,11 +791,28 @@ test('runAgent emits system_error without fallback retrieval when memory query r
               type: 'text',
               text: queryCalls === 1
                 ? '{not json'
-                : JSON.stringify({ retrieval_query: '', time_range: null, focus: null }),
+                : JSON.stringify({ time_range: null }),
             },
           ],
           stopReason: 'end_turn',
           usage: { inputTokens: 4, outputTokens: 3 },
+        },
+      }
+      return
+    }
+
+    if (isMemorySemanticPrompt(params.systemPrompt)) {
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ retrieval_query: null, focus: null }),
+            },
+          ],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 2, outputTokens: 2 },
         },
       }
       return
@@ -740,18 +881,30 @@ test('runAgent emits system_error without fallback retrieval when memory query r
       system: 'memory:sqlite',
       phase: 'beforeTurn',
       error: queryCalls === 1
-        ? 'Memory query call returned invalid JSON'
-        : 'Memory query call returned neither retrieval_query nor time_range',
+        ? 'Memory time analyzer returned invalid JSON'
+        : 'Memory query analyzers returned neither retrieval_query nor time_range',
     })
   }
 
   assert.deepEqual(observerEnds[0]?.metadata, {
     phase: 'retrieve',
+    timeAnalyzer: { timeRange: null, error: 'Memory time analyzer returned invalid JSON' },
+    semanticAnalyzer: { retrievalQuery: null, focus: null, error: null },
+    mergedQuery: { retrievalQuery: null, focus: null, timeRange: null },
     retrievalQuery: null,
     focus: null,
     timeRange: null,
   })
   assert.equal((observerEnds[3]?.metadata as { phase?: string })?.phase, 'retrieve')
+  assert.deepEqual((observerEnds[3]?.metadata as { timeAnalyzer?: unknown })?.timeAnalyzer, {
+    timeRange: null,
+    error: null,
+  })
+  assert.deepEqual((observerEnds[3]?.metadata as { semanticAnalyzer?: unknown })?.semanticAnalyzer, {
+    retrievalQuery: null,
+    focus: null,
+    error: null,
+  })
   assert.equal((observerEnds[3]?.metadata as { retrievalQuery?: string | null })?.retrievalQuery ?? null, null)
   assert.equal((observerEnds[3]?.metadata as { hitCount?: number })?.hitCount, undefined)
 })

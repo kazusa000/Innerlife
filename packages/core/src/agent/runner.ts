@@ -625,52 +625,103 @@ async function runPendingMemoryQuery(
     return {}
   }
 
-  const messages: Message[] = [
+  const observerMessages: Message[] = [
     {
       role: 'user',
-      content: [{ type: 'text', text: pending.inputText }],
+      content: [{ type: 'text', text: `time analyzer 输入\n${pending.timeAnalyzer.inputText}` }],
+    },
+    {
+      role: 'user',
+      content: [{ type: 'text', text: `semantic analyzer 输入\n${pending.semanticAnalyzer.inputText}` }],
     },
   ]
   const callId = observer?.onLLMCallStart({
     kind: 'memory',
     model: pending.model ?? config.model,
-    systemPrompt: pending.prompt,
+    systemPrompt: [
+      '[time analyzer]',
+      pending.timeAnalyzer.prompt,
+      '',
+      '[semantic analyzer]',
+      pending.semanticAnalyzer.prompt,
+    ].join('\n'),
     tools: [],
-    messages: cloneMessages(messages),
+    messages: cloneMessages(observerMessages),
   })
 
-  let response: LLMResponse | undefined
+  let timeResponse: LLMResponse | undefined
+  let semanticResponse: LLMResponse | undefined
+  let timeError: Error | undefined
+  let semanticError: Error | undefined
   let queryError: Error | undefined
   let retrieveError: Error | undefined
-  let query = {
-    retrievalQuery: null as PendingMemoryQuery['parse'] extends (responseText: string) => infer T
-      ? T extends { retrievalQuery: infer R }
-        ? R
-        : null
-      : null,
-    timeRange: null as PendingMemoryQuery['parse'] extends (responseText: string) => infer T
-      ? T extends { timeRange: infer R }
-        ? R
-        : null
-      : null,
-    focus: null as PendingMemoryQuery['parse'] extends (responseText: string) => infer T
-      ? T extends { focus: infer F }
-        ? F
-        : null
-      : null,
-  }
+  let timeResult = { timeRange: null as null | { start: Date; end: Date } }
+  let semanticResult = { retrievalQuery: null as string | null, focus: null as string | null }
+  let query = { retrievalQuery: null as string | null, timeRange: null as null | { start: Date; end: Date }, focus: null as string | null }
   let memories: NonNullable<TurnContext['state']['memories']> = []
 
-  try {
-    response = await provider.sendMessage({
+  const runAnalyzer = async <T,>(
+    kind: 'time' | 'semantic',
+    prompt: string,
+    inputText: string,
+    responseFormat: PendingMemoryQuery['timeAnalyzer']['responseFormat'],
+    parse: (responseText: string) => T,
+  ) => {
+    const response = await provider.sendMessage({
       model: pending.model ?? config.model,
-      systemPrompt: pending.prompt,
-      messages,
+      systemPrompt: prompt,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: inputText }],
+        },
+      ],
       reasoning: pending.reasoning,
-      responseFormat: pending.responseFormat,
+      responseFormat,
       signal,
     })
-    query = pending.parse(extractContentText(response.content))
+    return {
+      response,
+      parsed: parse(extractContentText(response.content)),
+    }
+  }
+
+  const [timeOutcome, semanticOutcome] = await Promise.all([
+    runAnalyzer(
+      'time',
+      pending.timeAnalyzer.prompt,
+      pending.timeAnalyzer.inputText,
+      pending.timeAnalyzer.responseFormat,
+      pending.timeAnalyzer.parse,
+    ).catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) })),
+    runAnalyzer(
+      'semantic',
+      pending.semanticAnalyzer.prompt,
+      pending.semanticAnalyzer.inputText,
+      pending.semanticAnalyzer.responseFormat,
+      pending.semanticAnalyzer.parse,
+    ).catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) })),
+  ])
+
+  if ('error' in timeOutcome) {
+    timeError = timeOutcome.error
+  } else {
+    timeResponse = timeOutcome.response
+    timeResult = timeOutcome.parsed
+  }
+
+  if ('error' in semanticOutcome) {
+    semanticError = semanticOutcome.error
+  } else {
+    semanticResponse = semanticOutcome.response
+    semanticResult = semanticOutcome.parsed
+  }
+
+  try {
+    query = pending.merge({
+      time: timeError ? null : timeResult,
+      semantic: semanticResult,
+    })
   } catch (err) {
     queryError = err instanceof Error ? err : new Error(String(err))
   }
@@ -679,13 +730,37 @@ async function runPendingMemoryQuery(
   ctx.state.memoryRetrievalTimeRange = query.timeRange
   ctx.state.memories = []
 
-  if (!queryError && (query.retrievalQuery || query.timeRange)) {
+  if (query.retrievalQuery || query.timeRange) {
     try {
       memories = await pending.retrieve(query)
       ctx.state.memories = memories
       const hits = memories.map((memory) => serializeMemoryHit(memory))
       ctx.turnMetadata.memory = {
         hitCount: memories.length,
+        timeAnalyzer: {
+          timeRange: query.timeRange
+            ? {
+                start: query.timeRange.start.toISOString(),
+                end: query.timeRange.end.toISOString(),
+              }
+            : null,
+          error: timeError?.message ?? null,
+        },
+        semanticAnalyzer: {
+          retrievalQuery: query.retrievalQuery,
+          focus: query.focus,
+          error: semanticError?.message ?? null,
+        },
+        mergedQuery: {
+          retrievalQuery: query.retrievalQuery,
+          focus: query.focus,
+          timeRange: query.timeRange
+            ? {
+                start: query.timeRange.start.toISOString(),
+                end: query.timeRange.end.toISOString(),
+              }
+            : null,
+        },
         retrievalQuery: query.retrievalQuery,
         focus: query.focus,
         timeRange: query.timeRange
@@ -702,12 +777,44 @@ async function runPendingMemoryQuery(
     }
   }
 
+  const analyzerErrors = [timeError?.message, semanticError?.message].filter(Boolean) as string[]
+  if (!query.retrievalQuery && !query.timeRange) {
+    if (analyzerErrors.length > 0) {
+      queryError = new Error(analyzerErrors.join('; '))
+    } else if (!queryError) {
+      queryError = new Error('Memory query analyzers returned neither retrieval_query nor time_range')
+    }
+  }
   const error =
     queryError && retrieveError
       ? new Error(`${queryError.message}; memory retrieve failed: ${retrieveError.message}`)
       : queryError ?? retrieveError
   const metadata: Record<string, unknown> = {
     phase: 'retrieve',
+    timeAnalyzer: {
+      timeRange: query.timeRange
+        ? {
+            start: query.timeRange.start.toISOString(),
+            end: query.timeRange.end.toISOString(),
+          }
+        : null,
+      error: timeError?.message ?? null,
+    },
+    semanticAnalyzer: {
+      retrievalQuery: query.retrievalQuery,
+      focus: query.focus,
+      error: semanticError?.message ?? null,
+    },
+    mergedQuery: {
+      retrievalQuery: query.retrievalQuery,
+      focus: query.focus,
+      timeRange: query.timeRange
+        ? {
+            start: query.timeRange.start.toISOString(),
+            end: query.timeRange.end.toISOString(),
+          }
+        : null,
+    },
     retrievalQuery: query.retrievalQuery,
     focus: query.focus,
     timeRange: query.timeRange
@@ -718,7 +825,7 @@ async function runPendingMemoryQuery(
       : null,
   }
 
-  if (!queryError && (query.retrievalQuery || query.timeRange)) {
+  if (query.retrievalQuery || query.timeRange) {
     const hits = memories.map((memory) => serializeMemoryHit(memory))
     metadata.hitCount = memories.length
     metadata.memoryIds = memories.map((memory) => memory.id)
@@ -727,9 +834,19 @@ async function runPendingMemoryQuery(
 
   if (callId !== undefined && observer) {
     observer.onLLMCallEnd(callId, {
-      response: response?.content ?? [],
-      stopReason: response?.stopReason ?? 'end_turn',
-      usage: response?.usage ?? { inputTokens: 0, outputTokens: 0 },
+      response: [
+        ...(timeResponse
+          ? [{ type: 'text' as const, text: `[time analyzer]\n${extractContentText(timeResponse.content)}` }]
+          : []),
+        ...(semanticResponse
+          ? [{ type: 'text' as const, text: `[semantic analyzer]\n${extractContentText(semanticResponse.content)}` }]
+          : []),
+      ],
+      stopReason: semanticResponse?.stopReason ?? timeResponse?.stopReason ?? 'end_turn',
+      usage: {
+        inputTokens: (timeResponse?.usage.inputTokens ?? 0) + (semanticResponse?.usage.inputTokens ?? 0),
+        outputTokens: (timeResponse?.usage.outputTokens ?? 0) + (semanticResponse?.usage.outputTokens ?? 0),
+      },
       metadata,
       error: error?.message,
     })

@@ -31,7 +31,8 @@ interface SqliteMemory {
 interface MemorySettings {
   summarizeModel: string
   embeddingModel: string
-  retrievePrompt: string
+  timeAnalyzerPrompt: string
+  semanticAnalyzerPrompt: string
   summarizePrompt: string
   fragmentPrompt: string
   consolidatePrompt: string
@@ -53,12 +54,15 @@ interface MemoryListResponse {
   total: number
   summarizeModel: string | null
   embeddingModel: string | null
-  retrievePrompt: string | null
+  timeAnalyzerPrompt: string | null
+  semanticAnalyzerPrompt: string | null
   summarizePrompt: string | null
   fragmentPrompt: string | null
   consolidatePrompt: string | null
-  retrievePromptDefault: string
-  retrievePromptEffective: string
+  timeAnalyzerPromptDefault: string
+  timeAnalyzerPromptEffective: string
+  semanticAnalyzerPromptDefault: string
+  semanticAnalyzerPromptEffective: string
   summarizePromptDefault: string
   summarizePromptEffective: string
   fragmentPromptDefault: string
@@ -100,7 +104,8 @@ function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySet
   return {
     summarizeModel: typeof data.summarizeModel === 'string' ? data.summarizeModel : '',
     embeddingModel: typeof data.embeddingModel === 'string' ? data.embeddingModel : '',
-    retrievePrompt: typeof data.retrievePrompt === 'string' ? data.retrievePrompt : '',
+    timeAnalyzerPrompt: typeof data.timeAnalyzerPrompt === 'string' ? data.timeAnalyzerPrompt : '',
+    semanticAnalyzerPrompt: typeof data.semanticAnalyzerPrompt === 'string' ? data.semanticAnalyzerPrompt : '',
     summarizePrompt: typeof data.summarizePrompt === 'string' ? data.summarizePrompt : '',
     fragmentPrompt: typeof data.fragmentPrompt === 'string' ? data.fragmentPrompt : '',
     consolidatePrompt: typeof data.consolidatePrompt === 'string' ? data.consolidatePrompt : '',
@@ -109,10 +114,11 @@ function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySet
 
 function normalizePromptDefaults(data: Partial<MemoryListResponse>): Pick<
   MemorySettings,
-  'retrievePrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
+  'timeAnalyzerPrompt' | 'semanticAnalyzerPrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
 > {
   return {
-    retrievePrompt: typeof data.retrievePromptDefault === 'string' ? data.retrievePromptDefault : '',
+    timeAnalyzerPrompt: typeof data.timeAnalyzerPromptDefault === 'string' ? data.timeAnalyzerPromptDefault : '',
+    semanticAnalyzerPrompt: typeof data.semanticAnalyzerPromptDefault === 'string' ? data.semanticAnalyzerPromptDefault : '',
     summarizePrompt: typeof data.summarizePromptDefault === 'string' ? data.summarizePromptDefault : '',
     fragmentPrompt: typeof data.fragmentPromptDefault === 'string' ? data.fragmentPromptDefault : '',
     consolidatePrompt: typeof data.consolidatePromptDefault === 'string' ? data.consolidatePromptDefault : '',
@@ -121,10 +127,11 @@ function normalizePromptDefaults(data: Partial<MemoryListResponse>): Pick<
 
 function normalizeEffectivePrompts(data: Partial<MemoryListResponse>): Pick<
   MemorySettings,
-  'retrievePrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
+  'timeAnalyzerPrompt' | 'semanticAnalyzerPrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
 > {
   return {
-    retrievePrompt: typeof data.retrievePromptEffective === 'string' ? data.retrievePromptEffective : '',
+    timeAnalyzerPrompt: typeof data.timeAnalyzerPromptEffective === 'string' ? data.timeAnalyzerPromptEffective : '',
+    semanticAnalyzerPrompt: typeof data.semanticAnalyzerPromptEffective === 'string' ? data.semanticAnalyzerPromptEffective : '',
     summarizePrompt: typeof data.summarizePromptEffective === 'string' ? data.summarizePromptEffective : '',
     fragmentPrompt: typeof data.fragmentPromptEffective === 'string' ? data.fragmentPromptEffective : '',
     consolidatePrompt: typeof data.consolidatePromptEffective === 'string' ? data.consolidatePromptEffective : '',
@@ -146,7 +153,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [savedOverrides, setSavedOverrides] = useState<MemorySettings>(() => normalizeSettings({}))
   const [defaultPrompts, setDefaultPrompts] = useState<Pick<
     MemorySettings,
-    'retrievePrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
+    'timeAnalyzerPrompt' | 'semanticAnalyzerPrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
   >>(() => normalizePromptDefaults({}))
   const [draftSettings, setDraftSettings] = useState<MemorySettings>(() => normalizeSettings({}))
   const settingsDirtyRef = useRef(false)
@@ -311,9 +318,12 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         body: JSON.stringify({
           summarizeModel: draftSettings.summarizeModel,
           embeddingModel: draftSettings.embeddingModel,
-          retrievePrompt: draftSettings.retrievePrompt.trim() === defaultPrompts.retrievePrompt.trim()
+          timeAnalyzerPrompt: draftSettings.timeAnalyzerPrompt.trim() === defaultPrompts.timeAnalyzerPrompt.trim()
             ? null
-            : draftSettings.retrievePrompt,
+            : draftSettings.timeAnalyzerPrompt,
+          semanticAnalyzerPrompt: draftSettings.semanticAnalyzerPrompt.trim() === defaultPrompts.semanticAnalyzerPrompt.trim()
+            ? null
+            : draftSettings.semanticAnalyzerPrompt,
           summarizePrompt: draftSettings.summarizePrompt.trim() === defaultPrompts.summarizePrompt.trim()
             ? null
             : draftSettings.summarizePrompt,
@@ -327,8 +337,10 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       })
       const data = await response.json() as Partial<MemorySettings> & {
         error?: string
-        retrievePromptDefault?: string
-        retrievePromptEffective?: string
+        timeAnalyzerPromptDefault?: string
+        timeAnalyzerPromptEffective?: string
+        semanticAnalyzerPromptDefault?: string
+        semanticAnalyzerPromptEffective?: string
         summarizePromptDefault?: string
         summarizePromptEffective?: string
         fragmentPromptDefault?: string
@@ -347,7 +359,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       }
       setSavedOverrides(normalizedOverride)
       setDefaultPrompts((current) => ({
-        retrievePrompt: typeof data.retrievePromptDefault === 'string' ? data.retrievePromptDefault : current.retrievePrompt,
+        timeAnalyzerPrompt: typeof data.timeAnalyzerPromptDefault === 'string' ? data.timeAnalyzerPromptDefault : current.timeAnalyzerPrompt,
+        semanticAnalyzerPrompt: typeof data.semanticAnalyzerPromptDefault === 'string' ? data.semanticAnalyzerPromptDefault : current.semanticAnalyzerPrompt,
         summarizePrompt: typeof data.summarizePromptDefault === 'string' ? data.summarizePromptDefault : current.summarizePrompt,
         fragmentPrompt: typeof data.fragmentPromptDefault === 'string' ? data.fragmentPromptDefault : current.fragmentPrompt,
         consolidatePrompt: typeof data.consolidatePromptDefault === 'string' ? data.consolidatePromptDefault : current.consolidatePrompt,
@@ -441,13 +454,23 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         <PromptLab
           fields={[
             {
-              key: 'retrievePrompt',
-              label: 'Retrieve Prompt',
-              helper: '语义检索改写和 time_range 提取的 prompt。现在如果你拆成双 analyzer，这里仍可以作为统一入口再细分。',
-              value: draftSettings.retrievePrompt,
-              defaultValue: defaultPrompts.retrievePrompt,
-              sourceLabel: savedOverrides.retrievePrompt ? '自定义 override' : '系统默认',
-              placeholder: '留空则使用系统默认的 retrieval analyzer prompt。',
+              key: 'timeAnalyzerPrompt',
+              label: 'Time Analyzer Prompt',
+              helper: '只负责提取 time_range 的 prompt。这里应该只分析“什么时候”，不要碰语义主题。',
+              value: draftSettings.timeAnalyzerPrompt,
+              defaultValue: defaultPrompts.timeAnalyzerPrompt,
+              sourceLabel: savedOverrides.timeAnalyzerPrompt ? '自定义 override' : '系统默认',
+              placeholder: '留空则使用系统默认的 time analyzer prompt。',
+              rows: 7,
+            },
+            {
+              key: 'semanticAnalyzerPrompt',
+              label: 'Semantic Analyzer Prompt',
+              helper: '只负责提炼 retrieval_query 和 focus 的 prompt。这里应该只分析“是什么”，不要混入时间。',
+              value: draftSettings.semanticAnalyzerPrompt,
+              defaultValue: defaultPrompts.semanticAnalyzerPrompt,
+              sourceLabel: savedOverrides.semanticAnalyzerPrompt ? '自定义 override' : '系统默认',
+              placeholder: '留空则使用系统默认的 semantic analyzer prompt。',
               rows: 7,
             },
             {
@@ -483,8 +506,10 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           ]}
           onChange={(key, value) => updateSetting(key as keyof MemorySettings, value)}
           onReset={(key) => {
-            if (key === 'retrievePrompt') {
-              updateSetting('retrievePrompt', defaultPrompts.retrievePrompt)
+            if (key === 'timeAnalyzerPrompt') {
+              updateSetting('timeAnalyzerPrompt', defaultPrompts.timeAnalyzerPrompt)
+            } else if (key === 'semanticAnalyzerPrompt') {
+              updateSetting('semanticAnalyzerPrompt', defaultPrompts.semanticAnalyzerPrompt)
             } else if (key === 'summarizePrompt') {
               updateSetting('summarizePrompt', defaultPrompts.summarizePrompt)
             } else if (key === 'fragmentPrompt') {

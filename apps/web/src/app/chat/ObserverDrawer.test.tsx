@@ -81,7 +81,20 @@ test('main tab renders turn cards with fragment anchors and inline compaction on
         messages: [],
         metadata: {
           phase: 'retrieve',
-          keywords: ['cat'],
+          timeAnalyzer: {
+            timeRange: null,
+            error: null,
+          },
+          semanticAnalyzer: {
+            retrievalQuery: 'cat',
+            focus: '猫',
+            error: null,
+          },
+          mergedQuery: {
+            retrievalQuery: 'cat',
+            focus: '猫',
+            timeRange: null,
+          },
           hits: [{ id: 'm2', summary: 'sqlite hit summary', tags: ['pet'], importance: 0.8 }],
         },
         response: [{ type: 'text', text: '{}' }],
@@ -126,7 +139,26 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
         messages: [],
         metadata: {
           phase: 'retrieve',
-          keywords: ['cat'],
+          timeAnalyzer: {
+            timeRange: {
+              start: '2026-04-20T13:55:00.000Z',
+              end: '2026-04-20T14:00:00.000Z',
+            },
+            error: null,
+          },
+          semanticAnalyzer: {
+            retrievalQuery: 'cat',
+            focus: '猫',
+            error: null,
+          },
+          mergedQuery: {
+            retrievalQuery: 'cat',
+            focus: '猫',
+            timeRange: {
+              start: '2026-04-20T13:55:00.000Z',
+              end: '2026-04-20T14:00:00.000Z',
+            },
+          },
           timeRange: {
             start: '2026-04-20T13:55:00.000Z',
             end: '2026-04-20T14:00:00.000Z',

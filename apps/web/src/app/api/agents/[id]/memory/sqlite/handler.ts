@@ -2,8 +2,9 @@ import { agentRepo, memoryRepo } from '@mas/db'
 import {
   buildMemoryConsolidationPrompt,
   buildMemoryFragmentPrompt,
-  buildRetrievePrompt,
+  buildSemanticAnalyzerPrompt,
   buildSummaryPrompt,
+  buildTimeAnalyzerPrompt,
   isSqliteMemoryConfig,
   resolveMemorySqliteConfig,
 } from '@mas/systems'
@@ -58,12 +59,19 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     total: result.total,
     summarizeModel: memoryConfig.summarizeModel,
     embeddingModel: memoryConfig.embeddingModel,
-    retrievePrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.retrievePrompt),
+    timeAnalyzerPrompt:
+      readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.timeAnalyzerPrompt)
+      ?? readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.retrievePrompt),
+    semanticAnalyzerPrompt:
+      readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.semanticAnalyzerPrompt)
+      ?? readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.retrievePrompt),
     summarizePrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.summarizePrompt),
     fragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fragmentPrompt),
     consolidatePrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.consolidatePrompt),
-    retrievePromptDefault: buildRetrievePrompt(),
-    retrievePromptEffective: buildRetrievePrompt(memoryConfig.retrievePrompt),
+    timeAnalyzerPromptDefault: buildTimeAnalyzerPrompt(),
+    timeAnalyzerPromptEffective: buildTimeAnalyzerPrompt(memoryConfig.timeAnalyzerPrompt ?? memoryConfig.retrievePrompt),
+    semanticAnalyzerPromptDefault: buildSemanticAnalyzerPrompt(),
+    semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt),
     summarizePromptDefault: buildSummaryPrompt(),
     summarizePromptEffective: buildSummaryPrompt(memoryConfig.summarizePrompt),
     fragmentPromptDefault: buildMemoryFragmentPrompt(),
@@ -101,7 +109,8 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   const stringOrNullFields = [
     'summarizeModel',
     'embeddingModel',
-    'retrievePrompt',
+    'timeAnalyzerPrompt',
+    'semanticAnalyzerPrompt',
     'summarizePrompt',
     'fragmentPrompt',
     'consolidatePrompt',
@@ -124,13 +133,15 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   const nextValues = {
     summarizeModel: readOptionalText(body.summarizeModel),
     embeddingModel: readOptionalText(body.embeddingModel),
-    retrievePrompt: readOptionalText(body.retrievePrompt),
+    timeAnalyzerPrompt: readOptionalText(body.timeAnalyzerPrompt),
+    semanticAnalyzerPrompt: readOptionalText(body.semanticAnalyzerPrompt),
     summarizePrompt: readOptionalText(body.summarizePrompt),
     fragmentPrompt: readOptionalText(body.fragmentPrompt),
     consolidatePrompt: readOptionalText(body.consolidatePrompt),
   }
 
   nextMemory.scheme = 'sqlite'
+  delete nextMemory.retrievePrompt
   for (const [key, value] of Object.entries(nextValues)) {
     if (value) {
       nextMemory[key] = value
@@ -147,12 +158,15 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     scheme: 'sqlite',
     summarizeModel: nextValues.summarizeModel,
     embeddingModel: nextValues.embeddingModel,
-    retrievePrompt: nextValues.retrievePrompt,
+    timeAnalyzerPrompt: nextValues.timeAnalyzerPrompt,
+    semanticAnalyzerPrompt: nextValues.semanticAnalyzerPrompt,
     summarizePrompt: nextValues.summarizePrompt,
     fragmentPrompt: nextValues.fragmentPrompt,
     consolidatePrompt: nextValues.consolidatePrompt,
-    retrievePromptDefault: buildRetrievePrompt(),
-    retrievePromptEffective: buildRetrievePrompt(nextValues.retrievePrompt),
+    timeAnalyzerPromptDefault: buildTimeAnalyzerPrompt(),
+    timeAnalyzerPromptEffective: buildTimeAnalyzerPrompt(nextValues.timeAnalyzerPrompt),
+    semanticAnalyzerPromptDefault: buildSemanticAnalyzerPrompt(),
+    semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(nextValues.semanticAnalyzerPrompt),
     summarizePromptDefault: buildSummaryPrompt(),
     summarizePromptEffective: buildSummaryPrompt(nextValues.summarizePrompt),
     fragmentPromptDefault: buildMemoryFragmentPrompt(),
