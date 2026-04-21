@@ -151,7 +151,7 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
   }
 })
 
-test('memory sqlite retrieval skips semantic embeddings for pure time recall and prefers newest hits in range', { concurrency: false }, async () => {
+test('memory sqlite retrieval skips semantic embeddings for pure time recall and keeps newest hits first in range', { concurrency: false }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
   const dbPath = join(dir, 'data.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -209,7 +209,7 @@ test('memory sqlite retrieval skips semantic embeddings for pure time recall and
     })
 
     assert.deepEqual(embedInputs, [[]])
-    assert.deepEqual(retrieved?.map((memory) => memory.id), [newestTarget.id])
+    assert.deepEqual(retrieved?.map((memory) => memory.id), [newestTarget.id, olderRecallMemory.id])
   } finally {
     resetDb()
     resetMemoryDb()

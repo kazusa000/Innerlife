@@ -489,10 +489,6 @@ export class MemorySqliteSystem implements AgentSystem {
       parse: parseMemoryQueryResponse,
       retrieve: async (query) => {
         const usePureTimeRecall = query.timeRange && !query.retrievalQuery
-        const useLatestUtteranceRecall =
-          usePureTimeRecall
-          && typeof query.focus === 'string'
-          && query.focus.includes('说过的话')
         const queryTexts = (usePureTimeRecall ? [] : [ctx.input.text, query.retrievalQuery])
           .filter((text): text is string => typeof text === 'string')
           .map((text) => text.trim())
@@ -505,7 +501,7 @@ export class MemorySqliteSystem implements AgentSystem {
         return memoryRepo.findRelevantMemories({
           agentId: ctx.agentId,
           queryEmbeddings,
-          topK: useLatestUtteranceRecall ? 1 : this.retrieveTopK,
+          topK: this.retrieveTopK,
           timeRange: query.timeRange,
         })
       },
