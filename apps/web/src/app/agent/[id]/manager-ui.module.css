@@ -131,6 +131,12 @@
   gap: 18px;
 }
 
+.verticalStack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
 .panel {
   border-radius: 24px;
   border: 1px solid var(--border-soft);

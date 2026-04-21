@@ -404,7 +404,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       {notice && <p className={styles.notice}>{notice}</p>}
       {error && <p className={styles.error}>{error}</p>}
 
-      <div className={styles.grid}>
+      <div className={styles.verticalStack}>
         <section className={styles.panel}>
           <div className={styles.panelHead}>
             <div>
