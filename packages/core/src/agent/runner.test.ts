@@ -208,7 +208,7 @@ test('runAgent composes sorted prompt fragments from systems before calling the 
       },
     },
   ])
-  assert.equal(seen.systemPrompt, 'test\n\nfirst\n\nsecond\n\nthird')
+  assert.match(seen.systemPrompt ?? '', /^test\n\n当前本地时间：.+\n\nfirst\n\nsecond\n\nthird$/)
   assert.deepEqual(seen.reasoning, { effort: 'none' })
 })
 
@@ -354,12 +354,12 @@ test('runAgent includes big-five personality prompts and skips noop personality'
     personality: { scheme: 'noop' },
   }))
 
-  assert.equal(noopPrompt, 'test')
+  assert.match(noopPrompt, /^test\n\n当前本地时间：.+$/)
 })
 
 test('runAgent emits system_error and continues when a system hook throws', async () => {
   const provider = new FakeProvider(async function* (params) {
-    assert.equal(params.systemPrompt, 'test\n\nstill here')
+    assert.match(params.systemPrompt, /^test\n\n当前本地时间：.+\n\nstill here$/)
     yield {
       type: 'message_complete',
       response: {
@@ -1001,7 +1001,7 @@ test('runAgent with noop relationship config injects no fragment and writes no r
     const countRow = getRawSqlite().prepare('SELECT COUNT(*) AS count FROM relationships').get() as {
       count: number
     }
-    assert.equal(systemPrompt, 'test')
+    assert.match(systemPrompt, /^test\n\n当前本地时间：.+$/)
     assert.equal(countRow.count, 0)
   } finally {
     resetDb()

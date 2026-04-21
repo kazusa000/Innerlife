@@ -198,6 +198,7 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
       }
 
       assert.match(params.systemPrompt, /以下是本轮回复可直接依赖的相关记忆/)
+      assert.match(params.systemPrompt, /最相关记忆（优先回答）：\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\]/)
       yield {
         type: 'message_complete',
         response: {
@@ -498,7 +499,7 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
       return
     }
 
-    assert.equal(params.systemPrompt, 'test')
+    assert.match(params.systemPrompt, /^test\n\n当前本地时间：.+$/)
     yield {
       type: 'message_complete',
       response: {
@@ -595,7 +596,7 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
       return
     }
 
-    assert.equal(params.systemPrompt, 'test')
+    assert.match(params.systemPrompt, /^test\n\n当前本地时间：.+$/)
     yield {
       type: 'message_complete',
       response: {
@@ -695,7 +696,7 @@ test('runAgent emits system_error without fallback retrieval when memory query r
       return
     }
 
-    assert.equal(params.systemPrompt, 'test')
+    assert.match(params.systemPrompt, /^test\n\n当前本地时间：.+$/)
     yield {
       type: 'message_complete',
       response: {
@@ -828,7 +829,7 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
   const provider: LLMProvider = {
     name: 'parallel-fake',
     async *streamMessage(params) {
-      assert.equal(params.systemPrompt, 'test')
+      assert.match(params.systemPrompt, /^test\n\n当前本地时间：.+$/)
       yield {
         type: 'message_complete',
         response: {

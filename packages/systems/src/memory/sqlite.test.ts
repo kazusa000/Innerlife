@@ -140,6 +140,7 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
     assert.equal(ctx.promptFragments[0]?.priority, 30)
     assert.match(ctx.promptFragments[0]?.content ?? '', /以下是你可直接依赖的记忆/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /最相关记忆：/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\]/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /橘子的猫/)
   } finally {
     resetDb()

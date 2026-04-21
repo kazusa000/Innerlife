@@ -331,13 +331,25 @@ function extractUserText(message?: Message): string {
     .join('\n')
 }
 
-function composeSystemPrompt(basePrompt: string, fragments: TurnContext['promptFragments']) {
-  if (fragments.length === 0) {
-    return basePrompt
-  }
+function formatCurrentLocalDateTime(date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const seconds = String(date.getSeconds()).padStart(2, '0')
+  const timezoneOffsetMinutes = -date.getTimezoneOffset()
+  const sign = timezoneOffsetMinutes >= 0 ? '+' : '-'
+  const absoluteMinutes = Math.abs(timezoneOffsetMinutes)
+  const tzHours = String(Math.floor(absoluteMinutes / 60)).padStart(2, '0')
+  const tzMinutes = String(absoluteMinutes % 60).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} ${sign}${tzHours}:${tzMinutes}`
+}
 
+function composeSystemPrompt(basePrompt: string, fragments: TurnContext['promptFragments']) {
+  const timePrompt = `当前本地时间：${formatCurrentLocalDateTime()}`
   const ordered = [...fragments].sort((a, b) => a.priority - b.priority)
-  return [basePrompt, ...ordered.map((fragment) => fragment.content)].join('\n\n')
+  return [basePrompt, timePrompt, ...ordered.map((fragment) => fragment.content)].join('\n\n')
 }
 
 function normalizePromptFragmentSource(source: string): string {

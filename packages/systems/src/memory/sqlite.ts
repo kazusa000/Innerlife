@@ -228,12 +228,14 @@ function renderMemoryFragment(memories: MemoryRecord[], promptOverride?: string 
   }
 
   const [primaryMemory, ...secondaryMemories] = memories
+  const renderMemoryLine = (label: string, memory: MemoryRecord) =>
+    `${label}：[${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.displaySummary}`
 
   if (promptOverride?.trim()) {
     return [
       promptOverride.trim(),
-      `最相关记忆：${primaryMemory.displaySummary}`,
-      ...secondaryMemories.map((memory) => `补充记忆：${memory.displaySummary}`),
+      renderMemoryLine('最相关记忆', primaryMemory),
+      ...secondaryMemories.map((memory) => renderMemoryLine('补充记忆', memory)),
     ].join('\n')
   }
 
@@ -247,8 +249,8 @@ function renderMemoryFragment(memories: MemoryRecord[], promptOverride?: string 
     '如果答案已经包含在这些记忆里，不要再声称自己记不住，或声称自己没有记忆能力。',
     '不要先说“这是第一次对话”或“没有历史记录”，除非这些记忆本身就明确支持这个结论。',
     '如果这些记忆仍然不足以回答，就明确说你不确定，不要编造细节。',
-    `最相关记忆（优先回答）：${primaryMemory.displaySummary}`,
-    ...secondaryMemories.map((memory) => `补充记忆：${memory.displaySummary}`),
+    renderMemoryLine('最相关记忆（优先回答）', primaryMemory),
+    ...secondaryMemories.map((memory) => renderMemoryLine('补充记忆', memory)),
   ].join('\n')
 }
 
@@ -297,6 +299,17 @@ function formatLocalIsoDateTime(date: Date): string {
   const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
   const seconds = String(localDate.getUTCSeconds()).padStart(2, '0')
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${formatOffset(localMinutes)}`
+}
+
+function formatLocalMemoryPromptTime(date: Date): string {
+  const localMinutes = date.getTimezoneOffset() * -1
+  const localDate = new Date(date.getTime() + date.getTimezoneOffset() * 60_000 * -1)
+  const year = localDate.getUTCFullYear()
+  const month = String(localDate.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(localDate.getUTCDate()).padStart(2, '0')
+  const hours = String(localDate.getUTCHours()).padStart(2, '0')
+  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes} ${formatOffset(localMinutes)}`
 }
 
 function buildRetrieveInputText(userText: string, now = new Date()) {
