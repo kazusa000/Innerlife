@@ -22,6 +22,7 @@ function bootstrapMemoryDb(dbPath: string) {
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
       session_id TEXT NOT NULL,
+      layer TEXT NOT NULL DEFAULT 'short_term',
       source_text TEXT NOT NULL,
       display_summary TEXT NOT NULL,
       retrieval_text TEXT NOT NULL,
@@ -93,6 +94,7 @@ test('findRelevantMemories scopes by agent and orders by similarity then importa
     assert.deepEqual(results.map((memory) => memory.id), [strongest.id, second.id])
     assert.equal(results[0]?.displaySummary, '用户养了一只叫橘子的猫')
     assert.deepEqual(results[0]?.retrievalEmbedding, [1, 0])
+    assert.equal(results[0]?.layer, 'short_term')
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
@@ -343,11 +345,13 @@ test('applyConsolidationPlan keeps, rewrites, and merges memories in one transac
     assert.equal(rewritten?.retrievalText, '用户通常在夜间找我聊天')
     assert.deepEqual(rewritten?.tags, ['夜间', '聊天'])
     assert.equal(rewritten?.importance, 0.65)
+    assert.equal(rewritten?.layer, 'short_term')
     assert.ok(merged)
     assert.equal(merged?.sessionId, 'session-1')
     assert.equal(merged?.displaySummary, '用户住在比利时布鲁塞尔')
     assert.equal(merged?.retrievalText, '用户的长期居住地是比利时布鲁塞尔')
     assert.deepEqual(merged?.tags, ['布鲁塞尔', '比利时', '住处'])
+    assert.equal(merged?.layer, 'short_term')
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
@@ -415,6 +419,60 @@ test('applyConsolidationPlan rolls back earlier writes when a later action is in
     assert.equal(rows[0]?.displaySummary, '用户喜欢喝茶')
     assert.equal(rows[0]?.retrievalText, '用户平时喜欢喝热茶')
     assert.equal(rows[1]?.displaySummary, '用户也喜欢咖啡')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('applyConsolidationPlan does not merge memories across layers', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapMemoryDb(dbPath)
+
+    const shortTerm = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User said their cat is named Orange.',
+      displaySummary: '用户养了一只叫橘子的猫',
+      retrievalText: '用户的猫名字叫橘子',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['猫', '橘子'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-17T10:00:00.000Z'),
+    })
+    const longTerm = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'long_term',
+      sourceText: 'User said their cat is named Orange.',
+      displaySummary: '用户长期记忆里有一只叫橘子的猫',
+      retrievalText: '用户长期提到自己养了一只名叫橘子的猫',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['猫', '橘子'],
+      importance: 0.95,
+      createdAt: new Date('2026-04-17T11:00:00.000Z'),
+    })
+
+    assert.throws(() => {
+      applyConsolidationPlan({
+        agentId: 'agent-1',
+        actions: [
+          {
+            op: 'merge',
+            sourceIds: [shortTerm.id, longTerm.id],
+            displaySummary: '用户养了一只叫橘子的猫',
+            retrievalText: '用户养了一只名叫橘子的猫',
+            tags: ['猫', '橘子'],
+            importance: 0.95,
+          },
+        ],
+      })
+    }, /layer/i)
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
@@ -505,6 +563,49 @@ test('deleteSqliteMemory removes only memories owned by the given agent', () => 
     assert.equal(blocked, false)
     assert.equal(memoryRepo.getMemory(ownMemory.id), undefined)
     assert.ok(memoryRepo.getMemory(foreignMemory.id))
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('updateSqliteMemoryLayer changes only the targeted memory layer', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapMemoryDb(dbPath)
+
+    const target = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User stores a local preference.',
+      displaySummary: '用户偏好使用本地数据库',
+      retrievalText: '用户偏好本地 sqlite 数据库',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['database', 'sqlite'],
+      importance: 0.7,
+      createdAt: new Date('2026-04-17T10:00:00.000Z'),
+    })
+    const untouched = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User stores another preference.',
+      displaySummary: '用户偏好深夜工作',
+      retrievalText: '用户经常深夜工作',
+      retrievalEmbedding: vector([0.8, 0.2]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['night'],
+      importance: 0.5,
+      createdAt: new Date('2026-04-17T11:00:00.000Z'),
+    })
+
+    const updated = memoryRepo.updateSqliteMemoryLayerByAgent?.('agent-1', target.id, 'fixed')
+
+    assert.equal(updated, true)
+    assert.equal(memoryRepo.getMemory(target.id)?.layer, 'fixed')
+    assert.equal(memoryRepo.getMemory(untouched.id)?.layer, 'short_term')
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })

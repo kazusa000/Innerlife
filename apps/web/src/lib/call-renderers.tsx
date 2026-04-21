@@ -336,6 +336,20 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
   const timeRange = readRecord(record?.timeRange)
   const timeRangeStart = readText(timeRange?.start)
   const timeRangeEnd = readText(timeRange?.end)
+  const written = readRecord(record?.written)
+
+  const formatLayer = (layer: string | null) => {
+    switch (layer) {
+      case 'long_term':
+        return '长期记忆'
+      case 'fixed':
+        return '固化记忆'
+      case 'short_term':
+        return '短期记忆'
+      default:
+        return null
+    }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -370,19 +384,35 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
       )}
 
       {phase === 'summarize' && (
-        <MemorySection title={OBSERVER_UI_COPY.written}>
-          <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
-            {JSON.stringify(record?.written ?? null, null, 2)}
-          </pre>
-        </MemorySection>
+        <>
+          {formatLayer(readText(written?.layer)) && (
+            <MemorySection title="层级">
+              <pre style={{ fontSize: 11, color: '#cdd9e5' }}>{formatLayer(readText(written?.layer))}</pre>
+            </MemorySection>
+          )}
+          <MemorySection title={OBSERVER_UI_COPY.written}>
+            <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+              {JSON.stringify(record?.written ?? null, null, 2)}
+            </pre>
+          </MemorySection>
+        </>
       )}
 
       {phase === 'consolidate' && (
-        <MemorySection title={OBSERVER_UI_COPY.report}>
-          <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
-            {JSON.stringify(record?.report ?? null, null, 2)}
-          </pre>
-        </MemorySection>
+        <>
+          {formatLayer(readText(readRecord(record?.report)?.layer)) && (
+            <MemorySection title="层级">
+              <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+                {formatLayer(readText(readRecord(record?.report)?.layer))}
+              </pre>
+            </MemorySection>
+          )}
+          <MemorySection title={OBSERVER_UI_COPY.report}>
+            <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
+              {JSON.stringify(record?.report ?? null, null, 2)}
+            </pre>
+          </MemorySection>
+        </>
       )}
     </div>
   )

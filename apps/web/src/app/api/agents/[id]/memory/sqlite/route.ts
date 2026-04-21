@@ -10,10 +10,12 @@ export async function GET(
   const url = new URL(request.url)
   const page = Number(url.searchParams.get('page') ?? '1')
   const pageSize = Number(url.searchParams.get('pageSize') ?? '20')
+  const layer = url.searchParams.get('layer')
 
   return listSqliteMemories(id, url.searchParams.get('q') ?? undefined, {
     page: Number.isFinite(page) ? page : 1,
     pageSize: Number.isFinite(pageSize) ? pageSize : 20,
+    layer: layer === 'short_term' || layer === 'long_term' || layer === 'fixed' ? layer : undefined,
   })
 }
 

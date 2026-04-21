@@ -11,11 +11,30 @@ function resolveDefaultMemoryDbPath() {
 }
 
 function ensureMemoryDbSchema(sqlite: Database.Database) {
+  const hasMemoriesTable = sqlite.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table' AND name = 'memories'
+  `).get() as { name?: string } | undefined
+
+  if (hasMemoriesTable) {
+    const columns = sqlite.prepare(`PRAGMA table_info(memories)`).all() as Array<{ name: string }>
+    const hasLayer = columns.some((column) => column.name === 'layer')
+    if (!hasLayer) {
+      sqlite.exec(`
+        DROP TABLE IF EXISTS memories;
+        DROP INDEX IF EXISTS idx_memories_agent_created_at;
+        DROP INDEX IF EXISTS idx_memories_agent_id;
+      `)
+    }
+  }
+
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS memories (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
       session_id TEXT NOT NULL,
+      layer TEXT NOT NULL DEFAULT 'short_term',
       source_text TEXT NOT NULL,
       display_summary TEXT NOT NULL,
       retrieval_text TEXT NOT NULL,

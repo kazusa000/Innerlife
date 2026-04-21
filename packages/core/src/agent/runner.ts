@@ -567,16 +567,18 @@ async function runPendingMemoryWrite(
         usage: response.usage,
         metadata: {
           phase: 'summarize',
-          written: written
+              written: written
             ? {
                 id: written.id,
                 summary: written.displaySummary,
+                layer: written.layer,
                 retrievalText: written.retrievalText,
                 tags: [...written.tags],
                 importance: written.importance,
               }
             : {
                 summary: result.displaySummary,
+                layer: 'short_term',
                 retrievalText: result.retrievalText,
                 tags: [...result.tags],
                 importance: result.importance,
@@ -840,6 +842,7 @@ function serializeMemoryHit(memory: NonNullable<TurnContext['state']['memories']
   return {
     id: memory.id,
     summary: memory.displaySummary,
+    layer: memory.layer,
     tags: [...memory.tags],
     importance: memory.importance,
   }

@@ -43,6 +43,7 @@ export interface MemoryRecord {
   id: string
   agentId: string
   sessionId: string
+  layer: 'short_term' | 'long_term' | 'fixed'
   sourceText: string
   displaySummary: string
   retrievalText: string

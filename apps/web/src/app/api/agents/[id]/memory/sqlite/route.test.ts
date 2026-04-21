@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { agentRepo, getDb, getMemoryDb, getRawSqlite, memoryRepo, resetDb, resetMemoryDb } from '@mas/db'
-import { deleteSqliteMemory } from './[memoryId]/handler'
+import { deleteSqliteMemory, updateSqliteMemory } from './[memoryId]/handler'
 import { listSqliteMemories, updateSqliteMemorySettings } from './handler'
 
 function bootstrapDb(dbPath: string, memoryDbPath: string) {
@@ -53,10 +53,12 @@ function addMemory(input: {
   summary: string
   tags: string[]
   createdAt: string
+  layer?: 'short_term' | 'long_term' | 'fixed'
 }) {
   return memoryRepo.addMemory({
     agentId: input.agentId,
     sessionId: input.sessionId,
+    layer: input.layer,
     sourceText: input.summary,
     displaySummary: input.summary,
     retrievalText: input.summary,
@@ -120,6 +122,7 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
       summary: '用户偏好午夜后编码',
       tags: ['night', 'coding'],
       createdAt: '2026-04-18T02:00:00.000Z',
+      layer: 'long_term',
     })
     const older = addMemory({
       agentId: 'agent-1',
@@ -187,9 +190,53 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.equal(listData.pageSize, 2)
     assert.equal(listData.total, 3)
     assert.deepEqual(listData.memories.map((memory: { id: string }) => memory.id), [latest.id, older.id])
+    assert.equal(listData.memories[0]?.layer, 'long_term')
+    assert.equal(listData.memories[1]?.layer, 'short_term')
     assert.deepEqual((await secondPageResponse.json()).memories.map((memory: { id: string }) => memory.id), [oldest.id])
     assert.deepEqual((await summaryResponse.json()).memories.map((memory: { id: string }) => memory.id), [older.id])
     assert.deepEqual((await tagResponse.json()).memories.map((memory: { id: string }) => memory.id), [latest.id])
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('listSqliteMemories filters by layer', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const shortTerm = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '用户提到短期事项',
+      tags: ['短期'],
+      createdAt: '2026-04-18T02:00:00.000Z',
+    })
+    addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '用户提到长期事项',
+      tags: ['长期'],
+      createdAt: '2026-04-18T03:00:00.000Z',
+      layer: 'long_term',
+    })
+
+    const filteredResponse = listSqliteMemories('agent-1', undefined, {
+      page: 1,
+      pageSize: 20,
+      layer: 'long_term',
+    } as never)
+    const filteredData = await filteredResponse.json()
+
+    assert.equal(filteredData.total, 1)
+    assert.deepEqual(filteredData.memories.map((memory: { layer: string }) => memory.layer), ['long_term'])
+
+    assert.equal(filteredData.memories[0]?.summary, '用户提到长期事项')
   } finally {
     resetDb()
     resetMemoryDb()
@@ -323,6 +370,33 @@ test('deleteSqliteMemory removes only memories owned by the given agent', async 
     assert.deepEqual(await blocked.json(), { error: 'Memory not found' })
     assert.equal(memoryRepo.getMemory(ownMemory.id), undefined)
     assert.ok(memoryRepo.getMemory(foreignMemory.id))
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('updateSqliteMemory updates a single memory layer', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const memory = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '用户偏好使用本地数据库',
+      tags: ['sqlite'],
+      createdAt: '2026-04-17T10:00:00.000Z',
+    })
+
+    const response = updateSqliteMemory('agent-1', memory.id, { layer: 'fixed' })
+
+    assert.equal(response.status, 200)
+    assert.equal(memoryRepo.getMemory(memory.id)?.layer, 'fixed')
   } finally {
     resetDb()
     resetMemoryDb()

@@ -17,6 +17,19 @@ import {
 } from './observer-utils'
 import { CALL_ACCENTS, CodeBlock, CollapsibleSection, DetailList, Pill, TagPills } from './observer-ui'
 
+function formatMemoryLayerLabel(layer: string | null | undefined) {
+  switch (layer) {
+    case 'long_term':
+      return '长期记忆'
+    case 'fixed':
+      return '固化记忆'
+    case 'short_term':
+      return '短期记忆'
+    default:
+      return '无'
+  }
+}
+
 export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
   const phase = getCallPhase(call) ?? 'unknown'
   const duration = formatDurationLabel(call.startedAt, call.finishedAt)
@@ -117,6 +130,7 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                         <DetailList
                           rows={[
                             { label: '记忆 ID', value: hit.id },
+                            { label: '层级', value: formatMemoryLayerLabel(typeof hit.layer === 'string' ? hit.layer : null) },
                             { label: '摘要', value: hit.summary },
                             { label: '重要性', value: formatImportance(hit.importance) },
                             { label: '标签', value: <TagPills values={hit.tags} accent={CALL_ACCENTS.memory.color} /> },
@@ -135,6 +149,7 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
               <DetailList
                 rows={[
                   ...(written?.id ? [{ label: '写入 ID', value: written.id }] : []),
+                  { label: '层级', value: formatMemoryLayerLabel(typeof written?.layer === 'string' ? written.layer : null) },
                   { label: '摘要', value: written?.summary ?? '无' },
                   { label: '检索文本', value: written?.retrievalText ?? '无' },
                   { label: '重要性', value: written ? formatImportance(written.importance) : '无' },
@@ -148,6 +163,9 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
             <CollapsibleSection title={OBSERVER_UI_COPY.report} accent={CALL_ACCENTS.memory.color} defaultOpen>
               <DetailList
                 rows={[
+                  ...(typeof (report as { layer?: unknown } | null)?.layer === 'string'
+                    ? [{ label: '层级', value: formatMemoryLayerLabel((report as { layer: string }).layer) }]
+                    : []),
                   { label: '整理前', value: String(report?.before ?? '?') },
                   { label: '整理后', value: String(report?.after ?? '?') },
                   { label: '保留', value: String(report?.kept ?? '?') },

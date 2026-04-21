@@ -198,7 +198,7 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
       }
 
       assert.match(params.systemPrompt, /以下是本轮回复可直接依赖的相关记忆/)
-      assert.match(params.systemPrompt, /最相关记忆（优先回答）：\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\]/)
+      assert.match(params.systemPrompt, /最相关记忆（优先回答）：\[短期记忆\]\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\]/)
       yield {
         type: 'message_complete',
         response: {
@@ -296,6 +296,7 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
         {
           id: existingMemory.id,
           summary: '用户养了一只叫橘子的猫',
+          layer: 'short_term',
           tags: ['猫', '橘子', '宠物'],
           importance: 0.9,
         },
@@ -313,6 +314,7 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
       written: {
         id: rows[0]!.id,
         summary: '用户养了一只叫橘子的猫',
+        layer: 'short_term',
         retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
         tags: ['猫', '橘子', '宠物'],
         importance: 0.9,
@@ -321,6 +323,7 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
     assert.equal(rows[0]!.displaySummary, '用户养了一只叫橘子的猫')
     assert.equal(rows[0]!.retrievalText, '用户曾告诉我，他养了一只名叫橘子的猫')
     assert.deepEqual(rows[0]!.retrievalEmbedding, [1, 0])
+    assert.equal(rows[0]!.layer, 'short_term')
   } finally {
     resetDb()
     resetMemoryDb()

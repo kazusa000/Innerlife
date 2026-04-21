@@ -40,6 +40,7 @@ export interface RelationshipVector {
 export interface MemoryHit {
   id: string
   summary: string
+  layer?: string
   tags: string[]
   importance: number
 }
@@ -47,6 +48,7 @@ export interface MemoryHit {
 export interface MemoryWritten {
   id?: string
   summary: string
+  layer?: string
   retrievalText?: string
   tags: string[]
   importance: number
@@ -58,6 +60,7 @@ export interface MemoryReport {
   kept: number | null
   rewritten: number | null
   merged: number | null
+  layer?: string
 }
 
 export interface MemoryTimeRange {
@@ -194,6 +197,7 @@ export function getMemoryHits(call: LiveCall): MemoryHit[] {
     return [{
       id,
       summary,
+      layer: readString(hit.layer) ?? undefined,
       tags: readStringArray(hit.tags),
       importance,
     }]
@@ -215,6 +219,7 @@ export function getMemoryWritten(call: LiveCall): MemoryWritten | null {
   return {
     id: readString(written.id) ?? undefined,
     summary,
+    layer: readString(written.layer) ?? undefined,
     retrievalText: readString(written.retrievalText) ?? undefined,
     tags: readStringArray(written.tags),
     importance,
@@ -233,6 +238,7 @@ export function getMemoryReport(call: LiveCall): MemoryReport | null {
     kept: readNumber(report.kept),
     rewritten: readNumber(report.rewritten),
     merged: readNumber(report.merged),
+    layer: readString(report.layer) ?? undefined,
   }
 }
 

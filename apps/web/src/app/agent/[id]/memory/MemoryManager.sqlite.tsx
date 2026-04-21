@@ -20,6 +20,7 @@ interface MemoryManagerProps {
 interface SqliteMemory {
   id: string
   sessionId: string
+  layer: 'short_term' | 'long_term' | 'fixed'
   summary: string
   retrievalText: string
   tags: string[]
@@ -46,6 +47,7 @@ interface ConsolidationReport {
 
 interface MemoryListResponse {
   memories: SqliteMemory[]
+  layer: 'short_term' | 'long_term' | 'fixed' | null
   page: number
   pageSize: number
   total: number
@@ -63,6 +65,12 @@ interface MemoryListResponse {
   fragmentPromptEffective: string
   consolidatePromptDefault: string
   consolidatePromptEffective: string
+}
+
+const MEMORY_LAYER_LABELS: Record<SqliteMemory['layer'], string> = {
+  short_term: '短期记忆',
+  long_term: '长期记忆',
+  fixed: '固化记忆',
 }
 
 function readErrorMessage(value: unknown, fallback: string) {
@@ -130,6 +138,7 @@ function areSettingsEqual(left: MemorySettings, right: MemorySettings) {
 export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const [layerFilter, setLayerFilter] = useState<'all' | SqliteMemory['layer']>('all')
   const [page, setPage] = useState(1)
   const [memories, setMemories] = useState<SqliteMemory[]>([])
   const [total, setTotal] = useState(0)
@@ -157,7 +166,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     memoryCount: total,
   })
 
-  async function refresh(search = deferredQuery, nextPage = page) {
+  async function refresh(search = deferredQuery, nextPage = page, nextLayer = layerFilter) {
     setLoading(true)
     setError(null)
 
@@ -165,6 +174,9 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       const params = new URLSearchParams()
       if (search.trim()) {
         params.set('q', search.trim())
+      }
+      if (nextLayer !== 'all') {
+        params.set('layer', nextLayer)
       }
       params.set('page', String(nextPage))
       params.set('pageSize', String(PAGE_SIZE))
@@ -204,8 +216,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   }
 
   useEffect(() => {
-    void refresh(deferredQuery, page)
-  }, [agentId, deferredQuery, page])
+    void refresh(deferredQuery, page, layerFilter)
+  }, [agentId, deferredQuery, page, layerFilter])
 
   function updateSetting<K extends keyof MemorySettings>(key: K, value: MemorySettings[K]) {
     settingsDirtyRef.current = true
@@ -233,6 +245,30 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     startTransition(() => {
       void refresh()
     })
+  }
+
+  async function handleLayerChange(memoryId: string, layer: SqliteMemory['layer']) {
+    setError(null)
+    setNotice(null)
+
+    try {
+      const response = await fetch(`/api/agents/${agentId}/memory/sqlite/${memoryId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layer }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : '更新记忆层失败')
+      }
+
+      setNotice(`已将记忆调整为${MEMORY_LAYER_LABELS[layer]}。`)
+      startTransition(() => {
+        void refresh()
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新记忆层失败')
+    }
   }
 
   async function handleConsolidate() {
@@ -485,10 +521,28 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             />
           </label>
 
+          <label className={styles.searchField}>
+            <span className={styles.fieldLabel}>层级</span>
+            <select
+              className={styles.searchInput}
+              value={layerFilter}
+              onChange={(event) => {
+                setLayerFilter(event.target.value as 'all' | SqliteMemory['layer'])
+                setPage(1)
+              }}
+            >
+              <option value="all">全部层级</option>
+              <option value="short_term">短期记忆</option>
+              <option value="long_term">长期记忆</option>
+              <option value="fixed">固化记忆</option>
+            </select>
+          </label>
+
           <div className={styles.toolbarActions}>
             <span className={styles.statusText}>
               当前结果 {memories.length} / 总数 {total}
               {deferredQuery.trim() ? ` · 搜索词：${deferredQuery.trim()}` : ''}
+              {layerFilter !== 'all' ? ` · 层级：${MEMORY_LAYER_LABELS[layerFilter]}` : ''}
             </span>
           </div>
         </div>
@@ -509,6 +563,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 <thead>
                   <tr>
                     <th>摘要</th>
+                    <th>层级</th>
                     <th>时间</th>
                     <th>会话</th>
                     <th>重要性</th>
@@ -532,6 +587,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                               <span className={styles.tableSecondary}>{expanded ? '点击收起详情' : '点击展开详情'}</span>
                             </button>
                           </td>
+                          <td className={styles.statusText}>{MEMORY_LAYER_LABELS[memory.layer]}</td>
                           <td className={styles.statusText}>{DATE_FORMATTER.format(new Date(memory.createdAt))}</td>
                           <td className={styles.mono}>{memory.sessionId}</td>
                           <td className={styles.mono}>{memory.importance.toFixed(2)}</td>
@@ -558,7 +614,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                         </tr>
                         {expanded && (
                           <tr className={styles.expandedRow}>
-                            <td colSpan={6}>
+                            <td colSpan={7}>
                               <div className={styles.expandedGrid}>
                                 <div>
                                   <p className={styles.fieldLabel}>retrieval_text</p>
@@ -572,6 +628,20 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                                   <div>
                                     <dt>全部标签</dt>
                                     <dd>{memory.tags.join(' / ') || '无'}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>层级</dt>
+                                    <dd>
+                                      <select
+                                        className={styles.input}
+                                        value={memory.layer}
+                                        onChange={(event) => void handleLayerChange(memory.id, event.target.value as SqliteMemory['layer'])}
+                                      >
+                                        <option value="short_term">短期记忆</option>
+                                        <option value="long_term">长期记忆</option>
+                                        <option value="fixed">固化记忆</option>
+                                      </select>
+                                    </dd>
                                   </div>
                                 </dl>
                               </div>

@@ -272,6 +272,7 @@ test('consolidateSqliteMemories returns 500 and leaves memories unchanged when t
     assert.equal(starts[0]?.kind, 'memory')
     assert.deepEqual(ends[0]?.metadata, {
       phase: 'consolidate',
+      layer: 'short_term',
     })
     assert.deepEqual(after, before)
   } finally {
@@ -374,12 +375,14 @@ test('consolidateSqliteMemories returns a report and emits consolidate observer 
     assert.match(starts[0]?.systemPrompt ?? '', /简体中文/)
     assert.deepEqual(ends[0]?.metadata, {
       phase: 'consolidate',
+      layer: 'short_term',
       report: {
         before: 4,
         after: 3,
         kept: 1,
         rewritten: 1,
         merged: 1,
+        layer: 'short_term',
       },
     })
     assert.deepEqual(seen.params, {

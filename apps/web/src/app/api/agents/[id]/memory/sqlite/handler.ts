@@ -15,6 +15,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 type MemoryListOptions = {
   page?: number
   pageSize?: number
+  layer?: 'short_term' | 'long_term' | 'fixed'
 }
 
 function readOptionalText(value: unknown) {
@@ -42,6 +43,7 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
   const result = memoryRepo.listSqliteMemoriesPageByAgent({
     agentId,
     query,
+    layer: options.layer,
     page,
     pageSize,
   })
@@ -50,6 +52,7 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     agentId,
     scheme: 'sqlite',
     query: query?.trim() ?? '',
+    layer: options.layer ?? null,
     page: result.page,
     pageSize: result.pageSize,
     total: result.total,
@@ -70,6 +73,7 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     memories: result.memories.map((memory) => ({
       id: memory.id,
       sessionId: memory.sessionId,
+      layer: memory.layer,
       summary: memory.displaySummary,
       retrievalText: memory.retrievalText,
       tags: memory.tags,

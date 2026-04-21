@@ -114,6 +114,17 @@ const WRITE_GUIDANCE = [
   'tags 至少提供 4 个简短、可复用的中文标签。',
 ].join('\n')
 
+function formatMemoryLayerLabel(layer: MemoryRecord['layer']): string {
+  switch (layer) {
+    case 'long_term':
+      return '长期记忆'
+    case 'fixed':
+      return '固化记忆'
+    default:
+      return '短期记忆'
+  }
+}
+
 function readOptionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
@@ -248,7 +259,7 @@ function renderMemoryFragment(memories: MemoryRecord[], promptOverride?: string 
 
   const [primaryMemory, ...secondaryMemories] = memories
   const renderMemoryLine = (label: string, memory: MemoryRecord) =>
-    `${label}：[${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.displaySummary}`
+    `${label}：[${formatMemoryLayerLabel(memory.layer)}][${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.displaySummary}`
 
   if (promptOverride?.trim()) {
     return [
@@ -493,6 +504,7 @@ export function buildMemoryConsolidationSourceText(memories: MemoryRecord[]): st
     JSON.stringify(
       memories.map((memory) => ({
         id: memory.id,
+        layer: memory.layer,
         display_summary: memory.displaySummary,
         retrieval_text: memory.retrievalText,
         tags: memory.tags,
@@ -671,6 +683,7 @@ export class MemorySqliteSystem implements AgentSystem {
         return memoryRepo.addMemory({
           agentId: ctx.agentId,
           sessionId: ctx.sessionId,
+          layer: 'short_term',
           sourceText,
           displaySummary: result.displaySummary,
           retrievalText: result.retrievalText,

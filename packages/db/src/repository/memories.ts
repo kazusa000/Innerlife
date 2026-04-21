@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { getMemoryRawSqlite } from '../memory-client'
 
+export type MemoryLayer = 'short_term' | 'long_term' | 'fixed'
+
 export interface MemoryRecord {
   id: string
   agentId: string
   sessionId: string
+  layer: MemoryLayer
   sourceText: string
   displaySummary: string
   retrievalText: string
@@ -59,6 +62,7 @@ type MemoryRow = {
   id: string
   agent_id: string
   session_id: string
+  layer: string
   source_text: string
   display_summary: string
   retrieval_text: string
@@ -76,6 +80,13 @@ function normalizeTags(tags: string[]): string[] {
       .map((tag) => tag.trim())
       .filter(Boolean),
   )]
+}
+
+function normalizeLayer(layer: string | null | undefined): MemoryLayer {
+  if (layer === 'long_term' || layer === 'fixed') {
+    return layer
+  }
+  return 'short_term'
 }
 
 function parseTags(tags: string): string[] {
@@ -105,6 +116,7 @@ function mapMemory(row: MemoryRow): MemoryRecord {
     id: row.id,
     agentId: row.agent_id,
     sessionId: row.session_id,
+    layer: normalizeLayer(row.layer),
     sourceText: row.source_text,
     displaySummary: row.display_summary,
     retrievalText: row.retrieval_text,
@@ -123,6 +135,7 @@ function selectMemories(whereSql: string, ...values: unknown[]) {
       id,
       agent_id,
       session_id,
+      layer,
       source_text,
       display_summary,
       retrieval_text,
@@ -139,6 +152,7 @@ function selectMemories(whereSql: string, ...values: unknown[]) {
 export function addMemory(data: {
   agentId: string
   sessionId: string
+  layer?: MemoryLayer
   sourceText: string
   displaySummary: string
   retrievalText: string
@@ -156,6 +170,7 @@ export function addMemory(data: {
       id,
       agent_id,
       session_id,
+      layer,
       source_text,
       display_summary,
       retrieval_text,
@@ -164,11 +179,12 @@ export function addMemory(data: {
       tags,
       importance,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     data.agentId,
     data.sessionId,
+    normalizeLayer(data.layer),
     data.sourceText,
     data.displaySummary.trim(),
     data.retrievalText.trim(),
@@ -217,29 +233,37 @@ export function listSqliteMemoriesByAgent(agentId: string, query?: string) {
 export function listSqliteMemoriesPageByAgent(input: {
   agentId: string
   query?: string
+  layer?: MemoryLayer | null
   page: number
   pageSize: number
 }) {
   const normalizedPage = Math.max(1, Math.floor(input.page))
   const normalizedPageSize = Math.max(1, Math.min(100, Math.floor(input.pageSize)))
   const normalizedQuery = input.query?.trim().toLowerCase()
+  const normalizedLayer = input.layer ? normalizeLayer(input.layer) : null
   const sqlite = getMemoryRawSqlite()
   const offset = (normalizedPage - 1) * normalizedPageSize
 
   if (!normalizedQuery) {
+    const conditions = ['agent_id = ?']
+    const values: unknown[] = [input.agentId]
+    if (normalizedLayer) {
+      conditions.push('layer = ?')
+      values.push(normalizedLayer)
+    }
     const totalRow = sqlite.prepare(`
       SELECT COUNT(*) as total
       FROM memories
-      WHERE agent_id = ?
-    `).get(input.agentId) as { total: number } | undefined
+      WHERE ${conditions.join(' AND ')}
+    `).get(...values) as { total: number } | undefined
 
     return {
       total: totalRow?.total ?? 0,
       page: normalizedPage,
       pageSize: normalizedPageSize,
       memories: selectMemories(
-        'WHERE agent_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
-        input.agentId,
+        `WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+        ...values,
         normalizedPageSize,
         offset,
       ),
@@ -247,34 +271,33 @@ export function listSqliteMemoriesPageByAgent(input: {
   }
 
   const wildcard = `%${normalizedQuery}%`
+  const conditions = ['agent_id = ?']
+  const values: unknown[] = [input.agentId]
+  if (normalizedLayer) {
+    conditions.push('layer = ?')
+    values.push(normalizedLayer)
+  }
+  conditions.push(`(
+    lower(display_summary) LIKE ?
+    OR lower(retrieval_text) LIKE ?
+    OR lower(tags) LIKE ?
+  )`)
+  values.push(wildcard, wildcard, wildcard)
   const totalRow = sqlite.prepare(`
     SELECT COUNT(*) as total
     FROM memories
-    WHERE agent_id = ?
-      AND (
-        lower(display_summary) LIKE ?
-        OR lower(retrieval_text) LIKE ?
-        OR lower(tags) LIKE ?
-      )
-  `).get(input.agentId, wildcard, wildcard, wildcard) as { total: number } | undefined
+    WHERE ${conditions.join(' AND ')}
+  `).get(...values) as { total: number } | undefined
 
   return {
     total: totalRow?.total ?? 0,
     page: normalizedPage,
     pageSize: normalizedPageSize,
     memories: selectMemories(
-      `WHERE agent_id = ?
-         AND (
-           lower(display_summary) LIKE ?
-           OR lower(retrieval_text) LIKE ?
-           OR lower(tags) LIKE ?
-         )
+      `WHERE ${conditions.join(' AND ')}
        ORDER BY created_at DESC
        LIMIT ? OFFSET ?`,
-      input.agentId,
-      wildcard,
-      wildcard,
-      wildcard,
+      ...values,
       normalizedPageSize,
       offset,
     ),
@@ -291,6 +314,17 @@ export function deleteSqliteMemoryByAgent(agentId: string, memoryId: string) {
     DELETE FROM memories
     WHERE agent_id = ? AND id = ?
   `).run(agentId, memoryId)
+
+  return result.changes > 0
+}
+
+export function updateSqliteMemoryLayerByAgent(agentId: string, memoryId: string, layer: MemoryLayer) {
+  const sqlite = getMemoryRawSqlite()
+  const result = sqlite.prepare(`
+    UPDATE memories
+    SET layer = ?
+    WHERE agent_id = ? AND id = ?
+  `).run(normalizeLayer(layer), agentId, memoryId)
 
   return result.changes > 0
 }
@@ -423,6 +457,10 @@ export function applyConsolidationPlan(input: {
       }
 
       const sourceRecords = sourceIds.map((id) => requireMemory(byId, id, payload.agentId))
+      const layer = sourceRecords[0]!.layer
+      if (sourceRecords.some((memory) => memory.layer !== layer)) {
+        throw new Error('Consolidation merge actions must stay within one layer')
+      }
       for (const id of sourceIds) {
         if (consumedIds.has(id)) {
           throw new Error(`Memory ${id} was referenced more than once`)
@@ -441,6 +479,7 @@ export function applyConsolidationPlan(input: {
           id,
           agent_id,
           session_id,
+          layer,
           source_text,
           display_summary,
           retrieval_text,
@@ -449,11 +488,12 @@ export function applyConsolidationPlan(input: {
           tags,
           importance,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         randomUUID(),
         payload.agentId,
         oldest.sessionId,
+        oldest.layer,
         sourceRecords.map((memory) => memory.sourceText).join('\n---\n'),
         action.displaySummary.trim(),
         action.retrievalText.trim(),
