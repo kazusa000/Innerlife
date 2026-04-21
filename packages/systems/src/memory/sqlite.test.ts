@@ -262,11 +262,13 @@ test('memory sqlite retrieval prompt guides pure recent-utterance recall toward 
 
   await system.beforeTurn?.(ctx)
 
-  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /我刚刚和你说了什么/)
-  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /retrieval_query\":null/)
-  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /用户刚刚说过的话/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /retrieval_query/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /用户最新一条消息/)
   assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /短时间窗口/)
   assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /不要把“刚刚”理解成只有当前这一秒/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /最短、最稳定、最能检索的主题表达/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /不要套上“用户提到的/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /相关内容”这类包裹说法/)
 })
 
 test('memory sqlite system parses and persists display summary plus retrieval text', { concurrency: false }, async () => {
