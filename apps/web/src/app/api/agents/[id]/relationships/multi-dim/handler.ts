@@ -1,4 +1,8 @@
 import { agentRepo, relationshipRepo } from '@mas/db'
+import {
+  buildRelationshipAnalysisPrompt,
+  buildRelationshipFragment,
+} from '@mas/systems'
 import { DEFAULT_RELATIONSHIP_BASELINE } from '../../../../../persona-modules'
 import { readRelationshipModule } from '../handler'
 
@@ -85,6 +89,10 @@ function buildPayload(agentId: string, config: MultiDimConfig) {
     fragmentPrompt: config.fragmentPrompt,
     analysisPrompt: config.analysisPrompt,
     currentState: relationship?.dimensions ?? null,
+    fragmentPromptDefault: buildRelationshipFragment(relationship?.dimensions ?? config.baseline),
+    fragmentPromptEffective: buildRelationshipFragment(relationship?.dimensions ?? config.baseline, config.fragmentPrompt),
+    analysisPromptDefault: buildRelationshipAnalysisPrompt(),
+    analysisPromptEffective: buildRelationshipAnalysisPrompt(config.analysisPrompt),
     history: relationship?.history ?? [],
   }
 }

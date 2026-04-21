@@ -2,6 +2,7 @@ export {
   DEFAULT_BASELINE,
   DEFAULT_COUNTERPART_ID,
   applyRelationshipDecayAndDelta,
+  buildRelationshipAnalysisPrompt,
   buildRelationshipFragment,
   MultiDimRelationshipSystem,
   normalizeRelationshipConfig,

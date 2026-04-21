@@ -152,6 +152,17 @@ test('getDimensionalEmotionConfig returns config and recent history', async () =
     assert.equal(data.analysisModel, 'emotion-fast')
     assert.equal(data.fragmentPrompt, '回答时让情绪轻微影响语气，不要直接解释数值。')
     assert.equal(data.analysisPrompt, '你负责分析这一轮对情绪状态的影响，只输出 JSON。')
+    assert.match(data.fragmentPromptDefault, /^当前情绪（会随对话变化）：/)
+    assert.match(data.fragmentPromptDefault, /回答时让这些状态产生轻微影响/)
+    assert.equal(data.fragmentPromptEffective, [
+      '当前情绪状态参考：',
+      '- 心情 mood：略微愉快（0.28）',
+      '- 精力 energy：中等（0.49）',
+      '- 压力 stress：偏低（0.26）',
+      '回答时让情绪轻微影响语气，不要直接解释数值。',
+    ].join('\n'))
+    assert.equal(data.analysisPromptDefault, '你负责分析单轮对话对情绪状态的影响，只输出 JSON。')
+    assert.equal(data.analysisPromptEffective, '你负责分析这一轮对情绪状态的影响，只输出 JSON。')
     assert.deepEqual(data.currentState, {
       mood: 0.28,
       energy: 0.49,
@@ -209,38 +220,34 @@ test('updateDimensionalEmotionConfig only mutates modules.emotion and preserves 
     })
 
     assert.equal(response.status, 200)
-    assert.deepEqual(await response.json(), {
-      agentId: 'agent-1',
-      scheme: 'dimensional',
-      baseline: {
-        mood: -0.3,
-        energy: 0.74,
-        stress: 0.18,
-      },
-      decayPerTurn: 0.2,
-      analysisModel: 'emotion-cheap',
-      fragmentPrompt: '语气跟着情绪走，但不要像播报状态。',
-      analysisPrompt: '请判断这轮对 mood/energy/stress 的变化，只输出 JSON。',
-      currentState: {
-        mood: 0.28,
-        energy: 0.49,
-        stress: 0.26,
-      },
-      history: [
-        {
-          state: { mood: 0.28, energy: 0.49, stress: 0.26 },
-          delta: { mood: -0.08, energy: -0.03, stress: 0.06 },
-          trigger: '用户提到工作延期',
-          createdAt: '2024-04-19T19:00:00.000Z',
-        },
-        {
-          state: { mood: 0.4, energy: 0.58, stress: 0.2 },
-          delta: { mood: 0.1, energy: -0.02, stress: 0.05 },
-          trigger: '用户分享了一个好消息',
-          createdAt: '2024-04-19T18:00:00.000Z',
-        },
-      ],
+    const data = await response.json()
+    assert.equal(data.agentId, 'agent-1')
+    assert.equal(data.scheme, 'dimensional')
+    assert.deepEqual(data.baseline, {
+      mood: -0.3,
+      energy: 0.74,
+      stress: 0.18,
     })
+    assert.equal(data.decayPerTurn, 0.2)
+    assert.equal(data.analysisModel, 'emotion-cheap')
+    assert.equal(data.fragmentPrompt, '语气跟着情绪走，但不要像播报状态。')
+    assert.equal(data.analysisPrompt, '请判断这轮对 mood/energy/stress 的变化，只输出 JSON。')
+    assert.match(data.fragmentPromptDefault, /^当前情绪（会随对话变化）：/)
+    assert.equal(data.fragmentPromptEffective, [
+      '当前情绪状态参考：',
+      '- 心情 mood：略微愉快（0.28）',
+      '- 精力 energy：中等（0.49）',
+      '- 压力 stress：偏低（0.26）',
+      '语气跟着情绪走，但不要像播报状态。',
+    ].join('\n'))
+    assert.equal(data.analysisPromptDefault, '你负责分析单轮对话对情绪状态的影响，只输出 JSON。')
+    assert.equal(data.analysisPromptEffective, '请判断这轮对 mood/energy/stress 的变化，只输出 JSON。')
+    assert.deepEqual(data.currentState, {
+      mood: 0.28,
+      energy: 0.49,
+      stress: 0.26,
+    })
+    assert.equal(data.history.length, 2)
 
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       emotion: {

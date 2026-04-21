@@ -168,6 +168,18 @@ test('getMultiDimRelationshipConfig returns config, current dimensions and histo
     assert.equal(data.analysisModel, 'relationship-fast')
     assert.equal(data.fragmentPrompt, '让关系状态轻微影响亲疏与措辞，不要直说分数。')
     assert.equal(data.analysisPrompt, '你负责分析这一轮对关系状态的影响，只输出 JSON。')
+    assert.match(data.fragmentPromptDefault, /^当前你与用户的关系状态（会随互动缓慢变化）：/)
+    assert.match(data.fragmentPromptDefault, /让这些关系状态轻微影响语气、耐心、亲疏感和措辞/)
+    assert.equal(data.fragmentPromptEffective, [
+      '当前关系状态参考：',
+      '- trust：基本信任（0.63）',
+      '- affinity：亲和度较高（0.52）',
+      '- familiarity：开始熟悉（0.35）',
+      '- respect：基本尊重（0.74）',
+      '让关系状态轻微影响亲疏与措辞，不要直说分数。',
+    ].join('\n'))
+    assert.equal(data.analysisPromptDefault, '你负责分析单轮对话对关系状态的影响，只输出 JSON。')
+    assert.equal(data.analysisPromptEffective, '你负责分析这一轮对关系状态的影响，只输出 JSON。')
     assert.deepEqual(data.currentState, {
       trust: 0.63,
       affinity: 0.52,
@@ -225,50 +237,37 @@ test('updateMultiDimRelationshipConfig only mutates modules.relationship and pre
     })
 
     assert.equal(response.status, 200)
-    assert.deepEqual(await response.json(), {
-      agentId: 'agent-1',
-      scheme: 'multi-dim',
-      baseline: {
-        trust: 0.71,
-        affinity: 0.48,
-        familiarity: 0.4,
-        respect: 0.7,
-      },
-      decayPerTurn: 0.18,
-      analysisModel: 'relationship-cheap',
-      fragmentPrompt: '关系变化影响语气，但不要显得像系统播报。',
-      analysisPrompt: '请判断这轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。',
-      currentState: {
-        trust: 0.63,
-        affinity: 0.52,
-        familiarity: 0.35,
-        respect: 0.74,
-      },
-      history: [
-        {
-          summary: '用户主动汇报了昨天的进展',
-          trigger: '主动更新',
-          delta: {
-            trust: 0.08,
-            affinity: 0.03,
-            familiarity: 0.05,
-            respect: 0.02,
-          },
-          createdAt: '2026-04-19T10:00:00.000Z',
-        },
-        {
-          summary: '用户迟到但诚恳解释',
-          trigger: '解释迟到',
-          delta: {
-            trust: -0.02,
-            affinity: 0.01,
-            familiarity: 0.02,
-            respect: 0,
-          },
-          createdAt: '2026-04-19T14:00:00.000Z',
-        },
-      ],
+    const data = await response.json()
+    assert.equal(data.agentId, 'agent-1')
+    assert.equal(data.scheme, 'multi-dim')
+    assert.deepEqual(data.baseline, {
+      trust: 0.71,
+      affinity: 0.48,
+      familiarity: 0.4,
+      respect: 0.7,
     })
+    assert.equal(data.decayPerTurn, 0.18)
+    assert.equal(data.analysisModel, 'relationship-cheap')
+    assert.equal(data.fragmentPrompt, '关系变化影响语气，但不要显得像系统播报。')
+    assert.equal(data.analysisPrompt, '请判断这轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。')
+    assert.match(data.fragmentPromptDefault, /^当前你与用户的关系状态（会随互动缓慢变化）：/)
+    assert.equal(data.fragmentPromptEffective, [
+      '当前关系状态参考：',
+      '- trust：基本信任（0.63）',
+      '- affinity：亲和度较高（0.52）',
+      '- familiarity：开始熟悉（0.35）',
+      '- respect：基本尊重（0.74）',
+      '关系变化影响语气，但不要显得像系统播报。',
+    ].join('\n'))
+    assert.equal(data.analysisPromptDefault, '你负责分析单轮对话对关系状态的影响，只输出 JSON。')
+    assert.equal(data.analysisPromptEffective, '请判断这轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。')
+    assert.deepEqual(data.currentState, {
+      trust: 0.63,
+      affinity: 0.52,
+      familiarity: 0.35,
+      respect: 0.74,
+    })
+    assert.equal(data.history.length, 2)
 
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       relationship: {

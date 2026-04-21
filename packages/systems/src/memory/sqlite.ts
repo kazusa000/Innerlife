@@ -177,7 +177,7 @@ export function isSqliteMemoryConfig(config: unknown): boolean {
     && (config as Record<string, unknown>).scheme === 'sqlite'
 }
 
-function buildSummaryPrompt(promptOverride?: string | null): string {
+export function buildSummaryPrompt(promptOverride?: string | null): string {
   if (promptOverride?.trim()) {
     return promptOverride.trim()
   }
@@ -193,7 +193,7 @@ function buildSummaryPrompt(promptOverride?: string | null): string {
   ].join('\n')
 }
 
-function buildRetrievePrompt(promptOverride?: string | null): string {
+export function buildRetrievePrompt(promptOverride?: string | null): string {
   if (promptOverride?.trim()) {
     return promptOverride.trim()
   }
@@ -223,21 +223,9 @@ function buildRetrievePrompt(promptOverride?: string | null): string {
   ].join('\n')
 }
 
-function renderMemoryFragment(memories: MemoryRecord[], promptOverride?: string | null): string | null {
-  if (memories.length === 0) {
-    return null
-  }
-
-  const [primaryMemory, ...secondaryMemories] = memories
-  const renderMemoryLine = (label: string, memory: MemoryRecord) =>
-    `${label}：[${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.displaySummary}`
-
+export function buildMemoryFragmentPrompt(promptOverride?: string | null): string {
   if (promptOverride?.trim()) {
-    return [
-      promptOverride.trim(),
-      renderMemoryLine('最相关记忆', primaryMemory),
-      ...secondaryMemories.map((memory) => renderMemoryLine('补充记忆', memory)),
-    ].join('\n')
+    return promptOverride.trim()
   }
 
   return [
@@ -250,6 +238,28 @@ function renderMemoryFragment(memories: MemoryRecord[], promptOverride?: string 
     '如果答案已经包含在这些记忆里，不要再声称自己记不住，或声称自己没有记忆能力。',
     '不要先说“这是第一次对话”或“没有历史记录”，除非这些记忆本身就明确支持这个结论。',
     '如果这些记忆仍然不足以回答，就明确说你不确定，不要编造细节。',
+  ].join('\n')
+}
+
+function renderMemoryFragment(memories: MemoryRecord[], promptOverride?: string | null): string | null {
+  if (memories.length === 0) {
+    return null
+  }
+
+  const [primaryMemory, ...secondaryMemories] = memories
+  const renderMemoryLine = (label: string, memory: MemoryRecord) =>
+    `${label}：[${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.displaySummary}`
+
+  if (promptOverride?.trim()) {
+    return [
+      buildMemoryFragmentPrompt(promptOverride),
+      renderMemoryLine('最相关记忆', primaryMemory),
+      ...secondaryMemories.map((memory) => renderMemoryLine('补充记忆', memory)),
+    ].join('\n')
+  }
+
+  return [
+    buildMemoryFragmentPrompt(),
     renderMemoryLine('最相关记忆（优先回答）', primaryMemory),
     ...secondaryMemories.map((memory) => renderMemoryLine('补充记忆', memory)),
   ].join('\n')

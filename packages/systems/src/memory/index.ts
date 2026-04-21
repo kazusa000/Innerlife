@@ -1,6 +1,9 @@
 export {
   buildMemoryConsolidationPrompt,
   buildMemoryConsolidationSourceText,
+  buildMemoryFragmentPrompt,
+  buildRetrievePrompt,
+  buildSummaryPrompt,
   isSqliteMemoryConfig,
   MemorySqliteSystem,
   parseMemoryConsolidationResponse,

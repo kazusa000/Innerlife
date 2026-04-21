@@ -1,4 +1,8 @@
 import { agentRepo, emotionStateRepo } from '@mas/db'
+import {
+  buildEmotionAnalysisPrompt,
+  buildEmotionFragment,
+} from '@mas/systems'
 import { DEFAULT_EMOTION_BASELINE } from '../../../../../persona-modules'
 import { readEmotionModule } from '../handler'
 
@@ -111,6 +115,10 @@ function buildPayload(agentId: string, config: DimensionalConfig) {
     fragmentPrompt: config.fragmentPrompt,
     analysisPrompt: config.analysisPrompt,
     currentState,
+    fragmentPromptDefault: buildEmotionFragment(currentState ?? config.baseline),
+    fragmentPromptEffective: buildEmotionFragment(currentState ?? config.baseline, config.fragmentPrompt),
+    analysisPromptDefault: buildEmotionAnalysisPrompt(),
+    analysisPromptEffective: buildEmotionAnalysisPrompt(config.analysisPrompt),
     history,
   }
 }

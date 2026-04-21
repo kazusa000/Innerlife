@@ -30,8 +30,17 @@ type EmotionResponse = {
   analysisModel: string | null
   fragmentPrompt: string | null
   analysisPrompt: string | null
+  fragmentPromptDefault: string
+  fragmentPromptEffective: string
+  analysisPromptDefault: string
+  analysisPromptEffective: string
   currentState: EmotionBaseline | null
   history: EmotionHistoryEntry[]
+}
+
+function normalizePromptDraft(value: string, defaultValue: string) {
+  const trimmed = value.trim()
+  return !trimmed || trimmed === defaultValue.trim() ? null : trimmed
 }
 
 function isEmotionResponse(value: unknown): value is EmotionResponse {
@@ -60,6 +69,10 @@ export default function EmotionManagerDimensional({ agentId }: EmotionManagerPro
   const [currentState, setCurrentState] = useState<EmotionBaseline>({ ...DEFAULT_EMOTION_BASELINE })
   const [decayPerTurn, setDecayPerTurn] = useState('')
   const [analysisModel, setAnalysisModel] = useState('')
+  const [savedFragmentPrompt, setSavedFragmentPrompt] = useState<string | null>(null)
+  const [savedAnalysisPrompt, setSavedAnalysisPrompt] = useState<string | null>(null)
+  const [defaultFragmentPrompt, setDefaultFragmentPrompt] = useState('')
+  const [defaultAnalysisPrompt, setDefaultAnalysisPrompt] = useState('')
   const [fragmentPrompt, setFragmentPrompt] = useState('')
   const [analysisPrompt, setAnalysisPrompt] = useState('')
   const [history, setHistory] = useState<EmotionHistoryEntry[]>([])
@@ -90,8 +103,12 @@ export default function EmotionManagerDimensional({ agentId }: EmotionManagerPro
         if (!cancelled) {
           setDecayPerTurn(typeof data.decayPerTurn === 'number' ? String(data.decayPerTurn) : '')
           setAnalysisModel(data.analysisModel ?? '')
-          setFragmentPrompt(data.fragmentPrompt ?? '')
-          setAnalysisPrompt(data.analysisPrompt ?? '')
+          setSavedFragmentPrompt(data.fragmentPrompt ?? null)
+          setSavedAnalysisPrompt(data.analysisPrompt ?? null)
+          setDefaultFragmentPrompt(data.fragmentPromptDefault)
+          setDefaultAnalysisPrompt(data.analysisPromptDefault)
+          setFragmentPrompt(data.fragmentPromptEffective)
+          setAnalysisPrompt(data.analysisPromptEffective)
           setCurrentState(data.currentState ?? data.baseline)
           setHistory(data.history)
         }
@@ -125,8 +142,8 @@ export default function EmotionManagerDimensional({ agentId }: EmotionManagerPro
           currentState,
           ...(decayPerTurn.trim() ? { decayPerTurn: Number(decayPerTurn) } : {}),
           analysisModel: analysisModel.trim() || null,
-          fragmentPrompt: fragmentPrompt.trim() || null,
-          analysisPrompt: analysisPrompt.trim() || null,
+          fragmentPrompt: normalizePromptDraft(fragmentPrompt, defaultFragmentPrompt),
+          analysisPrompt: normalizePromptDraft(analysisPrompt, defaultAnalysisPrompt),
         }),
       })
       const data = await response.json() as unknown
@@ -139,8 +156,12 @@ export default function EmotionManagerDimensional({ agentId }: EmotionManagerPro
 
       setDecayPerTurn(typeof data.decayPerTurn === 'number' ? String(data.decayPerTurn) : '')
       setAnalysisModel(data.analysisModel ?? '')
-      setFragmentPrompt(data.fragmentPrompt ?? '')
-      setAnalysisPrompt(data.analysisPrompt ?? '')
+      setSavedFragmentPrompt(data.fragmentPrompt ?? null)
+      setSavedAnalysisPrompt(data.analysisPrompt ?? null)
+      setDefaultFragmentPrompt(data.fragmentPromptDefault)
+      setDefaultAnalysisPrompt(data.analysisPromptDefault)
+      setFragmentPrompt(data.fragmentPromptEffective)
+      setAnalysisPrompt(data.analysisPromptEffective)
       setCurrentState(data.currentState ?? data.baseline)
       setHistory(data.history)
       setNotice('情绪状态、模型和 prompt 已保存。')
@@ -291,6 +312,9 @@ export default function EmotionManagerDimensional({ agentId }: EmotionManagerPro
               label: 'Fragment Prompt',
               helper: '控制当前情绪片段如何影响主对话语气。这里适合写“轻微影响”“不要播报状态值”这类约束。',
               value: fragmentPrompt,
+              defaultValue: defaultFragmentPrompt,
+              effectiveValue: fragmentPrompt,
+              sourceLabel: savedFragmentPrompt ? '自定义 override' : '系统默认',
               placeholder: '例如：让情绪轻微渗进语气，但不要像系统播报。',
               rows: 7,
             },
@@ -299,6 +323,9 @@ export default function EmotionManagerDimensional({ agentId }: EmotionManagerPro
               label: 'Analysis Prompt',
               helper: '控制每轮情绪分析怎么读上下文、怎么输出 delta。',
               value: analysisPrompt,
+              defaultValue: defaultAnalysisPrompt,
+              effectiveValue: analysisPrompt,
+              sourceLabel: savedAnalysisPrompt ? '自定义 override' : '系统默认',
               placeholder: '例如：请分析这一轮对 mood/energy/stress 的变化，只输出 JSON。',
               rows: 10,
             },
@@ -308,6 +335,13 @@ export default function EmotionManagerDimensional({ agentId }: EmotionManagerPro
               setFragmentPrompt(value)
             } else if (key === 'analysisPrompt') {
               setAnalysisPrompt(value)
+            }
+          }}
+          onReset={(key) => {
+            if (key === 'fragmentPrompt') {
+              setFragmentPrompt(defaultFragmentPrompt)
+            } else if (key === 'analysisPrompt') {
+              setAnalysisPrompt(defaultAnalysisPrompt)
             }
           }}
         />

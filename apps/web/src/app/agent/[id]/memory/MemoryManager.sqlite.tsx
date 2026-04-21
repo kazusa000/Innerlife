@@ -55,6 +55,14 @@ interface MemoryListResponse {
   summarizePrompt: string | null
   fragmentPrompt: string | null
   consolidatePrompt: string | null
+  retrievePromptDefault: string
+  retrievePromptEffective: string
+  summarizePromptDefault: string
+  summarizePromptEffective: string
+  fragmentPromptDefault: string
+  fragmentPromptEffective: string
+  consolidatePromptDefault: string
+  consolidatePromptEffective: string
 }
 
 function readErrorMessage(value: unknown, fallback: string) {
@@ -91,6 +99,30 @@ function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySet
   }
 }
 
+function normalizePromptDefaults(data: Partial<MemoryListResponse>): Pick<
+  MemorySettings,
+  'retrievePrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
+> {
+  return {
+    retrievePrompt: typeof data.retrievePromptDefault === 'string' ? data.retrievePromptDefault : '',
+    summarizePrompt: typeof data.summarizePromptDefault === 'string' ? data.summarizePromptDefault : '',
+    fragmentPrompt: typeof data.fragmentPromptDefault === 'string' ? data.fragmentPromptDefault : '',
+    consolidatePrompt: typeof data.consolidatePromptDefault === 'string' ? data.consolidatePromptDefault : '',
+  }
+}
+
+function normalizeEffectivePrompts(data: Partial<MemoryListResponse>): Pick<
+  MemorySettings,
+  'retrievePrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
+> {
+  return {
+    retrievePrompt: typeof data.retrievePromptEffective === 'string' ? data.retrievePromptEffective : '',
+    summarizePrompt: typeof data.summarizePromptEffective === 'string' ? data.summarizePromptEffective : '',
+    fragmentPrompt: typeof data.fragmentPromptEffective === 'string' ? data.fragmentPromptEffective : '',
+    consolidatePrompt: typeof data.consolidatePromptEffective === 'string' ? data.consolidatePromptEffective : '',
+  }
+}
+
 function areSettingsEqual(left: MemorySettings, right: MemorySettings) {
   return JSON.stringify(left) === JSON.stringify(right)
 }
@@ -102,6 +134,11 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [memories, setMemories] = useState<SqliteMemory[]>([])
   const [total, setTotal] = useState(0)
   const [savedSettings, setSavedSettings] = useState<MemorySettings>(() => normalizeSettings({}))
+  const [savedOverrides, setSavedOverrides] = useState<MemorySettings>(() => normalizeSettings({}))
+  const [defaultPrompts, setDefaultPrompts] = useState<Pick<
+    MemorySettings,
+    'retrievePrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
+  >>(() => normalizePromptDefaults({}))
   const [draftSettings, setDraftSettings] = useState<MemorySettings>(() => normalizeSettings({}))
   const settingsDirtyRef = useRef(false)
   const [loading, setLoading] = useState(true)
@@ -141,11 +178,18 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       }
 
       const payload = data as MemoryListResponse
-      const settings = normalizeSettings(payload)
+      const rawSettings = normalizeSettings(payload)
+      const effectivePrompts = normalizeEffectivePrompts(payload)
+      const settings = {
+        ...rawSettings,
+        ...effectivePrompts,
+      }
       setMemories(Array.isArray(payload.memories) ? payload.memories : [])
       setTotal(typeof payload.total === 'number' ? payload.total : 0)
       setPage(typeof payload.page === 'number' ? payload.page : nextPage)
       setSavedSettings(settings)
+      setSavedOverrides(rawSettings)
+      setDefaultPrompts(normalizePromptDefaults(payload))
       if (!settingsDirtyRef.current) {
         setDraftSettings(settings)
       }
@@ -231,20 +275,49 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         body: JSON.stringify({
           summarizeModel: draftSettings.summarizeModel,
           embeddingModel: draftSettings.embeddingModel,
-          retrievePrompt: draftSettings.retrievePrompt,
-          summarizePrompt: draftSettings.summarizePrompt,
-          fragmentPrompt: draftSettings.fragmentPrompt,
-          consolidatePrompt: draftSettings.consolidatePrompt,
+          retrievePrompt: draftSettings.retrievePrompt.trim() === defaultPrompts.retrievePrompt.trim()
+            ? null
+            : draftSettings.retrievePrompt,
+          summarizePrompt: draftSettings.summarizePrompt.trim() === defaultPrompts.summarizePrompt.trim()
+            ? null
+            : draftSettings.summarizePrompt,
+          fragmentPrompt: draftSettings.fragmentPrompt.trim() === defaultPrompts.fragmentPrompt.trim()
+            ? null
+            : draftSettings.fragmentPrompt,
+          consolidatePrompt: draftSettings.consolidatePrompt.trim() === defaultPrompts.consolidatePrompt.trim()
+            ? null
+            : draftSettings.consolidatePrompt,
         }),
       })
-      const data = await response.json() as Partial<MemorySettings> & { error?: string }
+      const data = await response.json() as Partial<MemorySettings> & {
+        error?: string
+        retrievePromptDefault?: string
+        retrievePromptEffective?: string
+        summarizePromptDefault?: string
+        summarizePromptEffective?: string
+        fragmentPromptDefault?: string
+        fragmentPromptEffective?: string
+        consolidatePromptDefault?: string
+        consolidatePromptEffective?: string
+      }
       if (!response.ok) {
         throw new Error(typeof data?.error === 'string' ? data.error : '保存记忆配置失败')
       }
 
-      const normalized = normalizeSettings(data)
-      setSavedSettings(normalized)
-      setDraftSettings(normalized)
+      const normalizedOverride = normalizeSettings(data)
+      const normalizedEffective = {
+        ...normalizedOverride,
+        ...normalizeEffectivePrompts(data),
+      }
+      setSavedOverrides(normalizedOverride)
+      setDefaultPrompts((current) => ({
+        retrievePrompt: typeof data.retrievePromptDefault === 'string' ? data.retrievePromptDefault : current.retrievePrompt,
+        summarizePrompt: typeof data.summarizePromptDefault === 'string' ? data.summarizePromptDefault : current.summarizePrompt,
+        fragmentPrompt: typeof data.fragmentPromptDefault === 'string' ? data.fragmentPromptDefault : current.fragmentPrompt,
+        consolidatePrompt: typeof data.consolidatePromptDefault === 'string' ? data.consolidatePromptDefault : current.consolidatePrompt,
+      }))
+      setSavedSettings(normalizedEffective)
+      setDraftSettings(normalizedEffective)
       settingsDirtyRef.current = false
       setNotice('记忆模型和全部 prompt 已保存。')
     } catch (err) {
@@ -336,6 +409,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               label: 'Retrieve Prompt',
               helper: '语义检索改写和 time_range 提取的 prompt。现在如果你拆成双 analyzer，这里仍可以作为统一入口再细分。',
               value: draftSettings.retrievePrompt,
+              defaultValue: defaultPrompts.retrievePrompt,
+              sourceLabel: savedOverrides.retrievePrompt ? '自定义 override' : '系统默认',
               placeholder: '留空则使用系统默认的 retrieval analyzer prompt。',
               rows: 7,
             },
@@ -344,6 +419,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               label: 'Summarize Prompt',
               helper: '把一轮对话写成 display_summary / retrieval_text / tags / importance 的 prompt。',
               value: draftSettings.summarizePrompt,
+              defaultValue: defaultPrompts.summarizePrompt,
+              sourceLabel: savedOverrides.summarizePrompt ? '自定义 override' : '系统默认',
               placeholder: '留空则使用系统默认的 summarize prompt。',
               rows: 7,
             },
@@ -352,6 +429,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               label: 'Fragment Prompt',
               helper: '控制命中记忆如何注入主 prompt。这里适合写“把这些记忆当作回忆来回答”的包装文案。',
               value: draftSettings.fragmentPrompt,
+              defaultValue: defaultPrompts.fragmentPrompt,
+              sourceLabel: savedOverrides.fragmentPrompt ? '自定义 override' : '系统默认',
               placeholder: '留空则使用系统默认的 memory fragment prompt。',
               rows: 7,
             },
@@ -360,11 +439,24 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               label: 'Consolidate Prompt',
               helper: '控制 memory consolidate 时如何 rewrite / merge / keep。',
               value: draftSettings.consolidatePrompt,
+              defaultValue: defaultPrompts.consolidatePrompt,
+              sourceLabel: savedOverrides.consolidatePrompt ? '自定义 override' : '系统默认',
               placeholder: '留空则使用系统默认的 consolidate prompt。',
               rows: 7,
             },
           ]}
           onChange={(key, value) => updateSetting(key as keyof MemorySettings, value)}
+          onReset={(key) => {
+            if (key === 'retrievePrompt') {
+              updateSetting('retrievePrompt', defaultPrompts.retrievePrompt)
+            } else if (key === 'summarizePrompt') {
+              updateSetting('summarizePrompt', defaultPrompts.summarizePrompt)
+            } else if (key === 'fragmentPrompt') {
+              updateSetting('fragmentPrompt', defaultPrompts.fragmentPrompt)
+            } else if (key === 'consolidatePrompt') {
+              updateSetting('consolidatePrompt', defaultPrompts.consolidatePrompt)
+            }
+          }}
         />
       </div>
 

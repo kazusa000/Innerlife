@@ -156,6 +156,33 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.equal(listData.summarizePrompt, '生成记忆摘要')
     assert.equal(listData.fragmentPrompt, '把这些记忆当作回忆来回答')
     assert.equal(listData.consolidatePrompt, '整理记忆')
+    assert.equal(listData.retrievePromptDefault, [
+      '你要为 sqlite 记忆系统准备一份语义检索查询。',
+      '你会收到电脑当前的本地时间，以及用户最新一条消息。',
+      '请严格返回如下 JSON 结构：',
+      '{"retrieval_query": string | null, "time_range": {"start": string, "end": string} | null, "focus": string | null}',
+      'retrieval_query 只保留最短、最稳定、最能检索的主题锚点，通常就是一个名词或很短的名词短语；不要写解释句。',
+      '时间信息绝不进入 retrieval_query；时间只进入 time_range。',
+      'retrieval_query 不要包含说话者、提问动作、讨论动作，也不要包含“内容/事情/对话/讨论”这类回顾外壳，也不要复述整个时间回顾问句。',
+      '去掉时间和回顾外壳后，如果没有稳定主题锚点，就返回 "retrieval_query": null；纯回顾问法本身不是主题锚点。',
+      'retrieval_query 和 focus 默认使用与用户消息相同的语言；中文提问就用中文，不要改成英文。',
+      '如果用户没有表达时间意图，返回 "time_range": null。',
+      '如果用户表达了时间意图，请基于当前本地时间返回尽量精确的绝对 time_range；time_range 负责“什么时候”，retrieval_query 只负责“是什么”。',
+      '如果问题明显是在回顾已经发生过的内容，time_range 必须落在已经过去的时间窗口里，不要返回未来时间；优先选择最近一个已经结束的过去时段。',
+      '如果用户是在泛指过去互动、先前对话、此前提到过的事，即使没有明确时间粒度，也视为时间意图；返回覆盖足够宽的过去区间并以当前本地时间为结束的非空 time_range，不要返回 null。',
+      '如果用户只是在回顾某个时间段里聊过什么、说过什么、讨论过什么，retrieval_query 可以为 null，但 time_range 不应为 null。',
+      '“今天”表示当前本地自然日，“昨天”表示前一个本地自然日，不是滚动的 24 小时窗口。',
+      '上午=06:00-11:59，下午=12:00-17:59，晚上=18:00-23:59，凌晨=00:00-05:59，全部按本地时间理解。',
+      '“刚刚/刚才/前面/上一句”要对应最近几分钟的短时间窗口，不是单一时间点。',
+      '“今天上午/今天下午/今晚/昨晚/今早/昨天上午”要对应最窄、最贴近原话的局部时间窗口，不要扩大成整天，不要跨到其他时段，也不要跨到下一天；如果该时段尚未发生，就回指最近一个已经结束的同类过去时段。',
+      'focus 只写简短关注点；没有明显 focus 就返回 null。',
+      '"start" 和 "end" 必须是 ISO 8601 datetime 字符串。',
+      '不要输出 markdown、代码块或任何额外说明。',
+    ].join('\n'))
+    assert.equal(listData.retrievePromptEffective, '提炼检索查询')
+    assert.equal(listData.summarizePromptEffective, '生成记忆摘要')
+    assert.equal(listData.fragmentPromptEffective, '把这些记忆当作回忆来回答')
+    assert.equal(listData.consolidatePromptEffective, '整理记忆')
     assert.equal(listData.page, 1)
     assert.equal(listData.pageSize, 2)
     assert.equal(listData.total, 3)
@@ -188,16 +215,23 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     })
 
     assert.equal(response.status, 200)
-    assert.deepEqual(await response.json(), {
-      agentId: 'agent-1',
-      scheme: 'sqlite',
-      summarizeModel: 'qwen/qwen-2.5-7b-instruct',
-      embeddingModel: 'qwen/qwen3-embedding-8b',
-      retrievePrompt: '生成检索锚点',
-      summarizePrompt: '生成展示摘要和检索文本',
-      fragmentPrompt: '把这些记忆当作回忆来回答',
-      consolidatePrompt: '重新整理相近记忆',
-    })
+    const data = await response.json()
+    assert.equal(data.agentId, 'agent-1')
+    assert.equal(data.scheme, 'sqlite')
+    assert.equal(data.summarizeModel, 'qwen/qwen-2.5-7b-instruct')
+    assert.equal(data.embeddingModel, 'qwen/qwen3-embedding-8b')
+    assert.equal(data.retrievePrompt, '生成检索锚点')
+    assert.equal(data.summarizePrompt, '生成展示摘要和检索文本')
+    assert.equal(data.fragmentPrompt, '把这些记忆当作回忆来回答')
+    assert.equal(data.consolidatePrompt, '重新整理相近记忆')
+    assert.equal(typeof data.retrievePromptDefault, 'string')
+    assert.equal(data.retrievePromptEffective, '生成检索锚点')
+    assert.equal(typeof data.summarizePromptDefault, 'string')
+    assert.equal(data.summarizePromptEffective, '生成展示摘要和检索文本')
+    assert.equal(typeof data.fragmentPromptDefault, 'string')
+    assert.equal(data.fragmentPromptEffective, '把这些记忆当作回忆来回答')
+    assert.equal(typeof data.consolidatePromptDefault, 'string')
+    assert.equal(data.consolidatePromptEffective, '重新整理相近记忆')
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       memory: {
         scheme: 'sqlite',
@@ -234,16 +268,17 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
     })
 
     assert.equal(response.status, 200)
-    assert.deepEqual(await response.json(), {
-      agentId: 'agent-1',
-      scheme: 'sqlite',
-      summarizeModel: null,
-      embeddingModel: null,
-      retrievePrompt: null,
-      summarizePrompt: null,
-      fragmentPrompt: null,
-      consolidatePrompt: null,
-    })
+    const data = await response.json()
+    assert.equal(data.agentId, 'agent-1')
+    assert.equal(data.scheme, 'sqlite')
+    assert.equal(data.summarizeModel, null)
+    assert.equal(data.embeddingModel, null)
+    assert.equal(data.retrievePrompt, null)
+    assert.equal(data.summarizePrompt, null)
+    assert.equal(data.fragmentPrompt, null)
+    assert.equal(data.consolidatePrompt, null)
+    assert.equal(typeof data.retrievePromptDefault, 'string')
+    assert.equal(data.retrievePromptEffective, data.retrievePromptDefault)
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       memory: {
         scheme: 'sqlite',

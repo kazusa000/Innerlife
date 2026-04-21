@@ -1,5 +1,12 @@
 import { agentRepo, memoryRepo } from '@mas/db'
-import { isSqliteMemoryConfig, resolveMemorySqliteConfig } from '@mas/systems'
+import {
+  buildMemoryConsolidationPrompt,
+  buildMemoryFragmentPrompt,
+  buildRetrievePrompt,
+  buildSummaryPrompt,
+  isSqliteMemoryConfig,
+  resolveMemorySqliteConfig,
+} from '@mas/systems'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -52,6 +59,14 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     summarizePrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.summarizePrompt),
     fragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fragmentPrompt),
     consolidatePrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.consolidatePrompt),
+    retrievePromptDefault: buildRetrievePrompt(),
+    retrievePromptEffective: buildRetrievePrompt(memoryConfig.retrievePrompt),
+    summarizePromptDefault: buildSummaryPrompt(),
+    summarizePromptEffective: buildSummaryPrompt(memoryConfig.summarizePrompt),
+    fragmentPromptDefault: buildMemoryFragmentPrompt(),
+    fragmentPromptEffective: buildMemoryFragmentPrompt(memoryConfig.fragmentPrompt),
+    consolidatePromptDefault: buildMemoryConsolidationPrompt(),
+    consolidatePromptEffective: buildMemoryConsolidationPrompt(memoryConfig.consolidatePrompt),
     memories: result.memories.map((memory) => ({
       id: memory.id,
       sessionId: memory.sessionId,
@@ -132,5 +147,13 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     summarizePrompt: nextValues.summarizePrompt,
     fragmentPrompt: nextValues.fragmentPrompt,
     consolidatePrompt: nextValues.consolidatePrompt,
+    retrievePromptDefault: buildRetrievePrompt(),
+    retrievePromptEffective: buildRetrievePrompt(nextValues.retrievePrompt),
+    summarizePromptDefault: buildSummaryPrompt(),
+    summarizePromptEffective: buildSummaryPrompt(nextValues.summarizePrompt),
+    fragmentPromptDefault: buildMemoryFragmentPrompt(),
+    fragmentPromptEffective: buildMemoryFragmentPrompt(nextValues.fragmentPrompt),
+    consolidatePromptDefault: buildMemoryConsolidationPrompt(),
+    consolidatePromptEffective: buildMemoryConsolidationPrompt(nextValues.consolidatePrompt),
   })
 }

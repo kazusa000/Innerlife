@@ -126,6 +126,7 @@ function readCurrentState(ctx: TurnContext, fallback: EmotionStateVector): Emoti
 }
 
 function buildEmotionFragment(state: EmotionStateVector, promptOverride?: string | null): string {
+  const defaultPrompt = '回答时让这些状态产生轻微影响，但不要生硬复述数值或直接解释自己在“模拟情绪”。'
   if (promptOverride?.trim()) {
     return [
       '当前情绪状态参考：',
@@ -141,8 +142,14 @@ function buildEmotionFragment(state: EmotionStateVector, promptOverride?: string
     `- 心情 mood：${renderMood(state.mood)}（${state.mood.toFixed(2)}）`,
     `- 精力 energy：${renderEnergy(state.energy)}（${state.energy.toFixed(2)}）`,
     `- 压力 stress：${renderStress(state.stress)}（${state.stress.toFixed(2)}）`,
-    '- 回答时让这些状态产生轻微影响，但不要生硬复述数值或直接解释自己在“模拟情绪”。',
+    `- ${defaultPrompt}`,
   ].join('\n')
+}
+
+function buildEmotionAnalysisPrompt(promptOverride?: string | null): string {
+  return promptOverride?.trim()
+    ? promptOverride.trim()
+    : '你负责分析单轮对话对情绪状态的影响，只输出 JSON。'
 }
 
 function buildAnalysisRequest(
@@ -179,9 +186,7 @@ function buildAnalysisRequest(
   return {
     kind: 'dimensional',
     model,
-    systemPrompt: promptOverride?.trim()
-      ? promptOverride.trim()
-      : '你负责分析单轮对话对情绪状态的影响，只输出 JSON。',
+    systemPrompt: buildEmotionAnalysisPrompt(promptOverride),
     messages: [
       {
         role: 'user',
@@ -287,6 +292,7 @@ export class DimensionalEmotionSystem implements AgentSystem {
 export {
   DEFAULT_BASELINE,
   applyDecayAndDelta,
+  buildEmotionAnalysisPrompt,
   buildEmotionFragment,
   normalizeConfig,
   normalizeStateVector,

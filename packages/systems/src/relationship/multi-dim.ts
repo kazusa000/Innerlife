@@ -131,6 +131,7 @@ export function buildRelationshipFragment(
   state: RelationshipDimensions,
   promptOverride?: string | null,
 ): string {
+  const defaultPrompt = '让这些关系状态轻微影响语气、耐心、亲疏感和措辞，但不要直接复述数值，也不要声称自己在“模拟关系分数”。'
   if (promptOverride?.trim()) {
     return [
       '当前关系状态参考：',
@@ -148,8 +149,14 @@ export function buildRelationshipFragment(
     `- affinity：${renderAffinity(state.affinity)}（${state.affinity.toFixed(2)}）`,
     `- familiarity：${renderFamiliarity(state.familiarity)}（${state.familiarity.toFixed(2)}）`,
     `- respect：${renderRespect(state.respect)}（${state.respect.toFixed(2)}）`,
-    '- 让这些关系状态轻微影响语气、耐心、亲疏感和措辞，但不要直接复述数值，也不要声称自己在“模拟关系分数”。',
+    `- ${defaultPrompt}`,
   ].join('\n')
+}
+
+function buildRelationshipAnalysisPrompt(promptOverride?: string | null): string {
+  return promptOverride?.trim()
+    ? promptOverride.trim()
+    : '你负责分析单轮对话对关系状态的影响，只输出 JSON。'
 }
 
 function readCurrentState(ctx: TurnContext, fallback: RelationshipDimensions): RelationshipDimensions {
@@ -194,9 +201,7 @@ function buildAnalysisRequest(
   return {
     kind: 'multi-dim',
     model,
-    systemPrompt: promptOverride?.trim()
-      ? promptOverride.trim()
-      : '你负责分析单轮对话对关系状态的影响，只输出 JSON。',
+    systemPrompt: buildRelationshipAnalysisPrompt(promptOverride),
     messages: [
       {
         role: 'user',
@@ -343,6 +348,7 @@ export class MultiDimRelationshipSystem implements AgentSystem {
 }
 
 export {
+  buildRelationshipAnalysisPrompt,
   normalizeConfig as normalizeRelationshipConfig,
   normalizeDimensions as normalizeRelationshipState,
 }

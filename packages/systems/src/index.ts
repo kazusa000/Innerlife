@@ -32,6 +32,7 @@ export {
 export {
   DEFAULT_BASELINE as DEFAULT_EMOTION_BASELINE,
   applyDecayAndDelta,
+  buildEmotionAnalysisPrompt,
   buildEmotionFragment,
   DimensionalEmotionSystem,
   normalizeEmotionConfig,
@@ -39,7 +40,10 @@ export {
 } from './emotion'
 export {
   buildMemoryConsolidationPrompt,
+  buildMemoryFragmentPrompt,
   buildMemoryConsolidationSourceText,
+  buildRetrievePrompt,
+  buildSummaryPrompt,
   createOpenRouterMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   isSqliteMemoryConfig,
@@ -53,6 +57,7 @@ export {
   DEFAULT_BASELINE as DEFAULT_RELATIONSHIP_BASELINE,
   DEFAULT_COUNTERPART_ID as DEFAULT_RELATIONSHIP_COUNTERPART_ID,
   applyRelationshipDecayAndDelta,
+  buildRelationshipAnalysisPrompt,
   buildRelationshipFragment,
   MultiDimRelationshipSystem,
   normalizeRelationshipConfig,
