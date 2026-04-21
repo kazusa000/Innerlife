@@ -8,6 +8,16 @@ export interface LLMReasoningConfig {
   effort?: 'none' | 'low' | 'medium' | 'high'
 }
 
+export interface LLMResponseFormatJsonSchema {
+  name: string
+  strict?: boolean
+  schema: Record<string, unknown>
+}
+
+export type LLMResponseFormat =
+  | { type: 'json_object' }
+  | { type: 'json_schema'; jsonSchema: LLMResponseFormatJsonSchema }
+
 export interface LLMRequest {
   model: string
   systemPrompt: string
@@ -16,6 +26,7 @@ export interface LLMRequest {
   maxTokens?: number
   temperature?: number
   reasoning?: LLMReasoningConfig
+  responseFormat?: LLMResponseFormat
   signal?: AbortSignal
 }
 

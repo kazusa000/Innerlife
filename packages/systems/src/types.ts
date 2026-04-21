@@ -70,6 +70,17 @@ export interface MemoryReasoningConfig {
   effort?: 'none' | 'low' | 'medium' | 'high'
 }
 
+export type MemoryResponseFormat =
+  | { type: 'json_object' }
+  | {
+      type: 'json_schema'
+      jsonSchema: {
+        name: string
+        strict?: boolean
+        schema: Record<string, unknown>
+      }
+    }
+
 export interface MemoryQueryResult {
   retrievalQuery: string | null
   timeRange: MemoryTimeRange | null
@@ -81,6 +92,7 @@ export interface PendingMemoryWrite {
   system: string
   model?: string | null
   reasoning?: MemoryReasoningConfig
+  responseFormat?: MemoryResponseFormat
   prompt: string
   sourceText: string
   parse(responseText: string): MemoryWriteResult
@@ -92,6 +104,7 @@ export interface PendingMemoryQuery {
   system: string
   model?: string | null
   reasoning?: MemoryReasoningConfig
+  responseFormat?: MemoryResponseFormat
   prompt: string
   inputText: string
   parse(responseText: string): MemoryQueryResult

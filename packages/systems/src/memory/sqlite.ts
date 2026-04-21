@@ -3,6 +3,7 @@ import type {
   AgentSystem,
   MemoryRecord,
   MemoryQueryResult,
+  MemoryResponseFormat,
   PendingMemoryQuery,
   MemoryWriteResult,
   PendingMemoryWrite,
@@ -16,6 +17,56 @@ import {
 
 const DEFAULT_RETRIEVE_TOP_K = 5
 const MAX_MEMORY_CONTENT_CHARS = 500
+const MEMORY_QUERY_RESPONSE_FORMAT: MemoryResponseFormat = {
+  type: 'json_schema',
+  jsonSchema: {
+    name: 'memory_query',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        retrieval_query: {
+          type: ['string', 'null'],
+        },
+        time_range: {
+          type: ['object', 'null'],
+          properties: {
+            start: { type: 'string' },
+            end: { type: 'string' },
+          },
+          required: ['start', 'end'],
+          additionalProperties: false,
+        },
+        focus: {
+          type: ['string', 'null'],
+        },
+      },
+      required: ['retrieval_query', 'time_range', 'focus'],
+      additionalProperties: false,
+    },
+  },
+}
+const MEMORY_WRITE_RESPONSE_FORMAT: MemoryResponseFormat = {
+  type: 'json_schema',
+  jsonSchema: {
+    name: 'memory_write',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        display_summary: { type: 'string' },
+        retrieval_text: { type: 'string' },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        importance: { type: 'number' },
+      },
+      required: ['display_summary', 'retrieval_text', 'tags', 'importance'],
+      additionalProperties: false,
+    },
+  },
+}
 
 interface MemoryModuleConfig {
   summarizeModel: string | null
@@ -124,19 +175,20 @@ function buildRetrievePrompt(): string {
     '你会收到电脑当前的本地时间，以及用户最新一条消息。',
     '请严格返回如下 JSON 结构：',
     '{"retrieval_query": string | null, "time_range": {"start": string, "end": string} | null, "focus": string | null}',
-    'retrieval_query 表示最适合语义检索的主题表达，不是解释句，也不是关键词列表。',
-    '如果用户问题里存在稳定主题、对象、事件或关系锚点，就提炼出最短、最稳定、最能检索的主题表达。',
-    '优先保留主题本体本身，不要套上“用户提到的……内容”“关于……的事情”“……相关内容”这类包裹说法。',
-    '如果一个词或一个短语就足以表达主题，就直接返回这个词或短语，不要额外解释。',
-    'retrieval_query 里不要包含任何时间信息；时间只属于 time_range，不属于 retrieval_query。',
-    'retrieval_query 也不要包含说话者、提问动作、讨论动作或“内容/事情”这类说明外壳，只保留主题锚点本身。',
-    '如果用户主要是在回顾某个时间段内发生了什么，而没有明显的主题锚点，可以返回 "retrieval_query": null。',
-    '如果用户表达了时间相关意图，请基于当前本地时间把它翻译成绝对的 time_range。',
-    '当用户说“刚刚”“刚才”“前面”“上一句”这类近期回顾时，time_range 应该是覆盖最近一小段时间的短时间窗口，而不是单一时间点。',
-    '不要把“刚刚”理解成只有当前这一秒；如果用户在回顾最近说过的话，time_range 应该覆盖足以包含刚才那段对话的时间窗口。',
-    '如果用户没有表达时间相关意图，返回 "time_range": null。',
-    '如果时间意图过于模糊、无法安全判断，也返回 "time_range": null。',
-    'focus 是可选的短语，用来标记这次回忆的核心关注点；没有明显 focus 就返回 null。',
+    'retrieval_query 只保留最短、最稳定、最能检索的主题锚点，通常就是一个名词或很短的名词短语；不要写解释句。',
+    '时间信息绝不进入 retrieval_query；时间只进入 time_range。',
+    'retrieval_query 不要包含说话者、提问动作、讨论动作，也不要包含“内容/事情/对话/讨论”这类回顾外壳，也不要复述整个时间回顾问句。',
+    '去掉时间和回顾外壳后，如果没有稳定主题锚点，就返回 "retrieval_query": null；纯回顾问法本身不是主题锚点。',
+    'retrieval_query 和 focus 默认使用与用户消息相同的语言；中文提问就用中文，不要改成英文。',
+    '如果用户没有表达时间意图，返回 "time_range": null。',
+    '如果用户表达了时间意图，请基于当前本地时间返回尽量精确的绝对 time_range；time_range 负责“什么时候”，retrieval_query 只负责“是什么”。',
+    '如果问题明显是在回顾已经发生过的内容，time_range 必须落在已经过去的时间窗口里，不要返回未来时间；优先选择最近一个已经结束的过去时段。',
+    '如果用户只是在回顾某个时间段里聊过什么、说过什么、讨论过什么，retrieval_query 可以为 null，但 time_range 不应为 null。',
+    '“今天”表示当前本地自然日，“昨天”表示前一个本地自然日，不是滚动的 24 小时窗口。',
+    '上午=06:00-11:59，下午=12:00-17:59，晚上=18:00-23:59，凌晨=00:00-05:59，全部按本地时间理解。',
+    '“刚刚/刚才/前面/上一句”要对应最近几分钟的短时间窗口，不是单一时间点。',
+    '“今天上午/今天下午/今晚/昨晚/今早/昨天上午”要对应最窄、最贴近原话的局部时间窗口，不要扩大成整天，不要跨到其他时段，也不要跨到下一天；如果该时段尚未发生，就回指最近一个已经结束的同类过去时段。',
+    'focus 只写简短关注点；没有明显 focus 就返回 null。',
     '"start" 和 "end" 必须是 ISO 8601 datetime 字符串。',
     '不要输出 markdown、代码块或任何额外说明。',
   ].join('\n')
@@ -484,6 +536,7 @@ export class MemorySqliteSystem implements AgentSystem {
       system: this.name,
       model: this.summarizeModel,
       reasoning: { effort: 'none' },
+      responseFormat: MEMORY_QUERY_RESPONSE_FORMAT,
       prompt: buildRetrievePrompt(),
       inputText: buildRetrieveInputText(ctx.input.text),
       parse: parseMemoryQueryResponse,
@@ -535,6 +588,7 @@ export class MemorySqliteSystem implements AgentSystem {
       system: this.name,
       model: this.summarizeModel,
       reasoning: { effort: 'none' },
+      responseFormat: MEMORY_WRITE_RESPONSE_FORMAT,
       prompt: buildSummaryPrompt(),
       sourceText,
       parse: parseMemoryWriteResponse,

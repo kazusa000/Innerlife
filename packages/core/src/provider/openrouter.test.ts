@@ -83,6 +83,21 @@ test('OpenRouterProvider sendMessage maps tool transcripts and parses tool calls
       systemPrompt: 'You are helpful.',
       messages,
       reasoning: { effort: 'none' },
+      responseFormat: {
+        type: 'json_schema',
+        jsonSchema: {
+          name: 'memory_query',
+          strict: true,
+          schema: {
+            type: 'object',
+            properties: {
+              retrieval_query: { type: ['string', 'null'] },
+            },
+            required: ['retrieval_query'],
+            additionalProperties: false,
+          },
+        },
+      },
       tools: [
         {
           name: 'web_fetch',
@@ -101,6 +116,21 @@ test('OpenRouterProvider sendMessage maps tool transcripts and parses tool calls
     assert.equal(seen.url, 'https://openrouter.ai/api/v1/chat/completions')
     assert.equal((seen.body as { model: string }).model, 'openai/gpt-4.1-mini')
     assert.deepEqual((seen.body as { reasoning?: unknown }).reasoning, { effort: 'none' })
+    assert.deepEqual((seen.body as { response_format?: unknown }).response_format, {
+      type: 'json_schema',
+      json_schema: {
+        name: 'memory_query',
+        strict: true,
+        schema: {
+          type: 'object',
+          properties: {
+            retrieval_query: { type: ['string', 'null'] },
+          },
+          required: ['retrieval_query'],
+          additionalProperties: false,
+        },
+      },
+    })
     assert.deepEqual((seen.body as { messages: unknown[] }).messages, [
       { role: 'system', content: 'You are helpful.' },
       { role: 'user', content: '抓一下 example.com' },

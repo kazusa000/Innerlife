@@ -1,5 +1,11 @@
 import type { ContentBlock, Message, ToolDefinition } from '../types'
-import type { LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent } from './types'
+import type {
+  LLMProvider,
+  LLMRequest,
+  LLMResponse,
+  LLMResponseFormat,
+  LLMStreamEvent,
+} from './types'
 import { throwIfAborted } from '../utils/abort'
 
 type OpenRouterRole = 'system' | 'user' | 'assistant' | 'tool'
@@ -153,6 +159,25 @@ function mapTools(tools?: ToolDefinition[]) {
   }))
 }
 
+function mapResponseFormat(responseFormat?: LLMResponseFormat) {
+  if (!responseFormat) {
+    return undefined
+  }
+
+  if (responseFormat.type === 'json_object') {
+    return { type: 'json_object' as const }
+  }
+
+  return {
+    type: 'json_schema' as const,
+    json_schema: {
+      name: responseFormat.jsonSchema.name,
+      strict: responseFormat.jsonSchema.strict,
+      schema: responseFormat.jsonSchema.schema,
+    },
+  }
+}
+
 function mapUsage(usage?: OpenRouterUsage) {
   return {
     inputTokens: usage?.prompt_tokens ?? 0,
@@ -257,6 +282,7 @@ export class OpenRouterProvider implements LLMProvider {
         max_tokens: params.maxTokens ?? 4096,
         temperature: params.temperature,
         reasoning: params.reasoning,
+        response_format: mapResponseFormat(params.responseFormat),
         stream: true,
       }),
       signal: params.signal,
@@ -378,6 +404,7 @@ export class OpenRouterProvider implements LLMProvider {
         max_tokens: params.maxTokens ?? 4096,
         temperature: params.temperature,
         reasoning: params.reasoning,
+        response_format: mapResponseFormat(params.responseFormat),
         stream: false,
       }),
       signal: params.signal,

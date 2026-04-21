@@ -542,6 +542,7 @@ async function runPendingMemoryWrite(
       systemPrompt: pending.prompt,
       messages,
       reasoning: pending.reasoning,
+      responseFormat: pending.responseFormat,
       signal,
     })
     const result = pending.parse(extractContentText(response.content))
@@ -652,6 +653,7 @@ async function runPendingMemoryQuery(
       systemPrompt: pending.prompt,
       messages,
       reasoning: pending.reasoning,
+      responseFormat: pending.responseFormat,
       signal,
     })
     query = pending.parse(extractContentText(response.content))

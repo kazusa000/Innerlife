@@ -130,7 +130,12 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
 
     const observerStarts: Array<{ kind: string; model: string }> = []
     const observerEnds: Array<{ metadata?: unknown }> = []
-    const requests: Array<{ systemPrompt: string; model: string; reasoning?: unknown }> = []
+    const requests: Array<{
+      systemPrompt: string
+      model: string
+      reasoning?: unknown
+      responseFormat?: unknown
+    }> = []
     const observer: RunAgentObserver = {
       onLLMCallStart(payload) {
         observerStarts.push({ kind: payload.kind, model: payload.model })
@@ -146,6 +151,7 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
         systemPrompt: params.systemPrompt,
         model: params.model,
         reasoning: params.reasoning,
+        responseFormat: params.responseFormat,
       })
 
       if (isMemoryRetrievePrompt(params.systemPrompt)) {
@@ -235,6 +241,16 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
       requests.map((request) => ({
         model: request.model,
         reasoning: request.reasoning,
+        responseFormat: request.responseFormat && typeof request.responseFormat === 'object'
+          ? {
+              type: (request.responseFormat as { type?: unknown }).type,
+              jsonSchema: {
+                name: (
+                  (request.responseFormat as { jsonSchema?: { name?: unknown } }).jsonSchema?.name
+                ),
+              },
+            }
+          : undefined,
         kind: isMemoryRetrievePrompt(request.systemPrompt)
           ? 'retrieve'
           : request.systemPrompt.includes('"display_summary": string')
@@ -242,9 +258,30 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
             : 'turn',
       })),
       [
-        { kind: 'retrieve', model: 'memory-model', reasoning: { effort: 'none' } },
-        { kind: 'turn', model: 'fake-model', reasoning: { effort: 'none' } },
-        { kind: 'summarize', model: 'memory-model', reasoning: { effort: 'none' } },
+        {
+          kind: 'retrieve',
+          model: 'memory-model',
+          reasoning: { effort: 'none' },
+          responseFormat: {
+            type: 'json_schema',
+            jsonSchema: { name: 'memory_query' },
+          },
+        },
+        {
+          kind: 'turn',
+          model: 'fake-model',
+          reasoning: { effort: 'none' },
+          responseFormat: undefined,
+        },
+        {
+          kind: 'summarize',
+          model: 'memory-model',
+          reasoning: { effort: 'none' },
+          responseFormat: {
+            type: 'json_schema',
+            jsonSchema: { name: 'memory_write' },
+          },
+        },
       ],
     )
     assert.deepEqual(observerEnds[0]?.metadata, {
