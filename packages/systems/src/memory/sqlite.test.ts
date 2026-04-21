@@ -279,6 +279,19 @@ test('memory sqlite retrieval prompt guides pure recent-utterance recall toward 
   assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /如果用户没有表达时间意图/)
 })
 
+test('memory sqlite retrieval prompt treats broad prior-interaction recall as time intent', { concurrency: false }, async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('之前我们聊过吗')
+
+  await system.beforeTurn?.(ctx)
+
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /泛指过去互动、先前对话、此前提到过的事/)
+  assert.match(ctx.pendingMemoryQuery?.prompt ?? '', /非空 time_range，不要返回 null/)
+})
+
 test('memory sqlite system parses and persists display summary plus retrieval text', { concurrency: false }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
   const dbPath = join(dir, 'data.db')
