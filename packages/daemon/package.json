@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mas/db": "*"
+    "@mas/db": "*",
+    "@mas/turing": "*"
   },
   "devDependencies": {
     "tsx": "^4.21.0"

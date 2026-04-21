@@ -191,3 +191,8 @@ export function upsertRelationship(data: {
 
   return getRelationship(data.agentId, data.counterpartId)!
 }
+
+export function deleteRelationshipsByAgent(agentId: string) {
+  const db = getDb()
+  db.delete(relationships).where(eq(relationships.agentId, agentId)).run()
+}

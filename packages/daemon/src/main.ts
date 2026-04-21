@@ -1,8 +1,12 @@
 import path from 'node:path'
 import { once } from 'node:events'
+import { fileURLToPath } from 'node:url'
+import { bootstrapAppDatabases } from '@mas/db'
+import { processNextQueuedTuringRun } from '@mas/turing/runner'
 import { DaemonRunner } from './runner'
 
 const DEFAULT_TICK_INTERVAL_MS = 5_000
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
 function resolveEnvPath(value: string | undefined, fallback: string) {
   if (!value) {
@@ -27,17 +31,31 @@ function readTickInterval() {
 }
 
 export async function main() {
+  const dbPath = resolveEnvPath(
+    process.env.MAS_DAEMON_DB_PATH,
+    path.resolve(REPO_ROOT, 'data.db'),
+  )
+  const memoryDbPath = resolveEnvPath(
+    process.env.MAS_MEMORY_DB_PATH,
+    path.resolve(REPO_ROOT, 'storage', 'memory', 'memory.db'),
+  )
+
+  bootstrapAppDatabases({
+    dbPath,
+    memoryDbPath,
+  })
+
   const runner = new DaemonRunner({
-    dbPath: resolveEnvPath(
-      process.env.MAS_DAEMON_DB_PATH,
-      path.resolve(process.cwd(), 'data.db'),
-    ),
+    dbPath,
     lockPath: resolveEnvPath(
       process.env.MAS_DAEMON_LOCK_PATH,
-      path.resolve(process.cwd(), '.superpowers', 'daemon.lock'),
+      path.resolve(REPO_ROOT, '.superpowers', 'daemon.lock'),
     ),
     tickIntervalMs: readTickInterval(),
     logger: console,
+    tick: async ({ signal }) => {
+      await processNextQueuedTuringRun(signal)
+    },
   })
 
   await runner.start()

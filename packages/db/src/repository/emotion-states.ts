@@ -111,3 +111,8 @@ export function listRecentEmotionStatesByAgent(agentId: string, limit = 10) {
     .all()
     .map(mapEmotionState)
 }
+
+export function deleteEmotionStatesByAgent(agentId: string) {
+  const db = getDb()
+  db.delete(emotionStates).where(eq(emotionStates.agentId, agentId)).run()
+}

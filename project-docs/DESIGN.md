@@ -35,6 +35,7 @@
 | Agent 间通信 | 消息总线接口，先内存实现，后升级 SQLite | 渐进式 |
 | Daemon 管理 | Phase 1 不需要；Phase 4 引入本地 Daemon v1 | 先把后台长期运行与记忆演化做起来，暂不提前服务化 |
 | 进程模型 | 单进程 async 起步，预留 AgentRunner 接口支持 worker 子进程 | 渐进式 |
+| 图灵测试 | 外部优先的异步评测任务系统，页面仅作工作台 | 先把可被 Codex/其他 AI 调用的 run/job 系统做稳，再提供页面控制台 |
 | 用户模型 | 单用户 | 个人虚拟人管理系统 |
 | 开源许可 | MIT | 开源 |
 
@@ -82,6 +83,20 @@ multi-agent-system/
 │   │       ├── db-observer.ts   # DB 持久化实现
 │   │       └── noop-observer.ts # 空实现
 │   │
+│   ├── turing/                  # 图灵测试系统（外部优先评测任务）
+│   │   ├── src/
+│   │   │   ├── types.ts         # run / report / transcript / judge event 类型
+│   │   │   ├── suite.ts         # 固定 6 段测试套件
+│   │   │   ├── temp-agent.ts    # 临时测试 agent 复制与清理
+│   │   │   ├── chat-executor.ts # 复用真实 runAgent 聊天链路
+│   │   │   ├── runner.ts        # 图灵测试 runner（后台消费 queued run）
+│   │   │   └── report.ts        # 报告整形与建议聚合
+│   │   └── markdown/
+│   │       ├── judge-rulebook.md
+│   │       ├── suite-definition.md
+│   │       ├── abort-criteria.md
+│   │       └── report-rubric.md
+│   │
 │   ├── memory-service/          # 记忆服务（Python + ChromaDB，独立进程）
 │   │   ├── server.py            # HTTP/MCP 服务入口
 │   │   ├── palace.py            # 宫殿操作（Wing/Room/Drawer）
@@ -93,7 +108,7 @@ multi-agent-system/
 │       └── src/
 │           ├── schema/          # SQLite 表定义（Drizzle ORM）
 │           ├── migrations/      # 数据库迁移
-│           └── repository/      # 数据访问层
+│           └── repository/      # 数据访问层（含 turing run / event repo）
 │
 ├── apps/
 │   └── web/                     # Next.js 应用
@@ -106,10 +121,12 @@ multi-agent-system/
 │           │       ├── personality/page.tsx    # personality 管理入口
 │           │       ├── emotion/page.tsx        # emotion 管理入口
 │           │       ├── relationships/page.tsx  # relationship 管理入口
-│           │       └── memory/page.tsx         # memory 管理入口
+│           │       ├── memory/page.tsx         # memory 管理入口
+│           │       └── turing/page.tsx         # 图灵测试工作台
 │           └── app/api/
 │               ├── agents/                     # CRUD + active-session + 模块管理 API
 │               ├── sessions/                   # 会话历史/调试读取
+│               ├── turing/                     # 图灵测试 run / events / cleanup API
 │               └── chat/route.ts               # 流式对话端点
 │
 ├── package.json                 # npm workspaces 根配置
@@ -631,6 +648,7 @@ growth_logs                           -- Phase 4: 成长记录
 | `/agent/[id]/emotion` | emotion 管理统一入口 | 2 |
 | `/agent/[id]/memory` | 记忆管理统一入口（按当前 scheme 进入对应管理子系统） | Phase 2 |
 | `/agent/[id]/relationships` | 关系管理统一入口（按当前 scheme 进入对应管理子系统 / 图谱视图） | Phase 3 |
+| `/agent/[id]/turing` | 图灵测试工作台（报告 / 运行控制台 / 回放） | Phase 4 |
 | `/dashboard` | 仪表盘（运行状态、统计、成本） | Phase 5 |
 
 ### 8.2 API 端点
@@ -674,6 +692,11 @@ POST   /api/scheduled-tasks           创建定时任务
 GET    /api/scheduled-tasks           列出定时任务
 PATCH  /api/scheduled-tasks/:id       更新/暂停任务
 
+POST   /api/turing/runs               创建图灵测试 run
+GET    /api/turing/runs/:id           获取 run 状态 / 报告 / transcript
+GET    /api/turing/runs/:id/events    获取结构化事件流（供工作台只读控制台使用）
+POST   /api/turing/runs/:id/cleanup   一键清理本次测试全部数据
+
 # Phase 5+
 GET    /api/dashboard/stats           运行统计
 GET    /api/dashboard/costs           成本追踪
@@ -683,6 +706,45 @@ WebSocket /ws                         实时通信（agent 主动推送）
 ### 8.3 流式对话数据流
 
 ```
+
+### 8.4 图灵测试工作台
+
+图灵测试页不是聊天页变种，而是一个评测工作台。它只负责：
+
+- 发起一次图灵测试 run
+- 查看 run 当前状态
+- 阅读报告
+- 观察后台执行日志
+- 回看完整对话与 Observer 证据
+- 一键清理本次 run
+
+页面布局固定为四区：
+
+- 顶部：来源 persona、run 状态、开始测试、清理 run
+- 左侧：评测报告
+- 右侧：只读后台“命令行状态台”
+- 底部：完整对话回放与证据入口
+
+右侧“命令行状态台”不是网页 shell，也不允许输入命令。它只是把结构化 runner 事件按日志形式实时渲染出来，帮助用户判断：
+
+- 当前进行到哪一段测试
+- 是否插入了测试记忆 / 情绪状态 / 关系状态
+- 是否触发可疑项或红线
+- 是否正在生成报告
+
+### 8.5 图灵测试 API 语义
+
+图灵测试系统遵循“外部优先”的原则：核心是异步 run/job 系统，页面只是这些接口的可视化壳。
+
+一次 run 的流程是：
+
+1. 调用 `POST /api/turing/runs`
+2. 系统创建 `queued` run
+3. 后台 runner 消费该 run，复制 persona 并创建临时测试 agent
+4. 按固定 6 段测试套件执行
+5. 若触发红线，立即中断
+6. 写入 report / transcript / events
+7. 页面与外部 AI 通过 detail / events 接口读取结果
 浏览器                    Next.js API Route              core
   │                            │                          │
   │  POST /api/chat ──────►   │                          │
@@ -1261,6 +1323,13 @@ Phase 1（已完成）
   - 每 N 次对话触发成长检查 → LLM 分析交互历史 → 微调性格特质
   - growth_logs 表记录每次变化
   - 效果：虚拟人说"我觉得我最近变得更耐心了"
+- [ ] **G6 图灵测试系统 v1** — 外部优先的异步拟人感评测
+  - `turing_test_runs` + `turing_test_events` 表，支持 queued / running / interrupted / completed / cleaned
+  - 复制当前 persona 生成临时测试 agent，强制开启全部模块
+  - 固定 6 段测试套件 + 固定 rulebook markdown
+  - 后台 runner 逐段执行，允许插入测试记忆 / 情绪状态 / 关系状态
+  - 触发红线立即中止并生成报告；同时保留 transcript、Observer 证据与只读事件流
+  - 页面工作台挂在 `/agent/[id]/turing`，右侧提供“后台命令行状态台”，并支持一键清理整场测试数据
 
 ---
 
