@@ -58,6 +58,14 @@ function readJudgeText(response: ContentBlock[]) {
     .join('\n')
 }
 
+function readScore(value: unknown, fallback = 5) {
+  return typeof value === 'number' ? value : fallback
+}
+
+function nonEmptyString(value: unknown) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
 function hardAbortCheck(reply: string): { reason: string; evidence: string } | null {
   const normalized = reply.trim()
   if (!normalized) {
@@ -81,6 +89,47 @@ function hardAbortCheck(reply: string): { reason: string; evidence: string } | n
   }
 
   return null
+}
+
+export function coerceJudgeEvaluation(input: {
+  stageId: TuringStageId
+  parsed: Record<string, unknown>
+  agentReply: string
+}): TuringJudgeEvaluation {
+  const parsedScores = (
+    input.parsed.scores
+    && typeof input.parsed.scores === 'object'
+    && !Array.isArray(input.parsed.scores)
+      ? input.parsed.scores
+      : {}
+  ) as Record<string, unknown>
+
+  const failure = nonEmptyString(input.parsed.failure)
+  const suggestion = nonEmptyString(input.parsed.suggestion)
+  const summary = nonEmptyString(input.parsed.summary) ?? failure ?? '未生成评语'
+  const evidence = nonEmptyString(input.parsed.evidence) ?? input.agentReply
+  const status =
+    input.parsed.status === 'warning' || input.parsed.status === 'abort' || input.parsed.status === 'pass'
+      ? input.parsed.status
+      : failure
+        ? 'warning'
+        : 'pass'
+
+  return {
+    stageId: input.stageId,
+    summary,
+    status,
+    failure,
+    suggestion,
+    evidence,
+    scores: {
+      naturalness: readScore(parsedScores.naturalness),
+      continuity: readScore(parsedScores.continuity),
+      recall: readScore(parsedScores.recall),
+      emotion: readScore(parsedScores.emotion),
+      relationship: readScore(parsedScores.relationship),
+    },
+  }
 }
 
 async function embedText(input: string) {
@@ -259,22 +308,11 @@ async function evaluateReply(input: {
   })
 
   const parsed = parseJsonObject(readJudgeText(response.content))
-  const scores = parseJsonObject(JSON.stringify(parsed.scores ?? {}))
-  return {
+  return coerceJudgeEvaluation({
     stageId: input.stage.id,
-    summary: typeof parsed.summary === 'string' ? parsed.summary : '未生成评语',
-    status: parsed.status === 'warning' || parsed.status === 'abort' ? parsed.status : 'pass',
-    failure: typeof parsed.failure === 'string' ? parsed.failure : null,
-    suggestion: typeof parsed.suggestion === 'string' ? parsed.suggestion : null,
-    evidence: typeof parsed.evidence === 'string' ? parsed.evidence : null,
-    scores: {
-      naturalness: typeof scores.naturalness === 'number' ? scores.naturalness : 5,
-      continuity: typeof scores.continuity === 'number' ? scores.continuity : 5,
-      recall: typeof scores.recall === 'number' ? scores.recall : 5,
-      emotion: typeof scores.emotion === 'number' ? scores.emotion : 5,
-      relationship: typeof scores.relationship === 'number' ? scores.relationship : 5,
-    },
-  } satisfies TuringJudgeEvaluation
+    parsed,
+    agentReply: input.agentReply,
+  })
 }
 
 function appendTranscript(

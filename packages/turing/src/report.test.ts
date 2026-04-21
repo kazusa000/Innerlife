@@ -64,3 +64,55 @@ test('buildTuringReport marks aborting runs as fail with abort summary', () => {
   assert.match(report.summary, /被红线中断/)
   assert.equal(report.abort?.reason, '明确自称 AI')
 })
+
+test('buildTuringReport penalizes warning and abort stages instead of preserving raw high scores', () => {
+  const report = buildTuringReport([
+    evaluation({
+      stageId: 'natural_opening',
+      status: 'pass',
+      scores: {
+        naturalness: 10,
+        continuity: 10,
+        recall: 10,
+        emotion: 10,
+        relationship: 10,
+      },
+    }),
+    evaluation({
+      stageId: 'daily_flow',
+      status: 'warning',
+      summary: '太像助手',
+      failure: '日常闲聊过于模板化',
+      evidence: 'A 还是 B',
+      scores: {
+        naturalness: 10,
+        continuity: 10,
+        recall: 10,
+        emotion: 10,
+        relationship: 10,
+      },
+    }),
+    evaluation({
+      stageId: 'uncertainty_and_leaks',
+      status: 'abort',
+      summary: '自曝 AI',
+      failure: '明确说自己是 AI',
+      evidence: '我是 AI',
+      scores: {
+        naturalness: 10,
+        continuity: 10,
+        recall: 10,
+        emotion: 10,
+        relationship: 10,
+      },
+    }),
+  ], {
+    stageId: 'uncertainty_and_leaks',
+    reason: '明确说自己是 AI',
+    evidence: '我是 AI',
+  })
+
+  assert.equal(report.verdict, 'fail')
+  assert.ok(report.scores.naturalness < 10)
+  assert.ok(report.scores.continuity < 10)
+})

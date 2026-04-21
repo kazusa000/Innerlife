@@ -4,6 +4,26 @@ function clampScore(value: number) {
   return Math.max(0, Math.min(10, Number.isFinite(value) ? value : 0))
 }
 
+function statusWeight(status: TuringJudgeEvaluation['status']) {
+  switch (status) {
+    case 'abort':
+      return 0
+    case 'warning':
+      return 0.7
+    default:
+      return 1
+  }
+}
+
+function weightedScore(
+  evaluations: TuringJudgeEvaluation[],
+  key: keyof TuringJudgeEvaluation['scores'],
+) {
+  return average(
+    evaluations.map((item) => clampScore(item.scores[key]) * statusWeight(item.status)),
+  )
+}
+
 function average(values: number[]) {
   if (values.length === 0) {
     return 0
@@ -20,11 +40,11 @@ export function buildTuringReport(
   } | null,
 ): TuringReport {
   const scores = {
-    naturalness: clampScore(average(evaluations.map((item) => item.scores.naturalness))),
-    continuity: clampScore(average(evaluations.map((item) => item.scores.continuity))),
-    recall: clampScore(average(evaluations.map((item) => item.scores.recall))),
-    emotion: clampScore(average(evaluations.map((item) => item.scores.emotion))),
-    relationship: clampScore(average(evaluations.map((item) => item.scores.relationship))),
+    naturalness: clampScore(weightedScore(evaluations, 'naturalness')),
+    continuity: clampScore(weightedScore(evaluations, 'continuity')),
+    recall: clampScore(weightedScore(evaluations, 'recall')),
+    emotion: clampScore(weightedScore(evaluations, 'emotion')),
+    relationship: clampScore(weightedScore(evaluations, 'relationship')),
   }
 
   const failures = evaluations
