@@ -74,10 +74,8 @@ export interface MemoryTimeAnalyzerMeta {
 }
 
 export interface MemorySemanticAnalyzerMeta {
-  mode: 'llm' | 'ltp' | null
+  mode: 'llm' | null
   retrievalQuery: string | null
-  candidates?: string[]
-  selectedQuery?: string | null
   error: string | null
 }
 
@@ -312,10 +310,8 @@ export function getMemorySemanticAnalyzer(call: LiveCall): MemorySemanticAnalyze
   }
 
   return {
-    mode: readString(analyzer.mode) as 'llm' | 'ltp' | null,
+    mode: readString(analyzer.mode) as 'llm' | null,
     retrievalQuery: readString(analyzer.retrievalQuery),
-    candidates: Array.isArray(analyzer.candidates) ? readStringArray(analyzer.candidates) : undefined,
-    selectedQuery: readString(analyzer.selectedQuery),
     error: readString(analyzer.error),
   }
 }

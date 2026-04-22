@@ -93,8 +93,6 @@ export interface MemoryTimeAnalysisResult {
 
 export interface MemorySemanticAnalysisResult {
   retrievalQuery: string | null
-  mode?: 'llm' | 'ltp'
-  candidates?: string[]
 }
 
 export interface MemoryLayeredRetrieveResult {

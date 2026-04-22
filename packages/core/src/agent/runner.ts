@@ -660,29 +660,26 @@ async function runPendingMemoryQuery(
     return {}
   }
 
-  const observerPayload = pending.semanticAnalyzer.kind === 'llm'
-    ? {
-        systemPrompt: pending.semanticAnalyzer.prompt,
-        messages: [
-          {
-            role: 'user' as const,
-            content: [{ type: 'text' as const, text: `semantic analyzer 输入\n${pending.semanticAnalyzer.inputText}` }],
-          },
-        ] satisfies Message[],
-      }
-    : {
-        systemPrompt: [
-          'Local memory analyzers',
-          '- time analyzer: Recognizers-Text',
-          '- semantic analyzer: LTP candidate extractor',
-        ].join('\n'),
-        messages: [
-          {
-            role: 'user' as const,
-            content: [{ type: 'text' as const, text: `memory retrieve 输入\n${ctx.input.text}` }],
-          },
-        ] satisfies Message[],
-      }
+  if (pending.semanticAnalyzer.kind !== 'llm') {
+    return {
+      event: {
+        type: 'system_error',
+        system: pending.system,
+        phase: 'beforeTurn',
+        error: new Error('Memory semantic analyzer must be llm'),
+      },
+    }
+  }
+
+  const observerPayload = {
+    systemPrompt: pending.semanticAnalyzer.prompt,
+    messages: [
+      {
+        role: 'user' as const,
+        content: [{ type: 'text' as const, text: `semantic analyzer 输入\n${pending.semanticAnalyzer.inputText}` }],
+      },
+    ] satisfies Message[],
+  }
   const callId = observer?.onLLMCallStart({
     kind: 'memory',
     model: pending.model ?? config.model,
@@ -701,8 +698,6 @@ async function runPendingMemoryQuery(
   let timeResult = { timeRange: null as null | { start: Date; end: Date } }
   let semanticResult: MemorySemanticAnalysisResult = {
     retrievalQuery: null as string | null,
-    mode: semanticAnalyzer.kind === 'llm' ? 'llm' as const : 'ltp' as const,
-    candidates: [] as string[],
   }
   let query = { retrievalQuery: null as string | null, timeRange: null as null | { start: Date; end: Date } }
   let memoryResult = {
@@ -740,14 +735,12 @@ async function runPendingMemoryQuery(
       ? Promise.resolve().then(async () => ({ parsed: await timeAnalyzer.analyze() }))
       : Promise.reject(new Error('Memory time analyzer must be local')))
       .catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) })),
-    semanticAnalyzer.kind === 'llm'
-      ? runLlmAnalyzer(
-          semanticAnalyzer.prompt,
-          semanticAnalyzer.inputText,
-          semanticAnalyzer.responseFormat,
-          semanticAnalyzer.parse,
-        ).catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) }))
-      : Promise.resolve().then(async () => ({ parsed: await semanticAnalyzer.analyze() })),
+    runLlmAnalyzer(
+      semanticAnalyzer.prompt,
+      semanticAnalyzer.inputText,
+      semanticAnalyzer.responseFormat,
+      semanticAnalyzer.parse,
+    ).catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) })),
   ])
 
   if ('error' in timeOutcome) {
@@ -799,16 +792,8 @@ async function runPendingMemoryQuery(
           error: timeError?.message ?? null,
         },
         semanticAnalyzer: {
-          ...(semanticAnalyzer.kind === 'llm'
-            ? {
-                mode: 'llm',
-                retrievalQuery: query.retrievalQuery,
-              }
-            : {
-                mode: 'ltp',
-                candidates: semanticResult.candidates ?? [],
-                selectedQuery: query.retrievalQuery,
-              }),
+          mode: 'llm',
+          retrievalQuery: query.retrievalQuery,
           error: semanticError?.message ?? null,
         },
         mergedQuery: {
@@ -865,16 +850,8 @@ async function runPendingMemoryQuery(
       error: timeError?.message ?? null,
     },
     semanticAnalyzer: {
-      ...(semanticAnalyzer.kind === 'llm'
-        ? {
-            mode: 'llm',
-            retrievalQuery: query.retrievalQuery,
-          }
-        : {
-            mode: 'ltp',
-            candidates: semanticResult.candidates ?? [],
-            selectedQuery: query.retrievalQuery,
-          }),
+      mode: 'llm',
+      retrievalQuery: query.retrievalQuery,
       error: semanticError?.message ?? null,
     },
     mergedQuery: {

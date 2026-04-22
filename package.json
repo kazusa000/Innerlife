@@ -8,8 +8,6 @@
     "apps/*"
   ],
   "scripts": {
-    "daemon:start": "npm run start --workspace @mas/daemon",
-    "ltp:start": "bash -lc 'source .venv/bin/activate && python scripts/ltp_service.py'",
-    "ltp:install": "bash -lc 'python3 -m venv .venv && source .venv/bin/activate && pip install --upgrade pip && pip install --index-url https://download.pytorch.org/whl/cpu torch && pip install \"transformers<5\" \"huggingface-hub<1.0\" requests ltp fastapi uvicorn'"
+    "daemon:start": "npm run start --workspace @mas/daemon"
   }
 }

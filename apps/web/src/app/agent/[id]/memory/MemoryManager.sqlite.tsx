@@ -32,7 +32,6 @@ interface SqliteMemory {
 interface MemorySettings {
   summarizeModel: string
   embeddingModel: string
-  semanticAnalyzerMode: 'llm' | 'ltp'
   contextWindowMessages: number
   contextOverflowBatchSize: number
   contextIdleFlushMinutes: number
@@ -91,7 +90,6 @@ interface MemoryListResponse {
   total: number
   summarizeModel: string | null
   embeddingModel: string | null
-  semanticAnalyzerMode: 'llm' | 'ltp'
   contextWindowMessages: number
   contextOverflowBatchSize: number
   contextIdleFlushMinutes: number
@@ -159,7 +157,6 @@ function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySet
   return {
     summarizeModel: typeof data.summarizeModel === 'string' ? data.summarizeModel : '',
     embeddingModel: typeof data.embeddingModel === 'string' ? data.embeddingModel : '',
-    semanticAnalyzerMode: data.semanticAnalyzerMode === 'ltp' ? 'ltp' : 'llm',
     contextWindowMessages: typeof data.contextWindowMessages === 'number' ? data.contextWindowMessages : 50,
     contextOverflowBatchSize: typeof data.contextOverflowBatchSize === 'number' ? data.contextOverflowBatchSize : 25,
     contextIdleFlushMinutes: typeof data.contextIdleFlushMinutes === 'number' ? data.contextIdleFlushMinutes : 30,
@@ -530,7 +527,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         body: JSON.stringify({
           summarizeModel: draftSettings.summarizeModel,
           embeddingModel: draftSettings.embeddingModel,
-          semanticAnalyzerMode: draftSettings.semanticAnalyzerMode,
           contextWindowMessages: draftSettings.contextWindowMessages,
           contextOverflowBatchSize: draftSettings.contextOverflowBatchSize,
           contextIdleFlushMinutes: draftSettings.contextIdleFlushMinutes,
@@ -870,17 +866,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 placeholder="例如 openai/text-embedding-3-small"
               />
             </label>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Semantic Analyzer Mode</span>
-              <select
-                className={styles.input}
-                value={draftSettings.semanticAnalyzerMode}
-                onChange={(event) => updateSetting('semanticAnalyzerMode', event.target.value as 'llm' | 'ltp')}
-              >
-                <option value="llm">LLM</option>
-                <option value="ltp">LTP</option>
-              </select>
-            </label>
           </div>
         </section>
 
@@ -894,14 +879,10 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             {
               key: 'semanticAnalyzerPrompt',
               label: 'Semantic Analyzer Prompt',
-              helper: draftSettings.semanticAnalyzerMode === 'ltp'
-                ? '当前模式未启用。切回 LLM 后，这条 prompt 才会用于提炼 retrieval_query。'
-                : '只负责提炼 retrieval_query 的 prompt。这里应该只分析“是什么”，不要混入时间。',
+              helper: '只负责提炼 retrieval_query 的 prompt。这里应该只分析“是什么”，不要混入时间。',
               value: draftSettings.semanticAnalyzerPrompt,
               defaultValue: defaultPrompts.semanticAnalyzerPrompt,
-              sourceLabel: draftSettings.semanticAnalyzerMode === 'ltp'
-                ? (savedOverrides.semanticAnalyzerPrompt ? '已保存 override（当前未使用）' : '系统默认（当前未使用）')
-                : (savedOverrides.semanticAnalyzerPrompt ? '自定义 override' : '系统默认'),
+              sourceLabel: savedOverrides.semanticAnalyzerPrompt ? '自定义 override' : '系统默认',
               placeholder: '留空则使用系统默认的 semantic analyzer prompt。',
               rows: 7,
             },

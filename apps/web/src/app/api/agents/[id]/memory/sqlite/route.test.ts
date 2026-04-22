@@ -176,7 +176,6 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     const listData = await listResponse.clone().json()
     assert.equal(listData.summarizeModel, 'memory-model')
     assert.equal(listData.embeddingModel, 'memory-embed')
-    assert.equal(listData.semanticAnalyzerMode, 'llm')
     assert.equal(listData.semanticAnalyzerPrompt, '提炼检索查询')
     assert.equal(listData.summarizePrompt, '生成记忆摘要')
     assert.equal(listData.fragmentPrompt, '把这些记忆当作回忆来回答')
@@ -267,7 +266,6 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     bootstrapDb(dbPath, memoryDbPath)
 
     const response = updateSqliteMemorySettings('agent-1', {
-      semanticAnalyzerMode: 'ltp',
       summarizeModel: '  qwen/qwen-2.5-7b-instruct  ',
       embeddingModel: '  qwen/qwen3-embedding-8b  ',
       semanticAnalyzerPrompt: '  生成检索锚点  ',
@@ -300,7 +298,6 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal(data.sleepEnabled, false)
     assert.equal(data.sleepTimeLocal, '04:30')
     assert.equal(data.sleepIntervalDays, 2)
-    assert.equal(data.semanticAnalyzerMode, 'ltp')
     assert.equal(data.semanticAnalyzerPrompt, '生成检索锚点')
     assert.equal(data.summarizePrompt, '生成展示摘要和检索文本')
     assert.equal(data.fragmentPrompt, '把这些记忆当作回忆来回答')
@@ -342,7 +339,6 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
         sleepEnabled: false,
         sleepTimeLocal: '04:30',
         sleepIntervalDays: 2,
-        semanticAnalyzerMode: 'ltp',
         semanticAnalyzerPrompt: '生成检索锚点',
         summarizePrompt: '生成展示摘要和检索文本',
         fragmentPrompt: '把这些记忆当作回忆来回答',
@@ -369,7 +365,6 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
     bootstrapDb(dbPath, memoryDbPath)
 
     const response = updateSqliteMemorySettings('agent-1', {
-      semanticAnalyzerMode: 'llm',
       summarizeModel: '   ',
       embeddingModel: '   ',
       contextWindowMessages: null,
@@ -402,7 +397,6 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
     assert.equal(data.sleepEnabled, true)
     assert.equal(data.sleepTimeLocal, '03:00')
     assert.equal(data.sleepIntervalDays, 1)
-    assert.equal(data.semanticAnalyzerMode, 'llm')
     assert.equal(data.semanticAnalyzerPrompt, null)
     assert.equal(data.summarizePrompt, null)
     assert.equal(data.fragmentPrompt, null)
@@ -426,7 +420,6 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       memory: {
         scheme: 'sqlite',
-        semanticAnalyzerMode: 'llm',
       },
     })
   } finally {
