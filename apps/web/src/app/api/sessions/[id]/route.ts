@@ -2,6 +2,7 @@ import {
   emotionStateRepo,
   llmCallsRepo,
   messageRepo,
+  sessionRelationshipBindingRepo,
   sessionContextStateRepo,
   sessionRepo,
 } from '@mas/db'
@@ -13,6 +14,7 @@ export async function DELETE(
 ) {
   initDb()
   const { id } = await params
+  sessionRelationshipBindingRepo.unbindSessionRelationshipCounterpart(id)
   sessionContextStateRepo.deleteSessionContextState(id)
   emotionStateRepo.deleteEmotionStatesBySession(id)
   llmCallsRepo.deleteCallsBySession(id)

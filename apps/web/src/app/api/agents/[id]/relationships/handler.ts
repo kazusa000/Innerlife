@@ -42,7 +42,7 @@ export function getRelationshipManagerMeta(agentId: string) {
   return Response.json({
     agentId,
     scheme,
-    supportedSchemes: ['multi-dim'],
+    supportedSchemes: ['multi-dim', 'named-multi-dim'],
     configured: Boolean(scheme && scheme !== 'noop'),
   })
 }

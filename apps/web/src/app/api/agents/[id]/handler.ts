@@ -5,7 +5,9 @@ import {
   llmCallsRepo,
   memoryRepo,
   messageRepo,
+  relationshipCounterpartRepo,
   relationshipRepo,
+  sessionRelationshipBindingRepo,
   sessionContextStateRepo,
   sessionRepo,
   turingEventRepo,
@@ -30,11 +32,14 @@ export function deleteAgentCascade(agentId: string) {
 
   const sessions = sessionRepo.listSessionsByAgent(agentId)
   for (const session of sessions) {
+    sessionRelationshipBindingRepo.unbindSessionRelationshipCounterpart(session.id)
     sessionContextStateRepo.deleteSessionContextState(session.id)
     llmCallsRepo.deleteCallsBySession(session.id)
     messageRepo.deleteSessionMessages(session.id)
     sessionRepo.deleteSession(session.id)
   }
+
+  relationshipCounterpartRepo.deleteRelationshipCounterpartsByAgent(agentId)
 
   agentRepo.deleteAgent(agentId)
   return Response.json({ ok: true })

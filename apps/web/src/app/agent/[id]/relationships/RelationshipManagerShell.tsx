@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState, type ComponentType } from 'react'
 import { COMMON_UI_COPY } from '@/lib/ui-copy'
 import RelationshipManagerMultiDim from './RelationshipManager.multi-dim'
+import RelationshipManagerNamedMultiDim from './RelationshipManager.named-multi-dim'
 
 interface AgentRelationshipMeta {
   agentId: string
@@ -19,6 +20,7 @@ interface RelationshipManagerProps {
 
 const relationshipManagersByScheme = {
   'multi-dim': RelationshipManagerMultiDim,
+  'named-multi-dim': RelationshipManagerNamedMultiDim,
 } satisfies Record<string, ComponentType<RelationshipManagerProps>>
 
 export default function RelationshipManagerShell({ agentId }: { agentId: string }) {

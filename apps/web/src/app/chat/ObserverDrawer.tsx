@@ -453,7 +453,7 @@ export function ObserverDrawer({
       return <EmptyState title="本轮未触发关系调用" body="当前轮对话没有关系变化分析调用。" />
     }
 
-    if (relationshipScheme !== 'multi-dim') {
+    if (relationshipScheme !== 'multi-dim' && relationshipScheme !== 'named-multi-dim') {
       return <UnknownSchemeCard title="关系组件未命中" scheme={relationshipScheme} />
     }
 

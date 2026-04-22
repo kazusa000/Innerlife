@@ -144,10 +144,21 @@
   align-items: start;
 }
 
+.workspaceLayout {
+  display: grid;
+  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
 .contentStack {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-width: 0;
+}
+
+.workspaceMain {
   min-width: 0;
 }
 
@@ -191,6 +202,45 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.sectionNavList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sectionNavButton {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: rgba(17, 27, 49, 0.54);
+  color: var(--text-primary);
+  text-align: left;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.sectionNavButton:hover {
+  transform: translateY(-1px);
+  border-color: rgba(96, 165, 250, 0.24);
+  background: rgba(20, 32, 58, 0.78);
+}
+
+.sectionNavButtonActive {
+  border-color: rgba(96, 165, 250, 0.42);
+  background:
+    linear-gradient(135deg, rgba(30, 64, 175, 0.28), rgba(17, 27, 49, 0.92));
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.12);
+}
+
+.sectionNavIndex {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 .sideNavLink {
@@ -282,6 +332,18 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+.fieldStack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inlineActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .field,
@@ -420,6 +482,31 @@
   gap: 12px;
 }
 
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metricCard {
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(17, 27, 49, 0.84);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metricLabel {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.metricValue {
+  font: 600 18px/1.2 'Fira Sans', sans-serif;
+  color: var(--text-primary);
+}
+
 .metricList div,
 .metaList div {
   padding: 12px;
@@ -447,6 +534,15 @@
 }
 
 .historyItem {
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(17, 27, 49, 0.78);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.historyCard {
   padding: 14px;
   border-radius: 18px;
   background: rgba(17, 27, 49, 0.78);
@@ -628,12 +724,14 @@
 }
 
 @media (max-width: 1080px) {
+  .workspaceLayout,
   .sectionLayout,
   .grid,
   .statusGrid,
   .expandedGrid,
   .traitGrid,
-  .fieldGrid {
+  .fieldGrid,
+  .metricGrid {
     grid-template-columns: 1fr;
   }
 
@@ -646,7 +744,16 @@
     flex-wrap: wrap;
   }
 
+  .sectionNavList {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
   .sideNavLink {
+    flex: 1 1 180px;
+  }
+
+  .sectionNavButton {
     flex: 1 1 180px;
   }
 }

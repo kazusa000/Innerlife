@@ -3,6 +3,7 @@ import type {
   AgentSystem,
   ConversationMessage,
   PendingRelationshipAnalysis,
+  RelationshipCounterpartRef,
   RelationshipDimensions,
   RelationshipHistoryEntry,
   TurnContext,
@@ -130,11 +131,12 @@ function renderRespect(value: number): string {
 export function buildRelationshipFragment(
   state: RelationshipDimensions,
   promptOverride?: string | null,
+  counterpartName = '用户',
 ): string {
   const defaultPrompt = '让这些关系状态轻微影响语气、耐心、亲疏感和措辞，但不要直接复述数值，也不要声称自己在“模拟关系分数”。'
   if (promptOverride?.trim()) {
     return [
-      '当前关系状态参考：',
+      `当前你与${counterpartName}的关系状态参考：`,
       `- trust：${renderTrust(state.trust)}（${state.trust.toFixed(2)}）`,
       `- affinity：${renderAffinity(state.affinity)}（${state.affinity.toFixed(2)}）`,
       `- familiarity：${renderFamiliarity(state.familiarity)}（${state.familiarity.toFixed(2)}）`,
@@ -144,7 +146,7 @@ export function buildRelationshipFragment(
   }
 
   return [
-    '当前你与用户的关系状态（会随互动缓慢变化）：',
+    `当前你与${counterpartName}的关系状态（会随互动缓慢变化）：`,
     `- trust：${renderTrust(state.trust)}（${state.trust.toFixed(2)}）`,
     `- affinity：${renderAffinity(state.affinity)}（${state.affinity.toFixed(2)}）`,
     `- familiarity：${renderFamiliarity(state.familiarity)}（${state.familiarity.toFixed(2)}）`,
@@ -175,10 +177,15 @@ function buildAnalysisRequest(
   decayPerTurn: number,
   model: string | null,
   promptOverride?: string | null,
+  input?: {
+    kind?: PendingRelationshipAnalysis['kind']
+    counterpart?: RelationshipCounterpartRef | null
+  },
 ): PendingRelationshipAnalysis {
   const assistantText = ctx.response
     ? extractConversationText(ctx.response.content as ConversationMessage['content'])
     : ''
+  const counterpartName = input?.counterpart?.name ?? '当前用户'
 
   const analysisInput = [
     '请分析这一轮已经完成的对话，应该如何改变这个 persona 面向当前用户的关系状态。',
@@ -187,6 +194,7 @@ function buildAnalysisRequest(
     '所有 *_delta 的数值都必须落在 [-1, 1]。',
     '除非互动强度非常明显，否则增量要保持小幅变化。',
     '',
+    `当前面对的对象：${counterpartName}`,
     `当前状态：${JSON.stringify(currentState)}`,
     `基线状态：${JSON.stringify(baseline)}`,
     `每轮衰减：${decayPerTurn}`,
@@ -199,7 +207,7 @@ function buildAnalysisRequest(
   ].join('\n')
 
   return {
-    kind: 'multi-dim',
+    kind: input?.kind ?? 'multi-dim',
     model,
     systemPrompt: buildRelationshipAnalysisPrompt(promptOverride),
     messages: [
@@ -211,6 +219,7 @@ function buildAnalysisRequest(
     currentState,
     baseline,
     decayPerTurn,
+    counterpart: input?.counterpart ?? null,
   }
 }
 
@@ -295,6 +304,7 @@ export class MultiDimRelationshipSystem implements AgentSystem {
       content: buildRelationshipFragment(
         readCurrentState(ctx, this.config.baseline),
         this.config.fragmentPrompt,
+        '用户',
       ),
     })
   }
@@ -311,6 +321,7 @@ export class MultiDimRelationshipSystem implements AgentSystem {
       this.config.decayPerTurn,
       this.config.analysisModel,
       this.config.analysisPrompt,
+      { kind: 'multi-dim', counterpart: { id: DEFAULT_COUNTERPART_ID, name: '用户', type: 'user' } },
     )
   }
 

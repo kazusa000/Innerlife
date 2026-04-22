@@ -38,6 +38,22 @@ export function bootstrapAppDatabases(input: {
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
+    CREATE TABLE IF NOT EXISTS relationship_counterparts (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id),
+      name TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_relationship_counterparts_agent_updated_at
+      ON relationship_counterparts(agent_id, updated_at);
+    CREATE TABLE IF NOT EXISTS session_relationship_bindings (
+      session_id TEXT PRIMARY KEY REFERENCES sessions(id),
+      counterpart_id TEXT NOT NULL REFERENCES relationship_counterparts(id),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_relationship_bindings_counterpart_id
+      ON session_relationship_bindings(counterpart_id);
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -184,6 +200,16 @@ export function bootstrapAppDatabases(input: {
   }
   if (!llmCallColumns.some((column) => column.name === 'metadata_json')) {
     sqlite.exec('ALTER TABLE llm_calls ADD COLUMN metadata_json TEXT;')
+  }
+  const relationshipColumns = sqlite.pragma("table_info('relationships')") as Array<{ name: string }>
+  if (relationshipColumns.some((column) => column.name === 'counterpart_type')) {
+    sqlite.exec(`
+      UPDATE relationships
+      SET counterpart_type = CASE
+        WHEN counterpart_type IS NULL OR counterpart_type = '' THEN 'user'
+        ELSE counterpart_type
+      END
+    `)
   }
 
   initializedKey = key

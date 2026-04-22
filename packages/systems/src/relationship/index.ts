@@ -8,3 +8,4 @@ export {
   normalizeRelationshipConfig,
   normalizeRelationshipState,
 } from './multi-dim'
+export { NamedMultiDimRelationshipSystem } from './named-multi-dim'

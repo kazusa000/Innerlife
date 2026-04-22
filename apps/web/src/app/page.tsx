@@ -67,6 +67,7 @@ function formatSchemeLabel(value: string) {
   if (value === 'big-five') return 'Big Five'
   if (value === 'dimensional') return 'Dimensional'
   if (value === 'multi-dim') return 'Multi-dim'
+  if (value === 'named-multi-dim') return 'Named multi-dim'
   if (value === 'sqlite') return 'SQLite'
   return value
 }
@@ -537,6 +538,7 @@ export default function HomePage() {
                     >
                       <option value="noop">noop</option>
                       <option value="multi-dim">multi-dim</option>
+                      <option value="named-multi-dim">named-multi-dim</option>
                     </select>
                   </label>
                 </article>

@@ -1,6 +1,11 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+
 interface Props {
+  agentId?: string
+  sessionId?: string | null
+  relationshipScheme?: string | null
   agentName?: string
   onBack?: () => void
   onResetContext?: () => void
@@ -21,7 +26,89 @@ function initials(name: string) {
   return s.toUpperCase()
 }
 
-export function Sidebar({ agentName, onBack, onResetContext, isResetting = false }: Props) {
+type Counterpart = {
+  id: string
+  name: string
+}
+
+export function Sidebar({
+  agentId,
+  sessionId,
+  relationshipScheme,
+  agentName,
+  onBack,
+  onResetContext,
+  isResetting = false,
+}: Props) {
+  const [counterparts, setCounterparts] = useState<Counterpart[]>([])
+  const [selectedCounterpartId, setSelectedCounterpartId] = useState('')
+  const [bindingNotice, setBindingNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadBindingState() {
+      setCounterparts([])
+      setSelectedCounterpartId('')
+      setBindingNotice(null)
+
+      if (!agentId || !sessionId || relationshipScheme !== 'named-multi-dim') {
+        return
+      }
+
+      try {
+        const [configRes, bindingRes] = await Promise.all([
+          fetch(`/api/agents/${agentId}/relationships/named-multi-dim`, { cache: 'no-store' }),
+          fetch(`/api/sessions/${sessionId}/relationship-counterpart`, { cache: 'no-store' }),
+        ])
+
+        if (cancelled) return
+
+        const configData = await configRes.json().catch(() => null) as { counterparts?: Counterpart[] } | null
+        const bindingData = await bindingRes.json().catch(() => null) as { counterpart?: Counterpart | null } | null
+
+        if (Array.isArray(configData?.counterparts)) {
+          setCounterparts(configData.counterparts)
+        }
+        if (bindingData?.counterpart?.id) {
+          setSelectedCounterpartId(bindingData.counterpart.id)
+        }
+      } catch {
+        if (!cancelled) {
+          setBindingNotice('关系对象加载失败')
+        }
+      }
+    }
+
+    void loadBindingState()
+    return () => {
+      cancelled = true
+    }
+  }, [agentId, sessionId, relationshipScheme])
+
+  async function handleCounterpartChange(nextId: string) {
+    if (!sessionId) {
+      return
+    }
+
+    setBindingNotice(null)
+
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/relationship-counterpart`, {
+        method: nextId ? 'PUT' : 'DELETE',
+        headers: nextId ? { 'Content-Type': 'application/json' } : undefined,
+        body: nextId ? JSON.stringify({ counterpartId: nextId }) : undefined,
+      })
+      if (!response.ok) {
+        throw new Error('保存关系对象失败')
+      }
+      setSelectedCounterpartId(nextId)
+      setBindingNotice(nextId ? '当前 session 已绑定关系对象' : '当前 session 已解绑关系对象')
+    } catch {
+      setBindingNotice('保存关系对象失败')
+    }
+  }
+
   return (
     <aside className="sidebar">
       {agentName && (
@@ -80,6 +167,30 @@ export function Sidebar({ agentName, onBack, onResetContext, isResetting = false
           </button>
         )}
       </div>
+
+      {relationshipScheme === 'named-multi-dim' && (
+        <div className="rail-note">
+          <span className="rail-note-title">当前关系对象</span>
+          <p className="rail-note-body">
+            这个 session 只绑定一个手动命名对象。未绑定时，关系系统在当前聊天中不生效。
+          </p>
+          <select
+            className="counterpart-select"
+            value={selectedCounterpartId}
+            onChange={(event) => {
+              void handleCounterpartChange(event.target.value)
+            }}
+          >
+            <option value="">未绑定对象</option>
+            {counterparts.map((counterpart) => (
+              <option key={counterpart.id} value={counterpart.id}>
+                {counterpart.name}
+              </option>
+            ))}
+          </select>
+          {bindingNotice && <p className="rail-status">{bindingNotice}</p>}
+        </div>
+      )}
 
       <style jsx>{`
         .sidebar {
@@ -239,6 +350,22 @@ export function Sidebar({ agentName, onBack, onResetContext, isResetting = false
         .context-reset-btn:disabled {
           opacity: 0.6;
           cursor: wait;
+        }
+        .counterpart-select {
+          width: 100%;
+          margin-top: 14px;
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.06);
+          color: var(--fg);
+          padding: 10px 12px;
+          font-size: 13px;
+        }
+        .rail-status {
+          margin: 10px 0 0;
+          color: var(--fg-muted);
+          font-size: 12px;
+          line-height: 1.5;
         }
       `}</style>
     </aside>

@@ -184,14 +184,21 @@ export interface RelationshipHistoryEntry {
   createdAt: string
 }
 
+export interface RelationshipCounterpartRef {
+  id: string
+  name: string
+  type: 'user' | 'named'
+}
+
 export interface PendingRelationshipAnalysis {
-  kind: 'multi-dim'
+  kind: 'multi-dim' | 'named-multi-dim'
   model?: string | null
   systemPrompt: string
   messages: ConversationMessage[]
   currentState: RelationshipDimensions
   baseline: RelationshipDimensions
   decayPerTurn: number
+  counterpart?: RelationshipCounterpartRef | null
 }
 
 export interface RelationshipAnalysisResult {
