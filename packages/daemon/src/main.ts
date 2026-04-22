@@ -1,10 +1,9 @@
 import path from 'node:path'
 import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
-import { bootstrapAppDatabases, daemonEventRepo } from '@mas/db'
+import { bootstrapAppDatabases } from '@mas/db'
 import { processNextQueuedTuringRun } from '@mas/turing'
 import { processMemoryJobs } from './memory-jobs'
-import { ManagedLtpSidecar } from './ltp-sidecar'
 import { DaemonRunner } from './runner'
 
 const DEFAULT_TICK_INTERVAL_MS = 5_000
@@ -60,47 +59,8 @@ export async function main() {
       await processNextQueuedTuringRun(signal)
     },
   })
-  const ltpSidecar = new ManagedLtpSidecar({
-    baseUrl: process.env.MAS_LTP_BASE_URL,
-    repoRoot: REPO_ROOT,
-    logger: console,
-  })
 
   await runner.start()
-  if (ltpSidecar.isManaged()) {
-    daemonEventRepo.appendEvent({
-      kind: 'ltp_starting',
-      scope: 'daemon',
-      message: 'LTP sidecar 正在启动',
-      payload: {
-        baseUrl: process.env.MAS_LTP_BASE_URL ?? null,
-      },
-    })
-    try {
-      await ltpSidecar.start()
-      daemonEventRepo.appendEvent({
-        kind: 'ltp_started',
-        scope: 'daemon',
-        message: 'LTP sidecar 已启动',
-        payload: {
-          baseUrl: process.env.MAS_LTP_BASE_URL ?? null,
-        },
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      daemonEventRepo.appendEvent({
-        kind: 'ltp_error',
-        scope: 'daemon',
-        message: `LTP sidecar 启动失败：${message}`,
-        payload: {
-          baseUrl: process.env.MAS_LTP_BASE_URL ?? null,
-          error: message,
-        },
-      })
-      await runner.stop()
-      throw error
-    }
-  }
   console.info(`[daemon] running pid=${process.pid}`)
 
   let shuttingDown = false
@@ -116,25 +76,6 @@ export async function main() {
 
     shuttingDown = true
     console.info(`[daemon] stopping via ${signal}`)
-    if (ltpSidecar.isManaged()) {
-      daemonEventRepo.appendEvent({
-        kind: 'ltp_stopping',
-        scope: 'daemon',
-        message: 'LTP sidecar 正在停止',
-        payload: {
-          baseUrl: process.env.MAS_LTP_BASE_URL ?? null,
-        },
-      })
-      await ltpSidecar.stop()
-      daemonEventRepo.appendEvent({
-        kind: 'ltp_stopped',
-        scope: 'daemon',
-        message: 'LTP sidecar 已停止',
-        payload: {
-          baseUrl: process.env.MAS_LTP_BASE_URL ?? null,
-        },
-      })
-    }
     await runner.stop()
     process.exitCode = 0
     resolveShutdown?.()
@@ -147,7 +88,11 @@ export async function main() {
     void stop('SIGTERM')
   })
 
-  await shutdownPromise
+  await Promise.race([
+    once(process, 'SIGINT'),
+    once(process, 'SIGTERM'),
+    shutdownPromise,
+  ])
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
