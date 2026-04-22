@@ -154,7 +154,16 @@ export default function HomePage() {
 
   async function handleDelete(id: string) {
     if (!confirm('删除这个虚拟人及其全部对话吗？')) return
-    await fetch(`/api/agents/${id}`, { method: 'DELETE' })
+    const response = await fetch(`/api/agents/${id}`, { method: 'DELETE' })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      const message =
+        body && typeof body.error === 'string'
+          ? body.error
+          : `删除失败（${response.status}）`
+      alert(message)
+      return
+    }
     await loadAgents()
   }
 

@@ -55,3 +55,10 @@ export function upsertAgentMemorySleepState(input: {
 
   return getAgentMemorySleepState(input.agentId)!
 }
+
+export function deleteAgentMemorySleepState(agentId: string) {
+  const db = getDb()
+  db.delete(agentMemorySleepState)
+    .where(eq(agentMemorySleepState.agentId, agentId))
+    .run()
+}

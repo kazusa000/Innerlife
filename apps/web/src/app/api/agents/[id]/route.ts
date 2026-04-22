@@ -1,5 +1,6 @@
-import { agentRepo, sessionRepo, messageRepo, llmCallsRepo } from '@mas/db'
+import { agentRepo } from '@mas/db'
 import { initDb } from '@/lib/db-init'
+import { deleteAgentCascade } from './handler'
 
 export async function GET(
   _request: Request,
@@ -54,15 +55,5 @@ export async function DELETE(
 ) {
   initDb()
   const { id } = await params
-
-  // Cascade: llm_calls → messages → sessions → agent
-  const sessions = sessionRepo.listSessionsByAgent(id)
-  for (const session of sessions) {
-    llmCallsRepo.deleteCallsBySession(session.id)
-    messageRepo.deleteSessionMessages(session.id)
-    sessionRepo.deleteSession(session.id)
-  }
-  agentRepo.deleteAgent(id)
-
-  return Response.json({ ok: true })
+  return deleteAgentCascade(id)
 }
