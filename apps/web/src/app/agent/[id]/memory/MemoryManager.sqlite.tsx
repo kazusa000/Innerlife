@@ -4,6 +4,7 @@ import { Fragment, useDeferredValue, useEffect, useRef, useState, useTransition 
 import PromptLab from '../PromptLab'
 import styles from '../manager-ui.module.css'
 import { getSqliteMemoryToolbarState } from './MemoryManager.sqlite.state'
+import { getMemoryManagerSections, type MemoryManagerSectionId } from './MemoryManager.sqlite.sections'
 
 interface AgentMemoryMeta {
   agentId: string
@@ -130,6 +131,8 @@ const MEMORY_LAYER_LABELS: Record<SqliteMemory['layer'], string> = {
   long_term: '长期记忆',
   fixed: '固化记忆',
 }
+
+const MEMORY_MANAGER_SECTIONS = getMemoryManagerSections()
 
 function readErrorMessage(value: unknown, fallback: string) {
   if (
@@ -266,6 +269,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const [activeSection, setActiveSection] = useState<MemoryManagerSectionId>('context')
 
   const settingsDirty = !areSettingsEqual(savedSettings, draftSettings)
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
@@ -330,6 +334,50 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   useEffect(() => {
     void refresh(deferredQuery, page, layerFilter)
   }, [agentId, deferredQuery, page, layerFilter])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') {
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visibleEntries = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((left, right) => {
+            if (right.intersectionRatio !== left.intersectionRatio) {
+              return right.intersectionRatio - left.intersectionRatio
+            }
+            return left.boundingClientRect.top - right.boundingClientRect.top
+          })
+
+        const nextSectionId = visibleEntries[0]?.target.getAttribute('data-section-id')
+        if (
+          nextSectionId === 'context'
+          || nextSectionId === 'sleep'
+          || nextSectionId === 'prompt'
+          || nextSectionId === 'memory'
+        ) {
+          setActiveSection(nextSectionId)
+        }
+      },
+      {
+        rootMargin: '-18% 0px -52% 0px',
+        threshold: [0.12, 0.36, 0.64],
+      },
+    )
+
+    const targets = MEMORY_MANAGER_SECTIONS
+      .map((section) => document.getElementById(section.anchor))
+      .filter((node): node is HTMLElement => node instanceof HTMLElement)
+
+    targets.forEach((target) => observer.observe(target))
+
+    return () => {
+      targets.forEach((target) => observer.unobserve(target))
+      observer.disconnect()
+    }
+  }, [])
 
   function updateSetting<K extends keyof MemorySettings>(key: K, value: MemorySettings[K]) {
     settingsDirtyRef.current = true
@@ -613,8 +661,38 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       {notice && <p className={styles.notice}>{notice}</p>}
       {error && <p className={styles.error}>{error}</p>}
 
-      <div className={styles.verticalStack}>
-        <section className={styles.panel}>
+      <div className={styles.sectionLayout}>
+        <aside className={styles.sideNav} aria-label="记忆工作台导航">
+          <div className={styles.sideNavHead}>
+            <p className={styles.panelLabel}>导航</p>
+            <h4 className={styles.sideNavTitle}>记忆工作台导航</h4>
+            <p className={styles.sideNavCopy}>跳到上下文、睡眠、Prompt Lab 和记忆表，不用在长页里反复拖动。</p>
+          </div>
+          <nav className={styles.sideNavList}>
+            {MEMORY_MANAGER_SECTIONS.map((section) => {
+              const isActive = section.id === activeSection
+
+              return (
+                <a
+                  key={section.id}
+                  href={`#${section.anchor}`}
+                  className={`${styles.sideNavLink} ${isActive ? styles.sideNavLinkActive : ''}`}
+                  onClick={() => setActiveSection(section.id)}
+                >
+                  <span className={styles.sideNavLabel}>{section.label}</span>
+                  <span className={styles.sideNavMeta}>{section.description}</span>
+                </a>
+              )
+            })}
+          </nav>
+        </aside>
+
+        <div className={styles.contentStack}>
+        <section
+          id="memory-section-context"
+          data-section-id="context"
+          className={`${styles.panel} ${styles.sectionPanel}`}
+        >
           <div className={styles.panelHead}>
             <div>
               <p className={styles.panelLabel}>上下文控制</p>
@@ -709,7 +787,11 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </div>
         </section>
 
-        <section className={styles.panel}>
+        <section
+          id="memory-section-sleep"
+          data-section-id="sleep"
+          className={`${styles.panel} ${styles.sectionPanel}`}
+        >
           <div className={styles.panelHead}>
             <div>
               <p className={styles.panelLabel}>睡眠区</p>
@@ -770,7 +852,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </div>
         </section>
 
-        <section className={styles.panel}>
+        <section className={`${styles.panel} ${styles.sectionPanel}`}>
           <div className={styles.panelHead}>
             <div>
               <p className={styles.panelLabel}>模型设置</p>
@@ -803,6 +885,11 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </div>
         </section>
 
+        <section
+          id="memory-section-prompt"
+          data-section-id="prompt"
+          className={styles.sectionPanel}
+        >
         <PromptLab
           fields={[
             {
@@ -907,9 +994,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             }
           }}
         />
-      </div>
+        </section>
 
-      <section className={styles.panel}>
+      <section
+        id="memory-section-memory"
+        data-section-id="memory"
+        className={`${styles.panel} ${styles.sectionPanel}`}
+      >
         <div className={styles.panelHead}>
           <div>
             <p className={styles.tableLabel}>记忆表</p>
@@ -1094,6 +1185,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </>
         )}
       </section>
+        </div>
+      </div>
     </section>
   )
 }
