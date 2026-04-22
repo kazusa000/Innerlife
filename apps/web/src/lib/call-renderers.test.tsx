@@ -18,19 +18,17 @@ test('MemoryView renders retrieve time range metadata', () => {
         },
         semanticAnalyzer: {
           retrievalQuery: '最近在修 sqlite memory 的 consolidate 按钮问题',
-          focus: 'consolidate 按钮',
+          mode: 'llm',
           error: null,
         },
         mergedQuery: {
           retrievalQuery: '最近在修 sqlite memory 的 consolidate 按钮问题',
-          focus: 'consolidate 按钮',
           timeRange: {
             start: '2026-04-20T13:55:00.000Z',
             end: '2026-04-20T14:00:00.000Z',
           },
         },
         retrievalQuery: '最近在修 sqlite memory 的 consolidate 按钮问题',
-        focus: 'consolidate 按钮',
         timeRange: {
           start: '2026-04-20T13:55:00.000Z',
           end: '2026-04-20T14:00:00.000Z',
@@ -45,5 +43,5 @@ test('MemoryView renders retrieve time range metadata', () => {
   assert.equal(html.includes('2026-04-20T13:55:00.000Z'), true)
   assert.equal(html.includes('2026-04-20T14:00:00.000Z'), true)
   assert.equal(html.includes('最近在修 sqlite memory 的 consolidate 按钮问题'), true)
-  assert.equal(html.includes('consolidate 按钮'), true)
+  assert.equal(html.includes('聚焦点'), false)
 })

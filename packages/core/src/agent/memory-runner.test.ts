@@ -203,7 +203,6 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
                 type: 'text',
                 text: JSON.stringify({
                   retrieval_query: '用户告诉过我的猫叫什么名字',
-                  focus: '猫的名字',
                 }),
               },
             ],
@@ -323,16 +322,14 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
       },
       semanticAnalyzer: {
         retrievalQuery: '用户告诉过我的猫叫什么名字',
-        focus: '猫的名字',
+        mode: 'llm',
         error: null,
       },
       mergedQuery: {
         retrievalQuery: '用户告诉过我的猫叫什么名字',
-        focus: '猫的名字',
         timeRange: null,
       },
       retrievalQuery: '用户告诉过我的猫叫什么名字',
-      focus: '猫的名字',
       timeRange: null,
       hitCount: 1,
       shortTermHitCount: 1,
@@ -409,7 +406,6 @@ test('runAgent supports pure time-range recall without a retrieval query', async
                 type: 'text',
                 text: JSON.stringify({
                   retrieval_query: null,
-                  focus: '昨天发生的事',
                 }),
               },
             ],
@@ -492,13 +488,11 @@ test('runAgent supports pure time-range recall without a retrieval query', async
     assert.equal(events.at(-1)?.type, 'complete')
     const retrieveMetadata = observerEnds[0]?.metadata as {
       retrievalQuery?: string | null
-      focus?: string | null
       hitCount?: number
       memoryIds?: string[]
       timeRange?: { start: string; end: string } | null
     }
     assert.equal(retrieveMetadata?.retrievalQuery ?? null, null)
-    assert.equal(retrieveMetadata?.focus, '昨天发生的事')
     assert.equal(retrieveMetadata?.hitCount, 1)
     assert.deepEqual(retrieveMetadata?.memoryIds, [existingMemory.id])
     assert.deepEqual((observerEnds[0]?.metadata as { timeAnalyzer?: unknown })?.timeAnalyzer, {
@@ -510,7 +504,7 @@ test('runAgent supports pure time-range recall without a retrieval query', async
     })
     assert.deepEqual((observerEnds[0]?.metadata as { semanticAnalyzer?: unknown })?.semanticAnalyzer, {
       retrievalQuery: null,
-      focus: '昨天发生的事',
+      mode: 'llm',
       error: null,
     })
     assert.deepEqual(retrieveMetadata?.timeRange, {
@@ -617,10 +611,9 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
       timeAnalyzer: { timeRange: null, error: null },
-      semanticAnalyzer: { retrievalQuery: null, focus: null, error: 'memory query failed' },
-      mergedQuery: { retrievalQuery: null, focus: null, timeRange: null },
+      semanticAnalyzer: { retrievalQuery: null, mode: 'llm', error: 'memory query failed' },
+      mergedQuery: { retrievalQuery: null, timeRange: null },
       retrievalQuery: null,
-      focus: null,
       timeRange: null,
     })
     assert.equal(observerEnds[0]?.error, 'memory query failed')
@@ -666,7 +659,6 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
             parse() {
               return {
                 retrievalQuery: '用户关于猫说过的话',
-                focus: '猫',
               }
             },
           },
@@ -674,7 +666,6 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
             return {
               retrievalQuery: semantic.retrievalQuery,
               timeRange: time?.timeRange ?? null,
-              focus: semantic.focus,
             }
           },
           retrieve() {
@@ -692,7 +683,7 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
       yield {
         type: 'message_complete',
         response: {
-          content: [{ type: 'text', text: JSON.stringify({ retrieval_query: '用户关于猫说过的话', focus: '猫' }) }],
+          content: [{ type: 'text', text: JSON.stringify({ retrieval_query: '用户关于猫说过的话' }) }],
           stopReason: 'end_turn',
           usage: { inputTokens: 4, outputTokens: 4 },
         },
@@ -736,10 +727,9 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
       timeAnalyzer: { timeRange: null, error: null },
-      semanticAnalyzer: { retrievalQuery: '用户关于猫说过的话', focus: '猫', error: null },
-      mergedQuery: { retrievalQuery: '用户关于猫说过的话', focus: '猫', timeRange: null },
+      semanticAnalyzer: { retrievalQuery: '用户关于猫说过的话', mode: 'llm', error: null },
+      mergedQuery: { retrievalQuery: '用户关于猫说过的话', timeRange: null },
       retrievalQuery: '用户关于猫说过的话',
-      focus: '猫',
       timeRange: null,
       hitCount: 0,
       shortTermHitCount: 0,
@@ -784,7 +774,7 @@ test('runAgent emits system_error without fallback retrieval when semantic analy
           content: [
             {
               type: 'text',
-              text: JSON.stringify({ retrieval_query: null, focus: null }),
+              text: JSON.stringify({ retrieval_query: null }),
             },
           ],
           stopReason: 'end_turn',
@@ -868,10 +858,9 @@ test('runAgent emits system_error without fallback retrieval when semantic analy
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
       timeAnalyzer: { timeRange: null, error: null },
-      semanticAnalyzer: { retrievalQuery: null, focus: null, error: null },
-      mergedQuery: { retrievalQuery: null, focus: null, timeRange: null },
+      semanticAnalyzer: { retrievalQuery: null, mode: 'llm', error: null },
+      mergedQuery: { retrievalQuery: null, timeRange: null },
       retrievalQuery: null,
-      focus: null,
       timeRange: null,
     })
     assert.equal((observerEnds[2]?.metadata as { phase?: string })?.phase, 'retrieve')
@@ -881,11 +870,133 @@ test('runAgent emits system_error without fallback retrieval when semantic analy
     })
     assert.deepEqual((observerEnds[2]?.metadata as { semanticAnalyzer?: unknown })?.semanticAnalyzer, {
       retrievalQuery: null,
-      focus: null,
+      mode: 'llm',
       error: null,
     })
     assert.equal((observerEnds[2]?.metadata as { retrievalQuery?: string | null })?.retrievalQuery ?? null, null)
     assert.equal((observerEnds[2]?.metadata as { hitCount?: number })?.hitCount, undefined)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('runAgent uses ltp semantic analyzer mode without semantic llm call', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+    memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: '用户提到海边灯塔画面。',
+      displaySummary: '用户之前聊过海边灯塔画面',
+      retrievalText: '用户之前提到海边灯塔画面，强调海风和灯塔。',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
+      tags: ['海边', '灯塔', '画面'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-17T10:00:00.000Z'),
+    })
+
+    const requests: string[] = []
+    const observerEnds: Array<{ metadata?: unknown }> = []
+    const observer: RunAgentObserver = {
+      onLLMCallStart() {
+        return 'call-1'
+      },
+      onLLMCallEnd(_callId, payload) {
+        observerEnds.push({ metadata: payload.metadata })
+      },
+    }
+
+    const provider = new FakeProvider(async function* (params) {
+      requests.push(params.systemPrompt)
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: '我记得那个海边灯塔画面。' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 7, outputTokens: 4 },
+        },
+      }
+    })
+
+    const events = []
+    for await (const event of runAgent(
+      createConfig(),
+      [createTextMessage('user', '你还记得海边灯塔画面吗')],
+      provider,
+      createSystems({
+        memory: {
+          scheme: 'sqlite',
+          semanticAnalyzerMode: 'ltp',
+          embeddingModel: 'qwen/qwen3-embedding-0.6b',
+          ltpClient: {
+            async analyze() {
+              return {
+                candidates: ['海边灯塔画面', '灯塔画面'],
+              }
+            },
+          },
+          embedder: createEmbedder({
+            海边灯塔画面: [1, 0],
+          }),
+        },
+      }),
+      observer,
+    )) {
+      events.push(event)
+    }
+
+    assert.equal(events.at(-1)?.type, 'complete')
+    assert.equal(requests.length, 1)
+    assert.ok(requests.every((prompt) => !isMemorySemanticPrompt(prompt)))
+    assert.deepEqual((observerEnds[0]?.metadata as { memory?: unknown })?.memory, {
+      timeAnalyzer: { timeRange: null, error: null },
+      semanticAnalyzer: {
+        mode: 'ltp',
+        candidates: ['海边灯塔画面', '灯塔画面'],
+        selectedQuery: '海边灯塔画面',
+        error: null,
+      },
+      mergedQuery: {
+        retrievalQuery: '海边灯塔画面',
+        timeRange: null,
+      },
+      retrievalQuery: '海边灯塔画面',
+      timeRange: null,
+      hitCount: 1,
+      shortTermHitCount: 1,
+      fixedHitCount: 0,
+      shortTermMemoryIds: [memoryRepo.listMemoriesByAgent('agent-1')[0]!.id],
+      fixedMemoryIds: [],
+      shortTermHits: [
+        {
+          id: memoryRepo.listMemoriesByAgent('agent-1')[0]!.id,
+          summary: '用户之前聊过海边灯塔画面',
+          layer: 'short_term',
+          tags: ['海边', '灯塔', '画面'],
+          importance: 0.9,
+        },
+      ],
+      fixedHits: [],
+      memoryIds: [memoryRepo.listMemoriesByAgent('agent-1')[0]!.id],
+      hits: [
+        {
+          id: memoryRepo.listMemoriesByAgent('agent-1')[0]!.id,
+          summary: '用户之前聊过海边灯塔画面',
+          layer: 'short_term',
+          tags: ['海边', '灯塔', '画面'],
+          importance: 0.9,
+        },
+      ],
+    })
+    const fragments = (observerEnds[0]?.metadata as { fragments?: Array<{ source?: string }> })?.fragments ?? []
+    assert.equal(fragments.some((fragment) => fragment.source === 'memory'), true)
   } finally {
     resetDb()
     resetMemoryDb()

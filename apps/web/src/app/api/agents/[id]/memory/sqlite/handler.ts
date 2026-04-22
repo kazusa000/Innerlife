@@ -115,6 +115,7 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     total: result.total,
     summarizeModel: memoryConfig.summarizeModel,
     embeddingModel: memoryConfig.embeddingModel,
+    semanticAnalyzerMode: memoryConfig.semanticAnalyzerMode,
     contextWindowMessages: pipelineSettings.contextWindowMessages,
     contextOverflowBatchSize: pipelineSettings.contextOverflowBatchSize,
     contextIdleFlushMinutes: pipelineSettings.contextIdleFlushMinutes,
@@ -197,6 +198,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   const stringOrNullFields = [
     'summarizeModel',
     'embeddingModel',
+    'semanticAnalyzerMode',
     'semanticAnalyzerPrompt',
     'summarizePrompt',
     'contextToShortTermPrompt',
@@ -218,6 +220,19 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     }
   }
 
+  if (
+    hasOwn(body, 'semanticAnalyzerMode')
+    && body.semanticAnalyzerMode !== undefined
+    && body.semanticAnalyzerMode !== null
+    && body.semanticAnalyzerMode !== 'llm'
+    && body.semanticAnalyzerMode !== 'ltp'
+  ) {
+    return Response.json(
+      { error: 'semanticAnalyzerMode must be "llm" or "ltp"' },
+      { status: 400 },
+    )
+  }
+
   const nextModules = isRecord(agent.modules) ? { ...agent.modules } : {}
   const nextMemory: Record<string, unknown> = isRecord(nextModules.memory)
     ? { ...nextModules.memory }
@@ -225,6 +240,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   const nextValues = {
     summarizeModel: hasOwn(body, 'summarizeModel') ? readOptionalText(body.summarizeModel) : undefined,
     embeddingModel: hasOwn(body, 'embeddingModel') ? readOptionalText(body.embeddingModel) : undefined,
+    semanticAnalyzerMode: hasOwn(body, 'semanticAnalyzerMode') ? body.semanticAnalyzerMode as 'llm' | 'ltp' | null : undefined,
     contextWindowMessages: hasOwn(body, 'contextWindowMessages') ? readOptionalInt(body.contextWindowMessages) : undefined,
     contextOverflowBatchSize: hasOwn(body, 'contextOverflowBatchSize') ? readOptionalInt(body.contextOverflowBatchSize) : undefined,
     contextIdleFlushMinutes: hasOwn(body, 'contextIdleFlushMinutes') ? readOptionalInt(body.contextIdleFlushMinutes) : undefined,
@@ -266,6 +282,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     scheme: 'sqlite',
     summarizeModel: resolvedMemory.summarizeModel,
     embeddingModel: resolvedMemory.embeddingModel,
+    semanticAnalyzerMode: resolvedMemory.semanticAnalyzerMode,
     contextWindowMessages: resolvedPipeline.contextWindowMessages,
     contextOverflowBatchSize: resolvedPipeline.contextOverflowBatchSize,
     contextIdleFlushMinutes: resolvedPipeline.contextIdleFlushMinutes,

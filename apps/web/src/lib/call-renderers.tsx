@@ -333,7 +333,6 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
   const phase = readText(record?.phase) ?? 'unknown'
   const mergedQuery = readRecord(record?.mergedQuery)
   const retrievalQuery = readText(mergedQuery?.retrievalQuery) ?? readText(record?.retrievalQuery)
-  const focus = readText(mergedQuery?.focus) ?? readText(record?.focus)
   const timeRange = readRecord(mergedQuery?.timeRange) ?? readRecord(record?.timeRange)
   const timeRangeStart = readText(timeRange?.start)
   const timeRangeEnd = readText(timeRange?.end)
@@ -372,7 +371,7 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
           </MemorySection>
           <MemorySection title="Merged Query">
             <pre style={{ fontSize: 11, color: '#cdd9e5' }}>
-              {JSON.stringify({ retrievalQuery, focus, timeRange: timeRangeStart && timeRangeEnd ? { start: timeRangeStart, end: timeRangeEnd } : null }, null, 2)}
+              {JSON.stringify({ retrievalQuery, timeRange: timeRangeStart && timeRangeEnd ? { start: timeRangeStart, end: timeRangeEnd } : null }, null, 2)}
             </pre>
           </MemorySection>
           <MemorySection title={OBSERVER_UI_COPY.hits}>

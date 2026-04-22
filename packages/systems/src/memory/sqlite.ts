@@ -18,6 +18,7 @@ import {
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   type MemoryEmbedder,
 } from './embeddings'
+import { createHttpLtpClient, type LtpClient } from './ltp-client'
 import { analyzeMemoryTimeText } from './time-parser'
 
 const DEFAULT_RETRIEVE_TOP_K = 5
@@ -39,11 +40,8 @@ const MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT: MemoryResponseFormat = {
         retrieval_query: {
           type: ['string', 'null'],
         },
-        focus: {
-          type: ['string', 'null'],
-        },
       },
-      required: ['retrieval_query', 'focus'],
+      required: ['retrieval_query'],
       additionalProperties: false,
     },
   },
@@ -104,6 +102,7 @@ export const MEMORY_BATCH_WRITE_RESPONSE_FORMAT: MemoryResponseFormat = {
 interface MemoryModuleConfig {
   summarizeModel: string | null
   embeddingModel: string
+  semanticAnalyzerMode: 'llm' | 'ltp'
   retrieveTopK: number
   contextWindowMessages: number
   contextOverflowBatchSize: number
@@ -114,6 +113,7 @@ interface MemoryModuleConfig {
   sleepIntervalDays: number
   embedder: MemoryEmbedder
   timeParser: (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
+  ltpClient: LtpClient
   retrievePrompt: string | null
   semanticAnalyzerPrompt: string | null
   summarizePrompt: string | null
@@ -224,6 +224,10 @@ function readSleepTime(value: unknown) {
   return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : DEFAULT_SLEEP_TIME_LOCAL
 }
 
+function readSemanticAnalyzerMode(value: unknown): 'llm' | 'ltp' {
+  return value === 'ltp' ? 'ltp' : 'llm'
+}
+
 function readConfig(config: unknown): MemoryModuleConfig {
   const embedder = createOpenRouterMemoryEmbedder()
 
@@ -231,6 +235,7 @@ function readConfig(config: unknown): MemoryModuleConfig {
     return {
       summarizeModel: null,
       embeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
+      semanticAnalyzerMode: 'llm',
       retrieveTopK: DEFAULT_RETRIEVE_TOP_K,
       contextWindowMessages: DEFAULT_CONTEXT_WINDOW_MESSAGES,
       contextOverflowBatchSize: DEFAULT_CONTEXT_OVERFLOW_BATCH_SIZE,
@@ -241,6 +246,7 @@ function readConfig(config: unknown): MemoryModuleConfig {
       sleepIntervalDays: DEFAULT_SLEEP_INTERVAL_DAYS,
       embedder,
       timeParser: analyzeMemoryTimeText,
+      ltpClient: createHttpLtpClient(),
       retrievePrompt: null,
       semanticAnalyzerPrompt: null,
       summarizePrompt: null,
@@ -262,6 +268,7 @@ function readConfig(config: unknown): MemoryModuleConfig {
     embeddingModel: typeof record.embeddingModel === 'string'
       ? record.embeddingModel.trim() || DEFAULT_MEMORY_EMBEDDING_MODEL
       : DEFAULT_MEMORY_EMBEDDING_MODEL,
+    semanticAnalyzerMode: readSemanticAnalyzerMode(record.semanticAnalyzerMode),
     retrieveTopK: typeof record.retrieveTopK === 'number' && record.retrieveTopK > 0
       ? Math.floor(record.retrieveTopK)
       : DEFAULT_RETRIEVE_TOP_K,
@@ -280,6 +287,10 @@ function readConfig(config: unknown): MemoryModuleConfig {
       typeof record.timeParser === 'function'
         ? record.timeParser as (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
         : analyzeMemoryTimeText,
+    ltpClient:
+      record.ltpClient && typeof record.ltpClient === 'object' && 'analyze' in record.ltpClient
+        ? record.ltpClient as LtpClient
+        : createHttpLtpClient(),
     retrievePrompt: readOptionalText(record.retrievePrompt),
     semanticAnalyzerPrompt: readOptionalText(record.semanticAnalyzerPrompt),
     summarizePrompt: readOptionalText(record.summarizePrompt),
@@ -297,6 +308,7 @@ export function resolveMemorySqliteConfig(config: unknown) {
   return {
     summarizeModel: resolved.summarizeModel,
     embeddingModel: resolved.embeddingModel,
+    semanticAnalyzerMode: resolved.semanticAnalyzerMode,
     retrieveTopK: resolved.retrieveTopK,
     contextWindowMessages: resolved.contextWindowMessages,
     contextOverflowBatchSize: resolved.contextOverflowBatchSize,
@@ -413,24 +425,22 @@ export function buildSemanticAnalyzerPrompt(promptOverride?: string | null): str
     '你是 sqlite 记忆系统的语义分析器。',
     '你会收到用户最新一条消息。',
     '请严格返回如下 JSON 结构：',
-    '{"retrieval_query": string | null, "focus": string | null}',
+    '{"retrieval_query": string | null}',
     'retrieval_query 只保留最短、最稳定、最能检索的主题锚点，通常就是一个名词或很短的名词短语；不要写解释句。',
     '时间信息绝不进入 retrieval_query。',
     'retrieval_query 不要包含说话者、提问动作、讨论动作，也不要包含“内容/事情/对话/讨论”这类回顾外壳，也不要复述整个时间回顾问句。',
     '去掉时间和回顾外壳后，如果还剩下具体对象、主题、画面、名字、食物、bug、地点、关系或意象，就保留它，不要误判成 null。',
     'retrieval_query 必须是一个自足的短语，不要输出“猫的”这类残缺片段；必要时补成“猫名字”“bug 修复”“海边灯塔画面”这种完整但简短的主题表达。',
     '如果原句是在回顾某个时间段里聊过的对象、场景、画面、名字或事件类型，去掉时间后剩下的那部分仍然是主题锚点。',
-    '只要存在稳定主题锚点，就必须把它放进 retrieval_query；focus 只能补充说明，不能替代 retrieval_query。',
     '如果原句里明确出现了“画面”“场景”“名字”“地点”“食物”“bug”这类名词短语，而去掉时间后它们仍然存在，则 retrieval_query 不能为 null。',
     '如果剩下的主题本身就是一个抽象名词，但它已经明确指向用户要找的对象，例如“画面”“场景”“名字”“梦境”“氛围”，就直接把这个词作为 retrieval_query，不要返回 null。',
     '去掉时间和回顾外壳后，如果没有稳定主题锚点，就返回 "retrieval_query": null；纯回顾问法本身不是主题锚点。',
-    'retrieval_query 和 focus 默认使用与用户消息相同的语言；中文提问就用中文，不要改成英文。',
-    'focus 只写简短关注点；没有明显 focus 就返回 null。',
+    'retrieval_query 默认使用与用户消息相同的语言；中文提问就用中文，不要改成英文。',
     '不要输出 markdown、代码块或任何额外说明。',
   ]
   const contractLines = [
     '请严格返回 json，结构只能是：',
-    '{"retrieval_query": string | null, "focus": string | null}',
+    '{"retrieval_query": string | null}',
     '不要输出 markdown、代码块或任何额外说明。',
   ]
 
@@ -749,11 +759,8 @@ function parseSemanticAnalyzerResponse(responseText: string): MemorySemanticAnal
   const retrievalQuery = typeof record.retrieval_query === 'string' && record.retrieval_query.trim()
     ? record.retrieval_query.trim()
     : null
-  const focus = typeof record.focus === 'string' && record.focus.trim()
-    ? record.focus.trim()
-    : null
 
-  return { retrievalQuery, focus }
+  return { retrievalQuery, mode: 'llm' }
 }
 
 export function buildMemoryConsolidationPrompt(promptOverride?: string | null): string {
@@ -887,6 +894,7 @@ export class MemorySqliteSystem implements AgentSystem {
   private readonly embeddingModel: string
   private readonly retrieveTopK: number
   private readonly embedder: MemoryEmbedder
+  private readonly semanticAnalyzerMode: 'llm' | 'ltp'
   private readonly contextWindowMessages: number
   private readonly contextOverflowBatchSize: number
   private readonly contextIdleFlushMinutes: number
@@ -896,6 +904,7 @@ export class MemorySqliteSystem implements AgentSystem {
   private readonly sleepIntervalDays: number
   private readonly legacyRetrievePrompt: string | null
   private readonly timeParser: (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
+  private readonly ltpClient: LtpClient
   private readonly semanticAnalyzerPrompt: string | null
   private readonly summarizePrompt: string | null
   private readonly contextToShortTermPrompt: string | null
@@ -910,6 +919,7 @@ export class MemorySqliteSystem implements AgentSystem {
     this.embeddingModel = resolved.embeddingModel
     this.retrieveTopK = resolved.retrieveTopK
     this.embedder = resolved.embedder
+    this.semanticAnalyzerMode = resolved.semanticAnalyzerMode
     this.contextWindowMessages = resolved.contextWindowMessages
     this.contextOverflowBatchSize = resolved.contextOverflowBatchSize
     this.contextIdleFlushMinutes = resolved.contextIdleFlushMinutes
@@ -919,6 +929,7 @@ export class MemorySqliteSystem implements AgentSystem {
     this.sleepIntervalDays = resolved.sleepIntervalDays
     this.legacyRetrievePrompt = resolved.retrievePrompt
     this.timeParser = resolved.timeParser
+    this.ltpClient = resolved.ltpClient
     this.semanticAnalyzerPrompt = resolved.semanticAnalyzerPrompt
     this.summarizePrompt = resolved.summarizePrompt
     this.contextToShortTermPrompt = resolved.contextToShortTermPrompt
@@ -942,17 +953,34 @@ export class MemorySqliteSystem implements AgentSystem {
         kind: 'local',
         analyze: () => this.timeParser(ctx.input.text, new Date()),
       },
-      semanticAnalyzer: {
-        kind: 'llm',
-        prompt: buildSemanticAnalyzerPrompt(semanticPromptOverride),
-        inputText: buildSemanticAnalyzerInputText(ctx.input.text),
-        responseFormat: MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT,
-        parse: parseSemanticAnalyzerResponse,
-      },
+      semanticAnalyzer: this.semanticAnalyzerMode === 'ltp'
+        ? {
+            kind: 'local',
+            analyze: async () => {
+              const result = await this.ltpClient.analyze({ text: ctx.input.text })
+              const candidates = result.candidates
+                .filter((candidate) => typeof candidate === 'string')
+                .map((candidate) => candidate.trim())
+                .filter(Boolean)
+                .slice(0, 3)
+
+              return {
+                retrievalQuery: candidates[0] ?? null,
+                mode: 'ltp' as const,
+                candidates,
+              }
+            },
+          }
+        : {
+            kind: 'llm',
+            prompt: buildSemanticAnalyzerPrompt(semanticPromptOverride),
+            inputText: buildSemanticAnalyzerInputText(ctx.input.text),
+            responseFormat: MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT,
+            parse: parseSemanticAnalyzerResponse,
+          },
       merge: ({ time, semantic }) => {
         const merged = {
           retrievalQuery: semantic.retrievalQuery,
-          focus: semantic.focus,
           timeRange: time?.timeRange ?? null,
         }
 

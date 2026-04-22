@@ -42,7 +42,6 @@ export const SearchLongTermMemoryTool: Tool = {
     type: 'object',
     properties: {
       query: { type: 'string' },
-      focus: { type: 'string' },
       time_start: { type: 'string' },
       time_end: { type: 'string' },
       top_k: { type: 'integer', minimum: 1, maximum: 5 },
@@ -71,7 +70,6 @@ export const SearchLongTermMemoryTool: Tool = {
     const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
     const embedder = createOpenRouterMemoryEmbedder()
     const query = typeof input.query === 'string' ? input.query.trim() : ''
-    const focus = typeof input.focus === 'string' ? input.focus.trim() : ''
     if (!query) {
       return {
         output: '长期记忆检索结果：未搜索到相关记忆。',
@@ -81,7 +79,7 @@ export const SearchLongTermMemoryTool: Tool = {
     }
 
     const queryEmbeddings = await embedder.embed(
-      [query, focus].filter(Boolean),
+      [query],
       {
         model: memoryConfig.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL,
         inputType: 'search_query',

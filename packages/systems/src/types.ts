@@ -85,7 +85,6 @@ export type MemoryResponseFormat =
 export interface MemoryQueryResult {
   retrievalQuery: string | null
   timeRange: MemoryTimeRange | null
-  focus: string | null
 }
 
 export interface MemoryTimeAnalysisResult {
@@ -94,7 +93,8 @@ export interface MemoryTimeAnalysisResult {
 
 export interface MemorySemanticAnalysisResult {
   retrievalQuery: string | null
-  focus: string | null
+  mode?: 'llm' | 'ltp'
+  candidates?: string[]
 }
 
 export interface MemoryLayeredRetrieveResult {
@@ -112,7 +112,7 @@ export interface PendingMemoryQueryLlmAnalyzer<Result> {
 
 export interface PendingMemoryQueryLocalAnalyzer<Result> {
   kind: 'local'
-  analyze(): Result
+  analyze(): Result | Promise<Result>
 }
 
 export type PendingMemoryQueryAnalyzer<Result> =

@@ -7,7 +7,6 @@ import { OBSERVER_UI_COPY, translateMemoryPhase } from '../../lib/ui-copy'
 import {
   getCallPhase,
   getMemoryHits,
-  getMemoryFocus,
   getMemoryRetrievalQuery,
   getMemoryReport,
   getMemorySemanticAnalyzer,
@@ -36,7 +35,6 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
   const phase = getCallPhase(call) ?? 'unknown'
   const duration = formatDurationLabel(call.startedAt, call.finishedAt)
   const retrievalQuery = getMemoryRetrievalQuery(call)
-  const focus = getMemoryFocus(call)
   const timeRange = getMemoryTimeRange(call)
   const timeAnalyzer = getMemoryTimeAnalyzer(call)
   const semanticAnalyzer = getMemorySemanticAnalyzer(call)
@@ -113,8 +111,14 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
               <CollapsibleSection title="Semantic Analyzer" accent={CALL_ACCENTS.memory.color} defaultOpen>
                 <DetailList
                   rows={[
+                    { label: '模式', value: semanticAnalyzer?.mode ?? '无' },
                     { label: '检索改写', value: semanticAnalyzer?.retrievalQuery ?? '无' },
-                    { label: '聚焦点', value: semanticAnalyzer?.focus ?? '无' },
+                    {
+                      label: '候选',
+                      value: semanticAnalyzer?.mode === 'ltp'
+                        ? (semanticAnalyzer.candidates?.join(' / ') || '无')
+                        : '无',
+                    },
                     { label: '错误', value: semanticAnalyzer?.error ?? '无' },
                   ]}
                 />
@@ -124,7 +128,6 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                 <DetailList
                   rows={[
                     { label: '检索改写', value: retrievalQuery ?? '无' },
-                    { label: '聚焦点', value: focus ?? '无' },
                     {
                       label: OBSERVER_UI_COPY.timeRange,
                       value: timeRange ? (

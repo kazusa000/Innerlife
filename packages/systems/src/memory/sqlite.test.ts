@@ -123,7 +123,7 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
     const system = new MemorySqliteSystem({
       retrieveTopK: 5,
       embeddingModel: 'qwen/qwen3-embedding-0.6b',
-      retrievePrompt: '你是记忆语义分析器，只输出 retrieval_query、time_range、focus。',
+      retrievePrompt: '你是记忆语义分析器，只输出 retrieval_query。',
       fragmentPrompt: '以下是你可直接依赖的记忆，请优先从中回答。',
       embedder: createEmbedder({
         我猫叫什么: [1, 0],
@@ -142,7 +142,6 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
     const retrieved = await ctx.pendingMemoryQuery?.retrieve({
       retrievalQuery: '用户告诉过我的猫叫什么名字',
       timeRange: null,
-      focus: '猫的名字',
     })
 
     ctx.state.shortTermMemories = retrieved?.shortTerm ?? []
@@ -220,7 +219,6 @@ test('memory sqlite retrieval skips semantic embeddings for pure time recall and
         start: new Date('2026-04-20T23:44:54.000Z'),
         end: new Date('2026-04-20T23:49:54.999Z'),
       },
-      focus: '用户刚刚说过的话',
     })
 
     assert.deepEqual(embedInputs, [[]])
@@ -285,12 +283,62 @@ test('memory sqlite semantic analyzer prompt keeps retrieval query focused on to
   assert.match(semanticAnalyzer?.prompt ?? '', /画面、名字、食物、bug、地点、关系或意象/)
   assert.match(semanticAnalyzer?.prompt ?? '', /猫名字.*bug 修复.*海边灯塔画面/)
   assert.match(semanticAnalyzer?.prompt ?? '', /对象、场景、画面、名字或事件类型/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /focus 只能补充说明，不能替代 retrieval_query/)
   assert.match(semanticAnalyzer?.prompt ?? '', /“画面”“场景”“名字”“地点”“食物”“bug”/)
   assert.match(semanticAnalyzer?.prompt ?? '', /“画面”“场景”“名字”“梦境”“氛围”/)
   assert.match(semanticAnalyzer?.prompt ?? '', /没有稳定主题锚点/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /中文提问就用中文/)
   assert.match(semanticAnalyzer?.prompt ?? '', /“内容\/事情\/对话\/讨论”这类回顾外壳/)
+})
+
+test('memory sqlite supports ltp semantic analyzer mode', { concurrency: false }, async () => {
+  const system = new MemorySqliteSystem({
+    semanticAnalyzerMode: 'ltp',
+    ltpClient: {
+      async analyze() {
+        return {
+          candidates: ['海边灯塔画面', '灯塔画面', '画面'],
+        }
+      },
+    },
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('你还记得前天上午聊的海边灯塔画面吗')
+
+  await system.beforeTurn?.(ctx)
+
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'local')
+  const parsed = await semanticAnalyzer?.analyze()
+  assert.deepEqual(parsed, {
+    retrievalQuery: '海边灯塔画面',
+    mode: 'ltp',
+    candidates: ['海边灯塔画面', '灯塔画面', '画面'],
+  })
+})
+
+test('memory sqlite ltp semantic analyzer returns null query on empty candidates', { concurrency: false }, async () => {
+  const system = new MemorySqliteSystem({
+    semanticAnalyzerMode: 'ltp',
+    ltpClient: {
+      async analyze() {
+        return {
+          candidates: [],
+        }
+      },
+    },
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('之前我们聊过吗')
+
+  await system.beforeTurn?.(ctx)
+
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'local')
+  const parsed = await semanticAnalyzer?.analyze()
+  assert.deepEqual(parsed, {
+    retrievalQuery: null,
+    mode: 'ltp',
+    candidates: [],
+  })
 })
 
 test('memory sqlite time parser recognizes explicit Chinese time expressions', () => {
@@ -351,7 +399,7 @@ test('memory sqlite structured prompt overrides keep required json contract', ()
   assert.match(semanticPrompt, /^只提取主题锚点/)
   assert.match(semanticPrompt, /请严格返回 json/)
   assert.match(semanticPrompt, /"retrieval_query"/)
-  assert.match(semanticPrompt, /"focus"/)
+  assert.doesNotMatch(semanticPrompt, /"focus"/)
 
   const summaryPrompt = buildSummaryPrompt('整理成记忆')
   assert.match(summaryPrompt, /^整理成记忆/)
@@ -440,7 +488,6 @@ test('memory sqlite query parse allows pure time recall without retrieval query'
   } }
   const semantic = semanticAnalyzer?.parse(JSON.stringify({
     retrieval_query: null,
-    focus: '刚才在做什么',
   }))
   const parsed = ctx.pendingMemoryQuery?.merge({
     time: time!,
@@ -453,7 +500,6 @@ test('memory sqlite query parse allows pure time recall without retrieval query'
       start: new Date('2026-04-20T13:55:00+02:00'),
       end: new Date('2026-04-20T14:00:00+02:00'),
     },
-    focus: '刚才在做什么',
   })
 })
 
@@ -474,7 +520,6 @@ test('memory sqlite query merge keeps parser-provided point windows unchanged', 
   } }
   const semantic = semanticAnalyzer?.parse(JSON.stringify({
     retrieval_query: null,
-    focus: '用户刚刚说过的话',
   }))
   const parsed = ctx.pendingMemoryQuery?.merge({
     time: time!,
@@ -487,7 +532,6 @@ test('memory sqlite query merge keeps parser-provided point windows unchanged', 
       start: new Date('2026-04-20T23:45:07+02:00'),
       end: new Date('2026-04-20T23:48:07+02:00'),
     },
-    focus: '用户刚刚说过的话',
   })
 })
 
@@ -508,7 +552,6 @@ test('memory sqlite query parse keeps semantic retrieval query when time and top
   } }
   const semantic = semanticAnalyzer?.parse(JSON.stringify({
     retrieval_query: '用户昨天提到的 bug 修复内容',
-    focus: 'bug 修复',
   }))
   const parsed = ctx.pendingMemoryQuery?.merge({
     time: time!,
@@ -521,6 +564,5 @@ test('memory sqlite query parse keeps semantic retrieval query when time and top
       start: new Date('2026-04-19T00:00:00+02:00'),
       end: new Date('2026-04-19T23:59:59+02:00'),
     },
-    focus: 'bug 修复',
   })
 })

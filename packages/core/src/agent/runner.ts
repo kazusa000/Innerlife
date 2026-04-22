@@ -13,6 +13,7 @@ import type {
   ConversationBlock,
   ConversationMessage,
   EmotionAnalysisResult,
+  MemorySemanticAnalysisResult,
   MemoryResponseFormat,
   PendingCompaction,
   PendingEmotionAnalysis,
@@ -682,9 +683,15 @@ async function runPendingMemoryQuery(
   let semanticError: Error | undefined
   let queryError: Error | undefined
   let retrieveError: Error | undefined
+  const timeAnalyzer = pending.timeAnalyzer
+  const semanticAnalyzer = pending.semanticAnalyzer
   let timeResult = { timeRange: null as null | { start: Date; end: Date } }
-  let semanticResult = { retrievalQuery: null as string | null, focus: null as string | null }
-  let query = { retrievalQuery: null as string | null, timeRange: null as null | { start: Date; end: Date }, focus: null as string | null }
+  let semanticResult: MemorySemanticAnalysisResult = {
+    retrievalQuery: null as string | null,
+    mode: semanticAnalyzer.kind === 'llm' ? 'llm' as const : 'ltp' as const,
+    candidates: [] as string[],
+  }
+  let query = { retrievalQuery: null as string | null, timeRange: null as null | { start: Date; end: Date } }
   let memoryResult = {
     shortTerm: [] as NonNullable<TurnContext['state']['shortTermMemories']>,
     fixed: [] as NonNullable<TurnContext['state']['fixedMemories']>,
@@ -715,11 +722,9 @@ async function runPendingMemoryQuery(
     }
   }
 
-  const timeAnalyzer = pending.timeAnalyzer
-  const semanticAnalyzer = pending.semanticAnalyzer
   const [timeOutcome, semanticOutcome] = await Promise.all([
     (timeAnalyzer.kind === 'local'
-      ? Promise.resolve().then(() => ({ parsed: timeAnalyzer.analyze() }))
+      ? Promise.resolve().then(async () => ({ parsed: await timeAnalyzer.analyze() }))
       : Promise.reject(new Error('Memory time analyzer must be local')))
       .catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) })),
     semanticAnalyzer.kind === 'llm'
@@ -729,7 +734,7 @@ async function runPendingMemoryQuery(
           semanticAnalyzer.responseFormat,
           semanticAnalyzer.parse,
         ).catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) }))
-      : Promise.resolve({ parsed: semanticAnalyzer.analyze() }),
+      : Promise.resolve().then(async () => ({ parsed: await semanticAnalyzer.analyze() })),
   ])
 
   if ('error' in timeOutcome) {
@@ -781,13 +786,20 @@ async function runPendingMemoryQuery(
           error: timeError?.message ?? null,
         },
         semanticAnalyzer: {
-          retrievalQuery: query.retrievalQuery,
-          focus: query.focus,
+          ...(semanticAnalyzer.kind === 'llm'
+            ? {
+                mode: 'llm',
+                retrievalQuery: query.retrievalQuery,
+              }
+            : {
+                mode: 'ltp',
+                candidates: semanticResult.candidates ?? [],
+                selectedQuery: query.retrievalQuery,
+              }),
           error: semanticError?.message ?? null,
         },
         mergedQuery: {
           retrievalQuery: query.retrievalQuery,
-          focus: query.focus,
           timeRange: query.timeRange
             ? {
                 start: query.timeRange.start.toISOString(),
@@ -796,7 +808,6 @@ async function runPendingMemoryQuery(
             : null,
         },
         retrievalQuery: query.retrievalQuery,
-        focus: query.focus,
         timeRange: query.timeRange
           ? {
               start: query.timeRange.start.toISOString(),
@@ -841,13 +852,20 @@ async function runPendingMemoryQuery(
       error: timeError?.message ?? null,
     },
     semanticAnalyzer: {
-      retrievalQuery: query.retrievalQuery,
-      focus: query.focus,
+      ...(semanticAnalyzer.kind === 'llm'
+        ? {
+            mode: 'llm',
+            retrievalQuery: query.retrievalQuery,
+          }
+        : {
+            mode: 'ltp',
+            candidates: semanticResult.candidates ?? [],
+            selectedQuery: query.retrievalQuery,
+          }),
       error: semanticError?.message ?? null,
     },
     mergedQuery: {
       retrievalQuery: query.retrievalQuery,
-      focus: query.focus,
       timeRange: query.timeRange
         ? {
             start: query.timeRange.start.toISOString(),
@@ -856,7 +874,6 @@ async function runPendingMemoryQuery(
         : null,
     },
     retrievalQuery: query.retrievalQuery,
-    focus: query.focus,
     timeRange: query.timeRange
       ? {
           start: query.timeRange.start.toISOString(),

@@ -87,12 +87,11 @@ test('main tab renders turn cards with fragment anchors and inline compaction on
           },
           semanticAnalyzer: {
             retrievalQuery: 'cat',
-            focus: '猫',
+            mode: 'llm',
             error: null,
           },
           mergedQuery: {
             retrievalQuery: 'cat',
-            focus: '猫',
             timeRange: null,
           },
           hits: [{ id: 'm2', summary: 'sqlite hit summary', tags: ['pet'], importance: 0.8 }],
@@ -148,12 +147,11 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
           },
           semanticAnalyzer: {
             retrievalQuery: 'cat',
-            focus: '猫',
+            mode: 'llm',
             error: null,
           },
           mergedQuery: {
             retrievalQuery: 'cat',
-            focus: '猫',
             timeRange: {
               start: '2026-04-20T13:55:00.000Z',
               end: '2026-04-20T14:00:00.000Z',
@@ -197,6 +195,7 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
   assert.equal(html.includes('检索'), true)
   assert.equal(html.includes('cat memory'), true)
   assert.equal(html.includes('1.2s'), true)
+  assert.equal(html.includes('聚焦点'), false)
 })
 
 test('emotion tab renders dimensional delta details and empty tabs remain visible', () => {

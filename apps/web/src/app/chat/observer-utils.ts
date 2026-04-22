@@ -74,8 +74,10 @@ export interface MemoryTimeAnalyzerMeta {
 }
 
 export interface MemorySemanticAnalyzerMeta {
+  mode: 'llm' | 'ltp' | null
   retrievalQuery: string | null
-  focus: string | null
+  candidates?: string[]
+  selectedQuery?: string | null
   error: string | null
 }
 
@@ -259,12 +261,6 @@ export function getMemoryRetrievalQuery(call: LiveCall): string | null {
   return readString(merged?.retrievalQuery) ?? readString(metadata?.retrievalQuery)
 }
 
-export function getMemoryFocus(call: LiveCall): string | null {
-  const metadata = getMetadata(call)
-  const merged = isRecord(metadata?.mergedQuery) ? metadata?.mergedQuery : null
-  return readString(merged?.focus) ?? readString(metadata?.focus)
-}
-
 export function getMemoryTimeRange(call: LiveCall): MemoryTimeRange | null {
   const metadata = getMetadata(call)
   const merged = isRecord(metadata?.mergedQuery) ? metadata?.mergedQuery : null
@@ -316,8 +312,10 @@ export function getMemorySemanticAnalyzer(call: LiveCall): MemorySemanticAnalyze
   }
 
   return {
+    mode: readString(analyzer.mode) as 'llm' | 'ltp' | null,
     retrievalQuery: readString(analyzer.retrievalQuery),
-    focus: readString(analyzer.focus),
+    candidates: Array.isArray(analyzer.candidates) ? readStringArray(analyzer.candidates) : undefined,
+    selectedQuery: readString(analyzer.selectedQuery),
     error: readString(analyzer.error),
   }
 }
