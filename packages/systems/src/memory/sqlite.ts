@@ -18,6 +18,7 @@ import {
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   type MemoryEmbedder,
 } from './embeddings'
+import { analyzeMemoryTimeText } from './time-parser'
 
 const DEFAULT_RETRIEVE_TOP_K = 5
 const MAX_MEMORY_CONTENT_CHARS = 500
@@ -27,29 +28,6 @@ const DEFAULT_CONTEXT_IDLE_FLUSH_MINUTES = 30
 const DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH = 3
 const DEFAULT_SLEEP_TIME_LOCAL = '03:00'
 const DEFAULT_SLEEP_INTERVAL_DAYS = 1
-const MEMORY_TIME_ANALYZER_RESPONSE_FORMAT: MemoryResponseFormat = {
-  type: 'json_schema',
-  jsonSchema: {
-    name: 'memory_time_query',
-    strict: true,
-    schema: {
-      type: 'object',
-      properties: {
-        time_range: {
-          type: ['object', 'null'],
-          properties: {
-            start: { type: 'string' },
-            end: { type: 'string' },
-          },
-          required: ['start', 'end'],
-          additionalProperties: false,
-        },
-      },
-      required: ['time_range'],
-      additionalProperties: false,
-    },
-  },
-}
 const MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT: MemoryResponseFormat = {
   type: 'json_schema',
   jsonSchema: {
@@ -135,8 +113,8 @@ interface MemoryModuleConfig {
   sleepTimeLocal: string
   sleepIntervalDays: number
   embedder: MemoryEmbedder
+  timeParser: (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
   retrievePrompt: string | null
-  timeAnalyzerPrompt: string | null
   semanticAnalyzerPrompt: string | null
   summarizePrompt: string | null
   contextToShortTermPrompt: string | null
@@ -262,8 +240,8 @@ function readConfig(config: unknown): MemoryModuleConfig {
       sleepTimeLocal: DEFAULT_SLEEP_TIME_LOCAL,
       sleepIntervalDays: DEFAULT_SLEEP_INTERVAL_DAYS,
       embedder,
+      timeParser: analyzeMemoryTimeText,
       retrievePrompt: null,
-      timeAnalyzerPrompt: null,
       semanticAnalyzerPrompt: null,
       summarizePrompt: null,
       contextToShortTermPrompt: null,
@@ -298,8 +276,11 @@ function readConfig(config: unknown): MemoryModuleConfig {
       record.embedder && typeof record.embedder === 'object' && 'embed' in record.embedder
         ? record.embedder as MemoryEmbedder
         : embedder,
+    timeParser:
+      typeof record.timeParser === 'function'
+        ? record.timeParser as (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
+        : analyzeMemoryTimeText,
     retrievePrompt: readOptionalText(record.retrievePrompt),
-    timeAnalyzerPrompt: readOptionalText(record.timeAnalyzerPrompt),
     semanticAnalyzerPrompt: readOptionalText(record.semanticAnalyzerPrompt),
     summarizePrompt: readOptionalText(record.summarizePrompt),
     contextToShortTermPrompt: readOptionalText(record.contextToShortTermPrompt),
@@ -325,7 +306,6 @@ export function resolveMemorySqliteConfig(config: unknown) {
     sleepTimeLocal: resolved.sleepTimeLocal,
     sleepIntervalDays: resolved.sleepIntervalDays,
     retrievePrompt: resolved.retrievePrompt,
-    timeAnalyzerPrompt: resolved.timeAnalyzerPrompt,
     semanticAnalyzerPrompt: resolved.semanticAnalyzerPrompt,
     summarizePrompt: resolved.summarizePrompt,
     contextToShortTermPrompt: resolved.contextToShortTermPrompt,
@@ -424,42 +404,8 @@ export function buildShortTermToLongTermPrompt(promptOverride?: string | null, m
   return buildPromptWithRequiredJsonContract(promptOverride, defaultLines, contractLines)
 }
 
-function resolveTimeAnalyzerPromptOverride(config: Pick<MemoryModuleConfig, 'timeAnalyzerPrompt' | 'retrievePrompt'>) {
-  return config.timeAnalyzerPrompt ?? config.retrievePrompt
-}
-
 function resolveSemanticAnalyzerPromptOverride(config: Pick<MemoryModuleConfig, 'semanticAnalyzerPrompt' | 'retrievePrompt'>) {
   return config.semanticAnalyzerPrompt ?? config.retrievePrompt
-}
-
-export function buildTimeAnalyzerPrompt(promptOverride?: string | null): string {
-  const defaultLines = [
-    '你是 sqlite 记忆系统的时间分析器。',
-    '你会收到电脑当前的本地时间，以及用户最新一条消息。',
-    '请严格返回如下 JSON 结构：',
-    '{"time_range": {"start": string, "end": string} | null}',
-    '如果用户没有表达时间意图，返回 "time_range": null。',
-    '如果用户表达了时间意图，请基于当前本地时间返回尽量精确的绝对 time_range。',
-    '如果问题明显是在回顾已经发生过的内容，time_range 必须落在已经过去的时间窗口里，不要返回未来时间；优先选择最近一个已经结束的过去时段。',
-    '如果用户是在泛指过去互动、先前对话、此前提到过的事，即使没有明确时间粒度，也视为时间意图；返回覆盖足够宽的过去区间并以当前本地时间为结束的非空 time_range，不要返回 null。',
-    '这类泛指过去互动的问法，start 不要贴近当前时间到只剩几秒或几分钟；应覆盖明显更长的过去区间。',
-    '如果去掉回顾语气后仍然存在明确的主题锚点，而原句又没有明确时间表达，则不要仅因为“记得/聊过/提到过”就补一个 time_range；这种情况下 time_range 应为 null。',
-    '如果用户只是在回顾某个时间段里聊过什么、说过什么、讨论过什么，time_range 不应为 null。',
-    '“今天”表示当前本地自然日，“昨天”表示前一个本地自然日，不是滚动的 24 小时窗口。',
-    '上午=06:00-11:59，下午=12:00-17:59，晚上=18:00-23:59，凌晨=00:00-05:59，全部按本地时间理解。',
-    '“刚刚/刚才/前面/上一句”要对应最近几分钟的短时间窗口，不是单一时间点。',
-    '“今天上午/今天下午/今晚/昨晚/今早/昨天上午”要对应最窄、最贴近原话的局部时间窗口，不要扩大成整天，不要跨到其他时段，也不要跨到下一天；如果该时段尚未发生，就回指最近一个已经结束的同类过去时段。',
-    '"start" 和 "end" 必须是 ISO 8601 datetime 字符串。',
-    '不要输出 markdown、代码块或任何额外说明。',
-  ]
-  const contractLines = [
-    '请严格返回 json，结构只能是：',
-    '{"time_range": {"start": string, "end": string} | null}',
-    '"start" 和 "end" 必须是 ISO 8601 datetime 字符串。',
-    '不要输出 markdown、代码块或任何额外说明。',
-  ]
-
-  return buildPromptWithRequiredJsonContract(promptOverride, defaultLines, contractLines)
 }
 
 export function buildSemanticAnalyzerPrompt(promptOverride?: string | null): string {
@@ -620,18 +566,6 @@ function formatOffset(minutesEastOfUtc: number): string {
   return `${sign}${hours}:${minutes}`
 }
 
-function formatLocalIsoDateTime(date: Date): string {
-  const localMinutes = date.getTimezoneOffset() * -1
-  const localDate = new Date(date.getTime() + date.getTimezoneOffset() * 60_000 * -1)
-  const year = localDate.getUTCFullYear()
-  const month = String(localDate.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(localDate.getUTCDate()).padStart(2, '0')
-  const hours = String(localDate.getUTCHours()).padStart(2, '0')
-  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
-  const seconds = String(localDate.getUTCSeconds()).padStart(2, '0')
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${formatOffset(localMinutes)}`
-}
-
 function formatLocalMemoryPromptTime(date: Date): string {
   const localMinutes = date.getTimezoneOffset() * -1
   const localDate = new Date(date.getTime() + date.getTimezoneOffset() * 60_000 * -1)
@@ -641,13 +575,6 @@ function formatLocalMemoryPromptTime(date: Date): string {
   const hours = String(localDate.getUTCHours()).padStart(2, '0')
   const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
   return `${year}-${month}-${day} ${hours}:${minutes} ${formatOffset(localMinutes)}`
-}
-
-function buildTimeAnalyzerInputText(userText: string, now = new Date()) {
-  return [
-    `当前本地时间：${formatLocalIsoDateTime(now)}`,
-    `用户消息：${userText}`,
-  ].join('\n')
 }
 
 function buildSemanticAnalyzerInputText(userText: string) {
@@ -804,61 +731,6 @@ export function parseMemoryBatchWriteResponse(responseText: string, maxCount: nu
         importance: normalizeImportance(record.importance),
       }
     })
-}
-
-function parseDateWithPrecision(value: string, side: 'start' | 'end'): Date {
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return date
-  }
-
-  const hasFractionalSeconds = /\.\d+(?:Z|[+-]\d{2}:\d{2})?$/.test(value)
-  if (side === 'end' && !hasFractionalSeconds) {
-    date.setMilliseconds(999)
-  }
-
-  return date
-}
-
-function parseTimeRange(value: unknown): MemoryQueryResult['timeRange'] {
-  if (value == null) {
-    return null
-  }
-  if (typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Memory query call returned an invalid time_range')
-  }
-
-  const record = value as Record<string, unknown>
-  const start = typeof record.start === 'string' ? parseDateWithPrecision(record.start, 'start') : null
-  const end = typeof record.end === 'string' ? parseDateWithPrecision(record.end, 'end') : null
-
-  if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    throw new Error('Memory query call returned an invalid time_range')
-  }
-  if (start.getTime() > end.getTime()) {
-    throw new Error('Memory query call returned an inverted time_range')
-  }
-
-  return { start, end }
-}
-
-function parseTimeAnalyzerResponse(responseText: string): MemoryTimeAnalysisResult {
-  let parsed: unknown
-  try {
-    parsed = extractJson(responseText)
-  } catch {
-    throw new Error('Memory time analyzer returned invalid JSON')
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Memory time analyzer did not return a JSON object')
-  }
-
-  const record = parsed as Record<string, unknown>
-  const timeRange = parseTimeRange(record.time_range)
-
-  return { timeRange }
 }
 
 function parseSemanticAnalyzerResponse(responseText: string): MemorySemanticAnalysisResult {
@@ -1023,7 +895,7 @@ export class MemorySqliteSystem implements AgentSystem {
   private readonly sleepTimeLocal: string
   private readonly sleepIntervalDays: number
   private readonly legacyRetrievePrompt: string | null
-  private readonly timeAnalyzerPrompt: string | null
+  private readonly timeParser: (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
   private readonly semanticAnalyzerPrompt: string | null
   private readonly summarizePrompt: string | null
   private readonly contextToShortTermPrompt: string | null
@@ -1046,7 +918,7 @@ export class MemorySqliteSystem implements AgentSystem {
     this.sleepTimeLocal = resolved.sleepTimeLocal
     this.sleepIntervalDays = resolved.sleepIntervalDays
     this.legacyRetrievePrompt = resolved.retrievePrompt
-    this.timeAnalyzerPrompt = resolved.timeAnalyzerPrompt
+    this.timeParser = resolved.timeParser
     this.semanticAnalyzerPrompt = resolved.semanticAnalyzerPrompt
     this.summarizePrompt = resolved.summarizePrompt
     this.contextToShortTermPrompt = resolved.contextToShortTermPrompt
@@ -1057,10 +929,6 @@ export class MemorySqliteSystem implements AgentSystem {
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
-    const timePromptOverride = resolveTimeAnalyzerPromptOverride({
-      timeAnalyzerPrompt: this.timeAnalyzerPrompt,
-      retrievePrompt: this.legacyRetrievePrompt,
-    })
     const semanticPromptOverride = resolveSemanticAnalyzerPromptOverride({
       semanticAnalyzerPrompt: this.semanticAnalyzerPrompt,
       retrievePrompt: this.legacyRetrievePrompt,
@@ -1071,12 +939,11 @@ export class MemorySqliteSystem implements AgentSystem {
       model: this.summarizeModel,
       reasoning: { effort: 'none' },
       timeAnalyzer: {
-        prompt: buildTimeAnalyzerPrompt(timePromptOverride),
-        inputText: buildTimeAnalyzerInputText(ctx.input.text),
-        responseFormat: MEMORY_TIME_ANALYZER_RESPONSE_FORMAT,
-        parse: parseTimeAnalyzerResponse,
+        kind: 'local',
+        analyze: () => this.timeParser(ctx.input.text, new Date()),
       },
       semanticAnalyzer: {
+        kind: 'llm',
         prompt: buildSemanticAnalyzerPrompt(semanticPromptOverride),
         inputText: buildSemanticAnalyzerInputText(ctx.input.text),
         responseFormat: MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT,

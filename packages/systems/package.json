@@ -9,7 +9,8 @@
     "test": "node --import tsx --test src/*.test.ts src/**/*.test.ts"
   },
   "dependencies": {
-    "@mas/db": "*"
+    "@mas/db": "*",
+    "@microsoft/recognizers-text-date-time": "^1.3.2"
   },
   "devDependencies": {
     "tsx": "^4.21.0"

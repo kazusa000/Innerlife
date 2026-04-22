@@ -17,11 +17,11 @@ import {
   buildSemanticAnalyzerPrompt,
   buildShortTermToLongTermPrompt,
   buildSummaryPrompt,
-  buildTimeAnalyzerPrompt,
   MemorySqliteSystem,
   parseMemoryBatchWriteResponse,
   resolveMemoryPipelineSettings,
 } from './sqlite'
+import { analyzeMemoryTimeText } from './time-parser'
 import type { TurnContext } from '../types'
 
 function bootstrapDb(dbPath: string, memoryDbPath: string) {
@@ -134,8 +134,10 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
 
     await system.beforeTurn?.(ctx)
     assert.equal(ctx.pendingMemoryQuery?.kind, 'sqlite')
-    assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /记忆语义分析器/)
-    assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /记忆语义分析器/)
+    assert.equal(ctx.pendingMemoryQuery?.timeAnalyzer.kind, 'local')
+    const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+    assert.equal(semanticAnalyzer?.kind, 'llm')
+    assert.match(semanticAnalyzer?.prompt ?? '', /记忆语义分析器/)
 
     const retrieved = await ctx.pendingMemoryQuery?.retrieve({
       retrievalQuery: '用户告诉过我的猫叫什么名字',
@@ -260,30 +262,10 @@ test('memory sqlite system uses memory model override for retrieval queries too'
 
   assert.equal(ctx.pendingMemoryQuery?.kind, 'sqlite')
   assert.equal(ctx.pendingMemoryQuery?.model, 'memory-model')
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /time_range/i)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /时间分析器/)
+  assert.equal(ctx.pendingMemoryQuery?.timeAnalyzer.kind, 'local')
+  assert.equal(ctx.pendingMemoryQuery?.semanticAnalyzer.kind, 'llm')
   assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /retrieval_query/i)
   assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /语义分析器/)
-})
-
-test('memory sqlite time analyzer prompt guides pure recent-utterance recall toward time-only retrieval', { concurrency: false }, async () => {
-  const system = new MemorySqliteSystem({
-    summarizeModel: 'memory-model',
-    embedder: createEmbedder({}),
-  })
-  const ctx = createContext('我刚刚和你说了什么')
-
-  await system.beforeTurn?.(ctx)
-
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /time_range/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /电脑当前的本地时间/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /短时间窗口/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /不要返回未来时间/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /最近一个已经结束的过去时段/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /“今天”表示当前本地自然日/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /“昨天”表示前一个本地自然日/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /上午=06:00-11:59/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /如果用户没有表达时间意图/)
 })
 
 test('memory sqlite semantic analyzer prompt keeps retrieval query focused on topic anchors', { concurrency: false }, async () => {
@@ -295,36 +277,61 @@ test('memory sqlite semantic analyzer prompt keeps retrieval query focused on to
 
   await system.beforeTurn?.(ctx)
 
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /retrieval_query/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /最短、最稳定、最能检索的主题锚点/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /时间信息绝不进入 retrieval_query/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /画面、名字、食物、bug、地点、关系或意象/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /猫名字.*bug 修复.*海边灯塔画面/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /对象、场景、画面、名字或事件类型/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /focus 只能补充说明，不能替代 retrieval_query/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /“画面”“场景”“名字”“地点”“食物”“bug”/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /“画面”“场景”“名字”“梦境”“氛围”/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /没有稳定主题锚点/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /中文提问就用中文/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /“内容\/事情\/对话\/讨论”这类回顾外壳/)
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'llm')
+  assert.match(semanticAnalyzer?.prompt ?? '', /retrieval_query/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /最短、最稳定、最能检索的主题锚点/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /时间信息绝不进入 retrieval_query/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /画面、名字、食物、bug、地点、关系或意象/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /猫名字.*bug 修复.*海边灯塔画面/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /对象、场景、画面、名字或事件类型/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /focus 只能补充说明，不能替代 retrieval_query/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /“画面”“场景”“名字”“地点”“食物”“bug”/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /“画面”“场景”“名字”“梦境”“氛围”/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /没有稳定主题锚点/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /中文提问就用中文/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /“内容\/事情\/对话\/讨论”这类回顾外壳/)
 })
 
-test('memory sqlite time analyzer prompt treats broad prior-interaction recall as time intent', { concurrency: false }, async () => {
-  const system = new MemorySqliteSystem({
-    retrieveTopK: 5,
-    embedder: createEmbedder({}),
+test('memory sqlite time parser recognizes explicit Chinese time expressions', () => {
+  const reference = new Date('2026-04-22T20:24:17+02:00')
+
+  assert.deepEqual(analyzeMemoryTimeText('今天下午我们聊了什么', reference), {
+    timeRange: {
+      start: new Date('2026-04-22T12:00:00'),
+      end: new Date('2026-04-22T16:00:00'),
+    },
   })
-  const ctx = createContext('之前我们聊过吗')
-
-  await system.beforeTurn?.(ctx)
-
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /泛指过去互动、先前对话、此前提到过的事/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /非空 time_range，不要返回 null/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /不要贴近当前时间到只剩几秒或几分钟/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /不要仅因为“记得\/聊过\/提到过”就补一个 time_range/)
+  assert.deepEqual(analyzeMemoryTimeText('前天上午聊的画面', reference), {
+    timeRange: {
+      start: new Date('2026-04-20T08:00:00'),
+      end: new Date('2026-04-20T12:00:00'),
+    },
+  })
+  assert.deepEqual(analyzeMemoryTimeText('上周六发生了什么', reference), {
+    timeRange: {
+      start: new Date('2026-04-18T00:00:00'),
+      end: new Date('2026-04-18T23:59:59.999'),
+    },
+  })
+  assert.deepEqual(analyzeMemoryTimeText('我刚刚和你说了什么', reference), {
+    timeRange: {
+      start: new Date('2026-04-22T20:19:17'),
+      end: new Date('2026-04-22T20:29:17'),
+    },
+  })
+  assert.deepEqual(analyzeMemoryTimeText('昨晚我们聊过什么', reference), {
+    timeRange: {
+      start: new Date('2026-04-21T16:00:00'),
+      end: new Date('2026-04-21T20:00:00'),
+    },
+  })
+  assert.deepEqual(analyzeMemoryTimeText('之前我们聊过吗', reference), {
+    timeRange: null,
+  })
 })
 
-test('memory sqlite uses legacy retrievePrompt as effective prompt for both analyzers', { concurrency: false }, async () => {
+test('memory sqlite uses legacy retrievePrompt as effective prompt for semantic analyzer', { concurrency: false }, async () => {
   const system = new MemorySqliteSystem({
     retrievePrompt: '统一记忆分析器 prompt',
     embedder: createEmbedder({}),
@@ -333,18 +340,13 @@ test('memory sqlite uses legacy retrievePrompt as effective prompt for both anal
 
   await system.beforeTurn?.(ctx)
 
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /统一记忆分析器 prompt/)
-  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /请严格返回 json/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /统一记忆分析器 prompt/)
-  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /请严格返回 json/)
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'llm')
+  assert.match(semanticAnalyzer?.prompt ?? '', /统一记忆分析器 prompt/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /请严格返回 json/)
 })
 
 test('memory sqlite structured prompt overrides keep required json contract', () => {
-  const timePrompt = buildTimeAnalyzerPrompt('只提取时间范围')
-  assert.match(timePrompt, /^只提取时间范围/)
-  assert.match(timePrompt, /请严格返回 json/)
-  assert.match(timePrompt, /"time_range"/)
-
   const semanticPrompt = buildSemanticAnalyzerPrompt('只提取主题锚点')
   assert.match(semanticPrompt, /^只提取主题锚点/)
   assert.match(semanticPrompt, /请严格返回 json/)
@@ -430,13 +432,13 @@ test('memory sqlite query parse allows pure time recall without retrieval query'
 
   await system.beforeTurn?.(ctx)
 
-  const time = ctx.pendingMemoryQuery?.timeAnalyzer.parse(JSON.stringify({
-    time_range: {
-      start: '2026-04-20T13:55:00+02:00',
-      end: '2026-04-20T14:00:00+02:00',
-    },
-  }))
-  const semantic = ctx.pendingMemoryQuery?.semanticAnalyzer.parse(JSON.stringify({
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'llm')
+  const time = { timeRange: {
+    start: new Date('2026-04-20T13:55:00+02:00'),
+    end: new Date('2026-04-20T14:00:00+02:00'),
+  } }
+  const semantic = semanticAnalyzer?.parse(JSON.stringify({
     retrieval_query: null,
     focus: '刚才在做什么',
   }))
@@ -449,13 +451,13 @@ test('memory sqlite query parse allows pure time recall without retrieval query'
     retrievalQuery: null,
     timeRange: {
       start: new Date('2026-04-20T13:55:00+02:00'),
-      end: new Date('2026-04-20T14:00:00.999+02:00'),
+      end: new Date('2026-04-20T14:00:00+02:00'),
     },
     focus: '刚才在做什么',
   })
 })
 
-test('memory sqlite query parse expands second-precision end timestamps to include the full second', { concurrency: false }, async () => {
+test('memory sqlite query merge keeps parser-provided point windows unchanged', { concurrency: false }, async () => {
   const system = new MemorySqliteSystem({
     retrieveTopK: 5,
     embedder: createEmbedder({}),
@@ -464,13 +466,13 @@ test('memory sqlite query parse expands second-precision end timestamps to inclu
 
   await system.beforeTurn?.(ctx)
 
-  const time = ctx.pendingMemoryQuery?.timeAnalyzer.parse(JSON.stringify({
-    time_range: {
-      start: '2026-04-20T23:45:07+02:00',
-      end: '2026-04-20T23:48:07+02:00',
-    },
-  }))
-  const semantic = ctx.pendingMemoryQuery?.semanticAnalyzer.parse(JSON.stringify({
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'llm')
+  const time = { timeRange: {
+    start: new Date('2026-04-20T23:45:07+02:00'),
+    end: new Date('2026-04-20T23:48:07+02:00'),
+  } }
+  const semantic = semanticAnalyzer?.parse(JSON.stringify({
     retrieval_query: null,
     focus: '用户刚刚说过的话',
   }))
@@ -483,7 +485,7 @@ test('memory sqlite query parse expands second-precision end timestamps to inclu
     retrievalQuery: null,
     timeRange: {
       start: new Date('2026-04-20T23:45:07+02:00'),
-      end: new Date('2026-04-20T23:48:07.999+02:00'),
+      end: new Date('2026-04-20T23:48:07+02:00'),
     },
     focus: '用户刚刚说过的话',
   })
@@ -498,13 +500,13 @@ test('memory sqlite query parse keeps semantic retrieval query when time and top
 
   await system.beforeTurn?.(ctx)
 
-  const time = ctx.pendingMemoryQuery?.timeAnalyzer.parse(JSON.stringify({
-    time_range: {
-      start: '2026-04-19T00:00:00+02:00',
-      end: '2026-04-19T23:59:59+02:00',
-    },
-  }))
-  const semantic = ctx.pendingMemoryQuery?.semanticAnalyzer.parse(JSON.stringify({
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'llm')
+  const time = { timeRange: {
+    start: new Date('2026-04-19T00:00:00+02:00'),
+    end: new Date('2026-04-19T23:59:59+02:00'),
+  } }
+  const semantic = semanticAnalyzer?.parse(JSON.stringify({
     retrieval_query: '用户昨天提到的 bug 修复内容',
     focus: 'bug 修复',
   }))
@@ -517,7 +519,7 @@ test('memory sqlite query parse keeps semantic retrieval query when time and top
     retrievalQuery: '用户昨天提到的 bug 修复内容',
     timeRange: {
       start: new Date('2026-04-19T00:00:00+02:00'),
-      end: new Date('2026-04-19T23:59:59.999+02:00'),
+      end: new Date('2026-04-19T23:59:59+02:00'),
     },
     focus: 'bug 修复',
   })

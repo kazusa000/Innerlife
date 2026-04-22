@@ -7,6 +7,7 @@ export type {
   EmotionAnalysisResult,
   EmotionStateVector,
   MemoryRecord,
+  MemoryResponseFormat,
   PendingMemoryQuery,
   MemoryWriteResult,
   PendingCompaction,
@@ -39,6 +40,7 @@ export {
   normalizeEmotionState,
 } from './emotion'
 export {
+  analyzeMemoryTimeText,
   buildContextToShortTermPrompt,
   buildContextToShortTermSourceText,
   buildFixedMemoryFragmentPrompt,
@@ -51,7 +53,6 @@ export {
   buildShortTermToLongTermPrompt,
   buildShortTermToLongTermSourceText,
   buildSummaryPrompt,
-  buildTimeAnalyzerPrompt,
   createOpenRouterMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   isSqliteMemoryConfig,

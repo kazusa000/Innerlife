@@ -122,10 +122,6 @@ function createTextMessage(role: Message['role'], text: string): Message {
   }
 }
 
-function isMemoryTimePrompt(systemPrompt: string): boolean {
-  return systemPrompt.includes('sqlite 记忆系统的时间分析器')
-}
-
 function isMemorySemanticPrompt(systemPrompt: string): boolean {
   return systemPrompt.includes('sqlite 记忆系统的语义分析器')
 }
@@ -135,6 +131,20 @@ function createEmbedder(map: Record<string, number[]>) {
     async embed(input: string[]) {
       return input.map((item) => map[item] ?? [0, 0])
     },
+  }
+}
+
+function createTimeParser(map: Record<string, { start: string; end: string } | null>) {
+  return (input: string) => {
+    const range = map[input]
+    return {
+      timeRange: range
+        ? {
+            start: new Date(range.start),
+            end: new Date(range.end),
+          }
+        : null,
+    }
   }
 }
 
@@ -183,25 +193,6 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
         reasoning: params.reasoning,
         responseFormat: params.responseFormat,
       })
-
-      if (isMemoryTimePrompt(params.systemPrompt)) {
-        yield {
-          type: 'message_complete',
-          response: {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  time_range: null,
-                }),
-              },
-            ],
-            stopReason: 'end_turn',
-            usage: { inputTokens: 5, outputTokens: 2 },
-          },
-        }
-        return
-      }
 
       if (isMemorySemanticPrompt(params.systemPrompt)) {
         yield {
@@ -300,24 +291,13 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
               },
             }
           : undefined,
-        kind: isMemoryTimePrompt(request.systemPrompt)
-          ? 'retrieve_time'
-          : isMemorySemanticPrompt(request.systemPrompt)
+        kind: isMemorySemanticPrompt(request.systemPrompt)
             ? 'retrieve_semantic'
           : request.systemPrompt.includes('"display_summary": string')
             ? 'summarize'
             : 'turn',
       })),
       [
-        {
-          kind: 'retrieve_time',
-          model: 'memory-model',
-          reasoning: { effort: 'none' },
-          responseFormat: {
-            type: 'json_schema',
-            jsonSchema: { name: 'memory_time_query' },
-          },
-        },
         {
           kind: 'retrieve_semantic',
           model: 'memory-model',
@@ -420,28 +400,6 @@ test('runAgent supports pure time-range recall without a retrieval query', async
 
     const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
     const provider = new FakeProvider(async function* (params) {
-      if (isMemoryTimePrompt(params.systemPrompt)) {
-        yield {
-          type: 'message_complete',
-          response: {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify({
-                  time_range: {
-                    start: '2026-04-19T00:00:00.000Z',
-                    end: '2026-04-19T23:59:59.000Z',
-                  },
-                }),
-              },
-            ],
-            stopReason: 'end_turn',
-            usage: { inputTokens: 5, outputTokens: 2 },
-          },
-        }
-        return
-      }
-
       if (isMemorySemanticPrompt(params.systemPrompt)) {
         yield {
           type: 'message_complete',
@@ -518,6 +476,12 @@ test('runAgent supports pure time-range recall without a retrieval query', async
             '昨天发生了什么': [0, 1],
             '用户昨天提到自己昨晚吃了很多胡椒的番茄鸡蛋面。': [1, 0],
           }),
+          timeParser: createTimeParser({
+            '昨天发生了什么': {
+              start: '2026-04-19T00:00:00.000Z',
+              end: '2026-04-19T23:59:59.000Z',
+            },
+          }),
         },
       }),
       observer,
@@ -579,20 +543,8 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
     bootstrapDb(dbPath, memoryDbPath)
 
     const provider = new FakeProvider(async function* (params) {
-    if (isMemoryTimePrompt(params.systemPrompt)) {
-      throw new Error('memory query failed')
-    }
-
     if (isMemorySemanticPrompt(params.systemPrompt)) {
-      yield {
-        type: 'message_complete',
-        response: {
-          content: [{ type: 'text', text: JSON.stringify({ retrieval_query: null, focus: null }) }],
-          stopReason: 'end_turn',
-          usage: { inputTokens: 2, outputTokens: 2 },
-        },
-      }
-      return
+      throw new Error('memory query failed')
     }
 
     if (params.systemPrompt.includes('"display_summary": string')) {
@@ -664,8 +616,8 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
     assert.equal(events.at(-1)?.type, 'complete')
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
-      timeAnalyzer: { timeRange: null, error: 'memory query failed' },
-      semanticAnalyzer: { retrievalQuery: null, focus: null, error: null },
+      timeAnalyzer: { timeRange: null, error: null },
+      semanticAnalyzer: { retrievalQuery: null, focus: null, error: 'memory query failed' },
       mergedQuery: { retrievalQuery: null, focus: null, timeRange: null },
       retrievalQuery: null,
       focus: null,
@@ -701,14 +653,13 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
           kind: 'sqlite',
           system: 'memory:sqlite',
           timeAnalyzer: {
-            prompt: 'time analyzer prompt',
-            inputText: ctx.input.text,
-            responseFormat: undefined,
-            parse() {
+            kind: 'local',
+            analyze() {
               return { timeRange: null }
             },
           },
           semanticAnalyzer: {
+            kind: 'llm',
             prompt: 'semantic analyzer prompt',
             inputText: ctx.input.text,
             responseFormat: undefined,
@@ -737,18 +688,6 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
     bootstrapDb(dbPath, memoryDbPath)
 
     const provider = new FakeProvider(async function* (params) {
-    if (params.systemPrompt === 'time analyzer prompt') {
-      yield {
-        type: 'message_complete',
-        response: {
-          content: [{ type: 'text', text: JSON.stringify({ time_range: null }) }],
-          stopReason: 'end_turn',
-          usage: { inputTokens: 4, outputTokens: 1 },
-        },
-      }
-      return
-    }
-
     if (params.systemPrompt === 'semantic analyzer prompt') {
       yield {
         type: 'message_complete',
@@ -820,7 +759,7 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
   }
 })
 
-test('runAgent emits system_error without fallback retrieval when memory query returns invalid JSON or empty retrieval_query', async () => {
+test('runAgent emits system_error without fallback retrieval when semantic analyzer returns no usable query', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
   const dbPath = join(dir, 'data.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -834,31 +773,10 @@ test('runAgent emits system_error without fallback retrieval when memory query r
     },
   }
 
-  let queryCalls = 0
   try {
     bootstrapDb(dbPath, memoryDbPath)
 
     const provider = new FakeProvider(async function* (params) {
-    if (isMemoryTimePrompt(params.systemPrompt)) {
-      queryCalls += 1
-      yield {
-        type: 'message_complete',
-        response: {
-          content: [
-            {
-              type: 'text',
-              text: queryCalls === 1
-                ? '{not json'
-                : JSON.stringify({ time_range: null }),
-            },
-          ],
-          stopReason: 'end_turn',
-          usage: { inputTokens: 4, outputTokens: 3 },
-        },
-      }
-      return
-    }
-
     if (isMemorySemanticPrompt(params.systemPrompt)) {
       yield {
         type: 'message_complete',
@@ -918,15 +836,18 @@ test('runAgent emits system_error without fallback retrieval when memory query r
         [createTextMessage('user', input)],
         provider,
         createSystems({
-          memory: {
-            scheme: 'sqlite',
-            summarizeModel: 'memory-model',
-            embeddingModel: 'qwen/qwen3-embedding-0.6b',
-            retrieveTopK: 5,
-            embedder: createEmbedder({}),
-          },
-        }),
-        observer,
+        memory: {
+          scheme: 'sqlite',
+          summarizeModel: 'memory-model',
+          embeddingModel: 'qwen/qwen3-embedding-0.6b',
+          retrieveTopK: 5,
+          embedder: createEmbedder({}),
+          timeParser: createTimeParser({
+            '我猫叫什么': null,
+          }),
+        },
+      }),
+      observer,
       )) {
         events.push(
           event.type === 'system_error'
@@ -940,15 +861,13 @@ test('runAgent emits system_error without fallback retrieval when memory query r
         type: 'system_error',
         system: 'memory:sqlite',
         phase: 'beforeTurn',
-        error: queryCalls === 1
-          ? 'Memory time analyzer returned invalid JSON'
-          : 'Memory query analyzers returned neither retrieval_query nor time_range',
+        error: 'Memory query analyzers returned neither retrieval_query nor time_range',
       })
     }
 
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
-      timeAnalyzer: { timeRange: null, error: 'Memory time analyzer returned invalid JSON' },
+      timeAnalyzer: { timeRange: null, error: null },
       semanticAnalyzer: { retrievalQuery: null, focus: null, error: null },
       mergedQuery: { retrievalQuery: null, focus: null, timeRange: null },
       retrievalQuery: null,

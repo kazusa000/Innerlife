@@ -102,12 +102,22 @@ export interface MemoryLayeredRetrieveResult {
   fixed: MemoryRecord[]
 }
 
-export interface PendingMemoryQueryAnalyzer<Result> {
+export interface PendingMemoryQueryLlmAnalyzer<Result> {
+  kind: 'llm'
   prompt: string
   inputText: string
   responseFormat?: MemoryResponseFormat
   parse(responseText: string): Result
 }
+
+export interface PendingMemoryQueryLocalAnalyzer<Result> {
+  kind: 'local'
+  analyze(): Result
+}
+
+export type PendingMemoryQueryAnalyzer<Result> =
+  | PendingMemoryQueryLlmAnalyzer<Result>
+  | PendingMemoryQueryLocalAnalyzer<Result>
 
 export interface PendingMemoryWrite {
   kind: 'sqlite'

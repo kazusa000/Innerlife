@@ -176,15 +176,11 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     const listData = await listResponse.clone().json()
     assert.equal(listData.summarizeModel, 'memory-model')
     assert.equal(listData.embeddingModel, 'memory-embed')
-    assert.equal(listData.timeAnalyzerPrompt, '提炼检索查询')
     assert.equal(listData.semanticAnalyzerPrompt, '提炼检索查询')
     assert.equal(listData.summarizePrompt, '生成记忆摘要')
     assert.equal(listData.fragmentPrompt, '把这些记忆当作回忆来回答')
     assert.equal(listData.consolidatePrompt, '整理记忆')
-    assert.equal(typeof listData.timeAnalyzerPromptDefault, 'string')
     assert.equal(typeof listData.semanticAnalyzerPromptDefault, 'string')
-    assert.match(listData.timeAnalyzerPromptEffective, /^提炼检索查询/)
-    assert.match(listData.timeAnalyzerPromptEffective, /请严格返回 json/)
     assert.match(listData.semanticAnalyzerPromptEffective, /^提炼检索查询/)
     assert.match(listData.semanticAnalyzerPromptEffective, /请严格返回 json/)
     assert.match(listData.summarizePromptEffective, /^生成记忆摘要/)
@@ -272,7 +268,6 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     const response = updateSqliteMemorySettings('agent-1', {
       summarizeModel: '  qwen/qwen-2.5-7b-instruct  ',
       embeddingModel: '  qwen/qwen3-embedding-8b  ',
-      timeAnalyzerPrompt: '  生成时间范围  ',
       semanticAnalyzerPrompt: '  生成检索锚点  ',
       summarizePrompt: '  生成展示摘要和检索文本  ',
       contextWindowMessages: 60,
@@ -303,7 +298,6 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal(data.sleepEnabled, false)
     assert.equal(data.sleepTimeLocal, '04:30')
     assert.equal(data.sleepIntervalDays, 2)
-    assert.equal(data.timeAnalyzerPrompt, '生成时间范围')
     assert.equal(data.semanticAnalyzerPrompt, '生成检索锚点')
     assert.equal(data.summarizePrompt, '生成展示摘要和检索文本')
     assert.equal(data.fragmentPrompt, '把这些记忆当作回忆来回答')
@@ -312,9 +306,6 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal(data.shortTermFragmentPrompt, '这些是近期记忆')
     assert.equal(data.fixedFragmentPrompt, '这些是稳定事实')
     assert.equal(data.consolidatePrompt, '重新整理相近记忆')
-    assert.equal(typeof data.timeAnalyzerPromptDefault, 'string')
-    assert.match(data.timeAnalyzerPromptEffective, /^生成时间范围/)
-    assert.match(data.timeAnalyzerPromptEffective, /请严格返回 json/)
     assert.equal(typeof data.semanticAnalyzerPromptDefault, 'string')
     assert.match(data.semanticAnalyzerPromptEffective, /^生成检索锚点/)
     assert.match(data.semanticAnalyzerPromptEffective, /请严格返回 json/)
@@ -348,7 +339,6 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
         sleepEnabled: false,
         sleepTimeLocal: '04:30',
         sleepIntervalDays: 2,
-        timeAnalyzerPrompt: '生成时间范围',
         semanticAnalyzerPrompt: '生成检索锚点',
         summarizePrompt: '生成展示摘要和检索文本',
         fragmentPrompt: '把这些记忆当作回忆来回答',
@@ -384,7 +374,6 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
       sleepEnabled: null,
       sleepTimeLocal: '   ',
       sleepIntervalDays: null,
-      timeAnalyzerPrompt: '   ',
       semanticAnalyzerPrompt: '   ',
       summarizePrompt: '   ',
       fragmentPrompt: '   ',
@@ -408,7 +397,6 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
     assert.equal(data.sleepEnabled, true)
     assert.equal(data.sleepTimeLocal, '03:00')
     assert.equal(data.sleepIntervalDays, 1)
-    assert.equal(data.timeAnalyzerPrompt, null)
     assert.equal(data.semanticAnalyzerPrompt, null)
     assert.equal(data.summarizePrompt, null)
     assert.equal(data.fragmentPrompt, null)
@@ -417,8 +405,6 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
     assert.equal(data.shortTermFragmentPrompt, null)
     assert.equal(data.fixedFragmentPrompt, null)
     assert.equal(data.consolidatePrompt, null)
-    assert.equal(typeof data.timeAnalyzerPromptDefault, 'string')
-    assert.equal(data.timeAnalyzerPromptEffective, data.timeAnalyzerPromptDefault)
     assert.equal(typeof data.semanticAnalyzerPromptDefault, 'string')
     assert.equal(data.semanticAnalyzerPromptEffective, data.semanticAnalyzerPromptDefault)
     assert.equal(typeof data.summarizePromptDefault, 'string')

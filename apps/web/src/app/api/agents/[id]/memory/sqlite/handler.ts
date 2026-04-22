@@ -15,7 +15,6 @@ import {
   buildShortTermFragmentPrompt,
   buildShortTermToLongTermPrompt,
   buildSummaryPrompt,
-  buildTimeAnalyzerPrompt,
   isSqliteMemoryConfig,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
@@ -123,9 +122,6 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     sleepEnabled: pipelineSettings.sleepEnabled,
     sleepTimeLocal: pipelineSettings.sleepTimeLocal,
     sleepIntervalDays: pipelineSettings.sleepIntervalDays,
-    timeAnalyzerPrompt:
-      readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.timeAnalyzerPrompt)
-      ?? readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.retrievePrompt),
     semanticAnalyzerPrompt:
       readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.semanticAnalyzerPrompt)
       ?? readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.retrievePrompt),
@@ -136,8 +132,6 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     shortTermFragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.shortTermFragmentPrompt),
     fixedFragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fixedFragmentPrompt),
     consolidatePrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.consolidatePrompt),
-    timeAnalyzerPromptDefault: buildTimeAnalyzerPrompt(),
-    timeAnalyzerPromptEffective: buildTimeAnalyzerPrompt(memoryConfig.timeAnalyzerPrompt ?? memoryConfig.retrievePrompt),
     semanticAnalyzerPromptDefault: buildSemanticAnalyzerPrompt(),
     semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt),
     summarizePromptDefault: buildSummaryPrompt(),
@@ -203,7 +197,6 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   const stringOrNullFields = [
     'summarizeModel',
     'embeddingModel',
-    'timeAnalyzerPrompt',
     'semanticAnalyzerPrompt',
     'summarizePrompt',
     'contextToShortTermPrompt',
@@ -239,7 +232,6 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     sleepEnabled: hasOwn(body, 'sleepEnabled') ? (typeof body.sleepEnabled === 'boolean' ? body.sleepEnabled : null) : undefined,
     sleepTimeLocal: hasOwn(body, 'sleepTimeLocal') ? readOptionalText(body.sleepTimeLocal) : undefined,
     sleepIntervalDays: hasOwn(body, 'sleepIntervalDays') ? readOptionalInt(body.sleepIntervalDays) : undefined,
-    timeAnalyzerPrompt: hasOwn(body, 'timeAnalyzerPrompt') ? readOptionalText(body.timeAnalyzerPrompt) : undefined,
     semanticAnalyzerPrompt: hasOwn(body, 'semanticAnalyzerPrompt') ? readOptionalText(body.semanticAnalyzerPrompt) : undefined,
     summarizePrompt: hasOwn(body, 'summarizePrompt') ? readOptionalText(body.summarizePrompt) : undefined,
     contextToShortTermPrompt: hasOwn(body, 'contextToShortTermPrompt') ? readOptionalText(body.contextToShortTermPrompt) : undefined,
@@ -252,6 +244,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
 
   nextMemory.scheme = 'sqlite'
   delete nextMemory.retrievePrompt
+  delete nextMemory.timeAnalyzerPrompt
   for (const [key, value] of Object.entries(nextValues)) {
     if (value === undefined) {
       continue
@@ -280,7 +273,6 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     sleepEnabled: resolvedPipeline.sleepEnabled,
     sleepTimeLocal: resolvedPipeline.sleepTimeLocal,
     sleepIntervalDays: resolvedPipeline.sleepIntervalDays,
-    timeAnalyzerPrompt: resolvedMemory.timeAnalyzerPrompt ?? resolvedMemory.retrievePrompt,
     semanticAnalyzerPrompt: resolvedMemory.semanticAnalyzerPrompt ?? resolvedMemory.retrievePrompt,
     summarizePrompt: resolvedMemory.summarizePrompt,
     contextToShortTermPrompt: resolvedMemory.contextToShortTermPrompt,
@@ -289,8 +281,6 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     shortTermFragmentPrompt: resolvedMemory.shortTermFragmentPrompt ?? resolvedMemory.fragmentPrompt,
     fixedFragmentPrompt: resolvedMemory.fixedFragmentPrompt ?? resolvedMemory.fragmentPrompt,
     consolidatePrompt: resolvedMemory.consolidatePrompt,
-    timeAnalyzerPromptDefault: buildTimeAnalyzerPrompt(),
-    timeAnalyzerPromptEffective: buildTimeAnalyzerPrompt(resolvedMemory.timeAnalyzerPrompt ?? resolvedMemory.retrievePrompt),
     semanticAnalyzerPromptDefault: buildSemanticAnalyzerPrompt(),
     semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(resolvedMemory.semanticAnalyzerPrompt ?? resolvedMemory.retrievePrompt),
     summarizePromptDefault: buildSummaryPrompt(),

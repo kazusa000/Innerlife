@@ -13,6 +13,7 @@ import type {
   ConversationBlock,
   ConversationMessage,
   EmotionAnalysisResult,
+  MemoryResponseFormat,
   PendingCompaction,
   PendingEmotionAnalysis,
   PendingMemoryQuery,
@@ -658,31 +659,24 @@ async function runPendingMemoryQuery(
     return {}
   }
 
-  const observerMessages: Message[] = [
-    {
-      role: 'user',
-      content: [{ type: 'text', text: `time analyzer 输入\n${pending.timeAnalyzer.inputText}` }],
-    },
-    {
-      role: 'user',
-      content: [{ type: 'text', text: `semantic analyzer 输入\n${pending.semanticAnalyzer.inputText}` }],
-    },
-  ]
-  const callId = observer?.onLLMCallStart({
-    kind: 'memory',
-    model: pending.model ?? config.model,
-    systemPrompt: [
-      '[time analyzer]',
-      pending.timeAnalyzer.prompt,
-      '',
-      '[semantic analyzer]',
-      pending.semanticAnalyzer.prompt,
-    ].join('\n'),
-    tools: [],
-    messages: cloneMessages(observerMessages),
-  })
+  const observerMessages: Message[] = pending.semanticAnalyzer.kind === 'llm'
+    ? [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: `semantic analyzer 输入\n${pending.semanticAnalyzer.inputText}` }],
+        },
+      ]
+    : []
+  const callId = pending.semanticAnalyzer.kind === 'llm'
+    ? observer?.onLLMCallStart({
+        kind: 'memory',
+        model: pending.model ?? config.model,
+        systemPrompt: pending.semanticAnalyzer.prompt,
+        tools: [],
+        messages: cloneMessages(observerMessages),
+      })
+    : undefined
 
-  let timeResponse: LLMResponse | undefined
   let semanticResponse: LLMResponse | undefined
   let timeError: Error | undefined
   let semanticError: Error | undefined
@@ -696,11 +690,10 @@ async function runPendingMemoryQuery(
     fixed: [] as NonNullable<TurnContext['state']['fixedMemories']>,
   }
 
-  const runAnalyzer = async <T,>(
-    kind: 'time' | 'semantic',
+  const runLlmAnalyzer = async <T,>(
     prompt: string,
     inputText: string,
-    responseFormat: PendingMemoryQuery['timeAnalyzer']['responseFormat'],
+    responseFormat: MemoryResponseFormat | undefined,
     parse: (responseText: string) => T,
   ) => {
     const response = await provider.sendMessage({
@@ -722,34 +715,33 @@ async function runPendingMemoryQuery(
     }
   }
 
+  const timeAnalyzer = pending.timeAnalyzer
+  const semanticAnalyzer = pending.semanticAnalyzer
   const [timeOutcome, semanticOutcome] = await Promise.all([
-    runAnalyzer(
-      'time',
-      pending.timeAnalyzer.prompt,
-      pending.timeAnalyzer.inputText,
-      pending.timeAnalyzer.responseFormat,
-      pending.timeAnalyzer.parse,
-    ).catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) })),
-    runAnalyzer(
-      'semantic',
-      pending.semanticAnalyzer.prompt,
-      pending.semanticAnalyzer.inputText,
-      pending.semanticAnalyzer.responseFormat,
-      pending.semanticAnalyzer.parse,
-    ).catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) })),
+    (timeAnalyzer.kind === 'local'
+      ? Promise.resolve().then(() => ({ parsed: timeAnalyzer.analyze() }))
+      : Promise.reject(new Error('Memory time analyzer must be local')))
+      .catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) })),
+    semanticAnalyzer.kind === 'llm'
+      ? runLlmAnalyzer(
+          semanticAnalyzer.prompt,
+          semanticAnalyzer.inputText,
+          semanticAnalyzer.responseFormat,
+          semanticAnalyzer.parse,
+        ).catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) }))
+      : Promise.resolve({ parsed: semanticAnalyzer.analyze() }),
   ])
 
   if ('error' in timeOutcome) {
     timeError = timeOutcome.error
   } else {
-    timeResponse = timeOutcome.response
     timeResult = timeOutcome.parsed
   }
 
   if ('error' in semanticOutcome) {
     semanticError = semanticOutcome.error
   } else {
-    semanticResponse = semanticOutcome.response
+    semanticResponse = 'response' in semanticOutcome ? semanticOutcome.response : undefined
     semanticResult = semanticOutcome.parsed
   }
 
@@ -891,17 +883,14 @@ async function runPendingMemoryQuery(
   if (callId !== undefined && observer) {
     observer.onLLMCallEnd(callId, {
       response: [
-        ...(timeResponse
-          ? [{ type: 'text' as const, text: `[time analyzer]\n${extractContentText(timeResponse.content)}` }]
-          : []),
         ...(semanticResponse
           ? [{ type: 'text' as const, text: `[semantic analyzer]\n${extractContentText(semanticResponse.content)}` }]
           : []),
       ],
-      stopReason: semanticResponse?.stopReason ?? timeResponse?.stopReason ?? 'end_turn',
+      stopReason: semanticResponse?.stopReason ?? 'end_turn',
       usage: {
-        inputTokens: (timeResponse?.usage.inputTokens ?? 0) + (semanticResponse?.usage.inputTokens ?? 0),
-        outputTokens: (timeResponse?.usage.outputTokens ?? 0) + (semanticResponse?.usage.outputTokens ?? 0),
+        inputTokens: semanticResponse?.usage.inputTokens ?? 0,
+        outputTokens: semanticResponse?.usage.outputTokens ?? 0,
       },
       metadata,
       error: error?.message,

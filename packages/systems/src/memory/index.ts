@@ -11,7 +11,6 @@ export {
   buildShortTermToLongTermPrompt,
   buildShortTermToLongTermSourceText,
   buildSummaryPrompt,
-  buildTimeAnalyzerPrompt,
   isSqliteMemoryConfig,
   MemorySqliteSystem,
   MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
@@ -21,6 +20,7 @@ export {
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
 } from './sqlite'
+export { analyzeMemoryTimeText, analyzeMemoryTimeText as parseMemoryTimeText } from './time-parser'
 export {
   createOpenRouterMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
