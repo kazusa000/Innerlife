@@ -86,7 +86,7 @@ multi-agent-system/
 │   ├── turing/                  # 图灵测试系统（外部优先评测任务）
 │   │   ├── src/
 │   │   │   ├── types.ts         # run / report / transcript / judge event 类型
-│   │   │   ├── suite.ts         # 固定 6 段测试套件
+│   │   │   ├── suite.ts         # 固定 7 段测试套件
 │   │   │   ├── temp-agent.ts    # 临时测试 agent 复制与清理
 │   │   │   ├── chat-executor.ts # 复用真实 runAgent 聊天链路
 │   │   │   ├── runner.ts        # 图灵测试 runner（后台消费 queued run）
@@ -96,6 +96,12 @@ multi-agent-system/
 │   │       ├── suite-definition.md
 │   │       ├── abort-criteria.md
 │   │       └── report-rubric.md
+│   │
+│   ├── daemon/                  # daemon 工作台（全局后台观测与安全触发）
+│   │   └── src/
+│   │       ├── types.ts         # daemon 工作台视图类型
+│   │       ├── handler.ts       # /api/daemon/* 聚合逻辑
+│   │       └── shared.ts        # daemon state / event 序列化
 │   │
 │   ├── memory-service/          # 记忆服务（Python + ChromaDB，独立进程）
 │   │   ├── server.py            # HTTP/MCP 服务入口
@@ -741,7 +747,7 @@ WebSocket /ws                         实时通信（agent 主动推送）
 1. 调用 `POST /api/turing/runs`
 2. 系统创建 `queued` run
 3. 后台 runner 消费该 run，复制 persona 并创建临时测试 agent
-4. 按固定 6 段测试套件执行
+4. 按固定 7 段测试套件执行
 5. 若触发红线，立即中断
 6. 写入 report / transcript / events
 7. 页面与外部 AI 通过 detail / events 接口读取结果
@@ -1334,10 +1340,15 @@ Phase 1（已完成）
 - [ ] **G6 图灵测试系统 v1** — 外部优先的异步拟人感评测
   - `turing_test_runs` + `turing_test_events` 表，支持 queued / running / interrupted / completed / cleaned
   - 复制当前 persona 生成临时测试 agent，强制开启全部模块
-  - 固定 6 段测试套件 + 固定 rulebook markdown
+  - 固定 7 段测试套件 + 固定 rulebook markdown
   - 后台 runner 逐段执行，允许插入测试记忆 / 情绪状态 / 关系状态
   - 触发红线立即中止并生成报告；同时保留 transcript、Observer 证据与只读事件流
   - 页面工作台挂在 `/agent/[id]/turing`，右侧提供“后台命令行状态台”，并支持一键清理整场测试数据
+- [x] **G7 Daemon 工作台 v1** — 全局后台观测与安全触发
+  - 新增 `daemon_events` 表，统一记录 daemon 生命周期、图灵测试消费、记忆 flush 与睡眠作业事件
+  - 新增 `/daemon` 页面与 `/api/daemon/*` 接口组，集中展示概览、图灵测试、记忆 Flush、睡眠和全局事件流
+  - 工作台只提供只读观测与行级安全动作：`立即 flush` / `立即睡觉`
+  - 效果：你可以从一个全局控制台看清 daemon 当前到底在后台跑什么，并安全触发关键后台能力
 
 ---
 
