@@ -1,5 +1,5 @@
 import { turingRunRepo } from '@mas/db'
-import { cleanupRunData } from '@mas/turing/runner'
+import { cleanupRunData } from '@mas/turing'
 import { initDb } from '@/lib/db-init'
 import { serializeTuringRun } from '../../../shared'
 

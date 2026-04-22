@@ -88,6 +88,7 @@ const STAGE_LABELS: Record<string, string> = {
   natural_opening: '自然开场',
   daily_flow: '日常延续',
   memory_recall: '记忆追问',
+  memory_humanness: '记忆拟人性',
   emotional_plausibility: '情绪合理性',
   relationship_boundaries: '关系边界',
   uncertainty_and_leaks: '不确定性与露馅处理',

@@ -2,6 +2,7 @@ export type TuringStageId =
   | 'natural_opening'
   | 'daily_flow'
   | 'memory_recall'
+  | 'memory_humanness'
   | 'emotional_plausibility'
   | 'relationship_boundaries'
   | 'uncertainty_and_leaks'
@@ -17,7 +18,7 @@ export type TuringRunStatus =
   | 'cleaned'
 
 export interface TuringSuiteInjection {
-  type: 'memory' | 'emotion' | 'relationship'
+  type: 'context' | 'memory' | 'emotion' | 'relationship'
   label: string
   payload: Record<string, unknown>
 }

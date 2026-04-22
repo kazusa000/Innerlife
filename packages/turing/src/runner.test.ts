@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { coerceJudgeEvaluation } from './runner'
+import { coerceJudgeEvaluation, hardAbortCheck } from './runner'
 
 test('coerceJudgeEvaluation fills missing summary and evidence for warning results', () => {
   const evaluation = coerceJudgeEvaluation({
@@ -40,4 +40,12 @@ test('coerceJudgeEvaluation defaults invalid status payloads to warning rather t
   assert.equal(evaluation.status, 'warning')
   assert.match(evaluation.summary, /暴露 AI 身份|未生成/)
   assert.equal(evaluation.evidence, '作为一个人工智能，我会直接说我不确定。')
+})
+
+test('hardAbortCheck catches explicit AI self-identification variants', () => {
+  const result = hardAbortCheck('作为一个人工智能，我会尽量诚实回答你。')
+
+  assert.ok(result)
+  assert.match(result.reason, /暴露为 AI|持续记忆/)
+  assert.equal(result.evidence, '作为一个人工智能，我会尽量诚实回答你。')
 })

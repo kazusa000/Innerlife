@@ -2,6 +2,7 @@ import { createProvider, type ContentBlock, type Message } from '@mas/core'
 import {
   agentRepo,
   emotionStateRepo,
+  messageRepo,
   memoryRepo,
   relationshipRepo,
   turingEventRepo,
@@ -66,7 +67,7 @@ function nonEmptyString(value: unknown) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
-function hardAbortCheck(reply: string): { reason: string; evidence: string } | null {
+export function hardAbortCheck(reply: string): { reason: string; evidence: string } | null {
   const normalized = reply.trim()
   if (!normalized) {
     return null
@@ -74,6 +75,7 @@ function hardAbortCheck(reply: string): { reason: string; evidence: string } | n
 
   const redlines = [
     /我是\s*ai/i,
+    /作为(?:一个|一名)?(?:人工智能|ai|语言模型|大模型)/i,
     /我没有记忆功能/,
     /每次对话都是全新的/,
     /我是(?:一个)?(?:ai助手|人工智能助手)/,
@@ -169,16 +171,37 @@ async function applyInjection(input: {
 }) {
   const payload = input.injection.payload
 
-  if (input.injection.type === 'memory') {
+  if (input.injection.type === 'context') {
+    const messages = Array.isArray(payload.messages) ? payload.messages : []
+    for (const message of messages) {
+      if (
+        message
+        && typeof message === 'object'
+        && !Array.isArray(message)
+        && (message.role === 'user' || message.role === 'assistant')
+        && typeof message.text === 'string'
+      ) {
+        messageRepo.addMessage({
+          sessionId: input.tempSessionId,
+          role: message.role,
+          content: JSON.stringify([{ type: 'text', text: message.text }]),
+        })
+      }
+    }
+  } else if (input.injection.type === 'memory') {
     const displaySummary = typeof payload.displaySummary === 'string' ? payload.displaySummary : '测试记忆'
     const retrievalText = typeof payload.retrievalText === 'string' ? payload.retrievalText : displaySummary
     const tags = Array.isArray(payload.tags) ? payload.tags.filter((tag): tag is string => typeof tag === 'string') : []
     const importance = typeof payload.importance === 'number' ? payload.importance : 0.8
+    const layer =
+      payload.layer === 'short_term' || payload.layer === 'long_term' || payload.layer === 'fixed'
+        ? payload.layer
+        : 'short_term'
     const embedding = await embedText(retrievalText)
     memoryRepo.addMemory({
       agentId: input.tempAgentId,
       sessionId: input.tempSessionId,
-      layer: 'short_term',
+      layer,
       sourceText: retrievalText,
       displaySummary,
       retrievalText,
@@ -208,9 +231,9 @@ async function applyInjection(input: {
     runId: input.runId,
     kind: 'injection',
     message: input.injection.label,
-    payload: {
-      stageId: input.stageId,
-      type: input.injection.type,
+      payload: {
+        stageId: input.stageId,
+        type: input.injection.type,
       ...payload,
     },
   })
