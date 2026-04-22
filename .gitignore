@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .next/
+.venv/
 *.db
 *.db-journal
 *.db-shm
