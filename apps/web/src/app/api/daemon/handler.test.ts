@@ -66,7 +66,7 @@ function seedBaseData() {
   const activeSession = sessionRepo.createSession(sqliteAgent.id, 'context session')
   sessionRepo.createSession(noopAgent.id, 'noop session')
 
-  const m1 = messageRepo.addMessage({
+  messageRepo.addMessage({
     sessionId: activeSession.id,
     role: 'user',
     content: JSON.stringify([{ type: 'text', text: 'hello' }]),
@@ -91,10 +91,11 @@ function seedBaseData() {
     role: 'user',
     content: JSON.stringify([{ type: 'text', text: 'one more thing' }]),
   })
+  const firstMessageId = messageRepo.getSessionMessages(activeSession.id)[0]?.id ?? null
 
   sessionContextStateRepo.upsertSessionContextState({
     sessionId: activeSession.id,
-    activeStartMessageId: m1,
+    activeStartMessageId: firstMessageId,
     lastUserMessageAt: new Date('2026-04-22T08:00:00.000Z'),
     lastContextFlushAt: new Date('2026-04-22T07:00:00.000Z'),
   })
