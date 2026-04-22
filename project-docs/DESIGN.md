@@ -1030,7 +1030,15 @@ STM（章节/近期压缩）
 LTM（长期沉淀）
 ```
 
-当前已实现的 sqlite 记忆仍属于 Phase 2 的轻量实现；Phase 4 的 daemon 会把这条链路真正做成持续运转的后台流程。
+当前主线已经把这条链路的第一版落地：
+
+- `context` 只作为 session 活跃消息窗口存在，不进入 memory 表，也不参与检索
+- `context -> STM` 由 daemon 在空闲或超窗时后台搬运，从最早完整回合块中提炼最多 N 条 `short_term`
+- `STM -> LTM` 由 daemon 每日一次“睡眠”任务沉淀
+- `fixed` 第一版仍通过后台手动从 `long_term` 提升
+- 主对话每轮只前置检索 `short_term + fixed`；`long_term` 改为按需 tool 深搜
+
+也就是说，sqlite 记忆现在已经不是“一张 memories 表 + 每轮 afterTurn 直接写入”的形态，而是进入了后台持续搬运的分层流水线阶段。
 
 ### 10.8 后台层 — Daemon 与记忆演化（Phase 4）
 
@@ -1302,7 +1310,7 @@ Phase 1（已完成）
 
 > 依赖模块 F（需要关系系统和权限系统）。
 
-- [ ] **G1 Daemon v1** — 本地独立常驻进程
+- [x] **G1 Daemon v1** — 本地独立常驻进程
   - 单进程 daemon + heartbeat + status + tick loop
   - 负责后台任务执行，不依赖浏览器页面存活
   - 效果：关掉网页后，后台记忆搬运与计划任务仍能继续
@@ -1310,7 +1318,7 @@ Phase 1（已完成）
   - scheduled_tasks 表 + next_run_at / backoff / enabled
   - 参考：hermes-agent `cron/scheduler.py`、openclaw CronService
   - 效果：后台任务有统一调度入口，而不是零散挂在请求链路里
-- [ ] **G3 记忆三层演化** — Context / STM / LTM 后台搬运
+- [x] **G3 记忆三层演化** — Context / STM / LTM 后台搬运
   - Context → STM：章节压缩、近期对话归档、短期印象形成
   - STM → LTM：筛选高价值记忆、合并重复片段、沉淀长期事实
   - 效果：虚拟人逐步“消化经历”，而不是只靠当前上下文硬撑
