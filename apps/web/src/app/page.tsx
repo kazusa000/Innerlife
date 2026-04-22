@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DEFAULT_MODEL_BY_PROVIDER,
+  buildAutoSystemPrompt,
   buildModules,
   getEmotionFormState,
   getMemoryFormState,
   getPersonalityFormState,
   getRelationshipFormState,
+  readLegacyPersonaPrompt,
   type EmotionScheme,
   type MemoryScheme,
   type PersonalityScheme,
@@ -23,10 +25,13 @@ interface Agent {
   model: string
   systemPrompt: string
   personaPrompt: string
+  config?: string | null
   modules: Record<string, unknown> | null
   status: string
   createdAt: string
 }
+
+type RolePromptMode = 'explicit' | 'derived' | 'legacy' | 'empty'
 
 const MODEL_LABELS: Record<string, string> = {
   'claude-sonnet-4-6': 'Sonnet 4.6',
@@ -76,6 +81,8 @@ export default function HomePage() {
   const [model, setModel] = useState<string>(DEFAULT_MODEL_BY_PROVIDER.anthropic)
   const [systemPrompt, setSystemPrompt] = useState('')
   const [personaPrompt, setPersonaPrompt] = useState('')
+  const [systemPromptMode, setSystemPromptMode] = useState<RolePromptMode>('derived')
+  const [personaPromptMode, setPersonaPromptMode] = useState<RolePromptMode>('empty')
   const [baseModules, setBaseModules] = useState<Record<string, unknown> | null>({})
   const [personalityScheme, setPersonalityScheme] = useState<PersonalityScheme>('big-five')
   const [emotionScheme, setEmotionScheme] = useState<EmotionScheme>('noop')
@@ -93,6 +100,40 @@ export default function HomePage() {
     void loadAgents()
   }, [])
 
+  function readStoredRolePrompts(agent: Pick<Agent, 'config'>) {
+    if (!agent.config) {
+      return { systemPrompt: '', personaPrompt: '' }
+    }
+
+    try {
+      const parsed = JSON.parse(agent.config) as { systemPrompt?: unknown; personaPrompt?: unknown }
+      return {
+        systemPrompt: typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt.trim() : '',
+        personaPrompt: typeof parsed.personaPrompt === 'string' ? parsed.personaPrompt.trim() : '',
+      }
+    } catch {
+      return { systemPrompt: '', personaPrompt: '' }
+    }
+  }
+
+  function applyDerivedSystemPrompt(nextName: string, nextDescription: string) {
+    const derived = buildAutoSystemPrompt(nextName, nextDescription)
+    setSystemPromptMode('derived')
+    setSystemPrompt(derived)
+  }
+
+  function applyInheritedPersonaPrompt(modules: Record<string, unknown> | null | undefined) {
+    const legacy = readLegacyPersonaPrompt(modules)
+    if (legacy) {
+      setPersonaPromptMode('legacy')
+      setPersonaPrompt(legacy)
+      return
+    }
+
+    setPersonaPromptMode('empty')
+    setPersonaPrompt('')
+  }
+
   function resetForm() {
     setShowForm(false)
     setEditingId(null)
@@ -100,8 +141,10 @@ export default function HomePage() {
     setDescription('')
     setProvider('anthropic')
     setModel(DEFAULT_MODEL_BY_PROVIDER.anthropic)
-    setSystemPrompt('')
+    setSystemPrompt(buildAutoSystemPrompt('', ''))
     setPersonaPrompt('')
+    setSystemPromptMode('derived')
+    setPersonaPromptMode('empty')
     setBaseModules({})
     setPersonalityScheme('big-five')
     setEmotionScheme('noop')
@@ -120,8 +163,19 @@ export default function HomePage() {
     setDescription(agent.description ?? '')
     setProvider(agent.provider ?? 'anthropic')
     setModel(agent.model)
-    setSystemPrompt(agent.systemPrompt ?? '')
-    setPersonaPrompt(agent.personaPrompt ?? '')
+    const stored = readStoredRolePrompts(agent)
+    if (stored.systemPrompt) {
+      setSystemPromptMode('explicit')
+      setSystemPrompt(stored.systemPrompt)
+    } else {
+      applyDerivedSystemPrompt(agent.name, agent.description ?? '')
+    }
+    if (stored.personaPrompt) {
+      setPersonaPromptMode('explicit')
+      setPersonaPrompt(stored.personaPrompt)
+    } else {
+      applyInheritedPersonaPrompt(agent.modules)
+    }
     setBaseModules(agent.modules ?? {})
     setPersonalityScheme(personality.scheme)
     setEmotionScheme(emotion.scheme)
@@ -151,8 +205,8 @@ export default function HomePage() {
           description,
           provider,
           model,
-          systemPrompt,
-          personaPrompt,
+          systemPrompt: systemPromptMode === 'explicit' ? systemPrompt : '',
+          personaPrompt: personaPromptMode === 'explicit' ? personaPrompt : '',
           modules,
         }),
       })
@@ -165,8 +219,8 @@ export default function HomePage() {
           description,
           provider,
           model,
-          systemPrompt,
-          personaPrompt,
+          systemPrompt: systemPromptMode === 'explicit' ? systemPrompt : '',
+          personaPrompt: personaPromptMode === 'explicit' ? personaPrompt : '',
           modules,
         }),
       })
@@ -245,7 +299,13 @@ export default function HomePage() {
                 <input
                   className="input"
                   value={name}
-                  onChange={(event) => setName(event.target.value)}
+                  onChange={(event) => {
+                    const nextName = event.target.value
+                    setName(nextName)
+                    if (systemPromptMode === 'derived') {
+                      setSystemPrompt(buildAutoSystemPrompt(nextName, description))
+                    }
+                  }}
                   placeholder="例如 Hazel、Orion、Sage"
                   autoFocus
                 />
@@ -256,7 +316,13 @@ export default function HomePage() {
                 <input
                   className="input"
                   value={description}
-                  onChange={(event) => setDescription(event.target.value)}
+                  onChange={(event) => {
+                    const nextDescription = event.target.value
+                    setDescription(nextDescription)
+                    if (systemPromptMode === 'derived') {
+                      setSystemPrompt(buildAutoSystemPrompt(name, nextDescription))
+                    }
+                  }}
                   placeholder="例如：一位喜欢深夜倾听和看星星的安静陪伴者"
                 />
               </label>
@@ -325,11 +391,27 @@ export default function HomePage() {
                   </p>
                   <label className="field">
                     <span className="field-label">System Prompt</span>
+                    <div className="prompt-meta-row">
+                      <span className="prompt-meta">
+                        当前生效：
+                        {systemPromptMode === 'explicit' ? '已保存 top-level prompt' : '自动生成'}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost prompt-inline-action"
+                        onClick={() => applyDerivedSystemPrompt(name, description)}
+                      >
+                        恢复自动生成
+                      </button>
+                    </div>
                     <textarea
                       className="input"
                       rows={5}
                       value={systemPrompt}
-                      onChange={(event) => setSystemPrompt(event.target.value)}
+                      onChange={(event) => {
+                        setSystemPromptMode('explicit')
+                        setSystemPrompt(event.target.value)
+                      }}
                       placeholder="例如：你是真实存在的人，不要自称 AI，不要用系统口吻描述自己。"
                     />
                   </label>
@@ -347,11 +429,31 @@ export default function HomePage() {
                   </p>
                   <label className="field">
                     <span className="field-label">角色 Prompt</span>
+                    <div className="prompt-meta-row">
+                      <span className="prompt-meta">
+                        当前生效：
+                        {personaPromptMode === 'explicit'
+                          ? '已保存 top-level prompt'
+                          : personaPromptMode === 'legacy'
+                            ? 'legacy personality.prompt'
+                            : '空'}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost prompt-inline-action"
+                        onClick={() => applyInheritedPersonaPrompt(baseModules)}
+                      >
+                        恢复继承来源
+                      </button>
+                    </div>
                     <textarea
                       className="input"
                       rows={5}
                       value={personaPrompt}
-                      onChange={(event) => setPersonaPrompt(event.target.value)}
+                      onChange={(event) => {
+                        setPersonaPromptMode('explicit')
+                        setPersonaPrompt(event.target.value)
+                      }}
                       placeholder="例如：像熟人，克制一点，少解释，不要过度安抚。"
                     />
                   </label>
@@ -764,6 +866,21 @@ export default function HomePage() {
           color: var(--fg-muted);
           font-size: 13px;
           line-height: 1.65;
+        }
+        .prompt-meta-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .prompt-meta {
+          font-size: 12px;
+          color: var(--fg-subtle);
+        }
+        .prompt-inline-action {
+          padding: 6px 10px;
+          font-size: 12px;
         }
         .module-note {
           grid-column: 1 / -1;

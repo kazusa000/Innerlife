@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  buildAutoSystemPrompt,
   buildModules,
   getEmotionFormState,
   getMemoryFormState,
   getPersonalityFormState,
   getRelationshipFormState,
+  readLegacyPersonaPrompt,
 } from './persona-modules'
 
 test('scheme-only form helpers read current schemes from modules', () => {
@@ -107,4 +109,39 @@ test('buildModules removes values and writes noop markers when a scheme is disab
     relationship: { scheme: 'noop' },
     memory: { scheme: 'noop' },
   })
+})
+
+test('buildAutoSystemPrompt derives the current effective system prompt from name and description', () => {
+  assert.equal(
+    buildAutoSystemPrompt('Hazel', 'A calm late-night listener'),
+    'You are Hazel. A calm late-night listener.',
+  )
+  assert.equal(
+    buildAutoSystemPrompt('Hazel', ''),
+    'You are Hazel.',
+  )
+  assert.equal(
+    buildAutoSystemPrompt('', ''),
+    '',
+  )
+})
+
+test('readLegacyPersonaPrompt reads old personality.prompt fallback when present', () => {
+  assert.equal(
+    readLegacyPersonaPrompt({
+      personality: {
+        scheme: 'big-five',
+        prompt: '像熟人，少一点客服感。',
+      },
+    }),
+    '像熟人，少一点客服感。',
+  )
+  assert.equal(
+    readLegacyPersonaPrompt({
+      personality: {
+        scheme: 'big-five',
+      },
+    }),
+    '',
+  )
 })

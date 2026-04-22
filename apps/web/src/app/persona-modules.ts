@@ -72,6 +72,19 @@ export const DEFAULT_RELATIONSHIP_BASELINE: RelationshipBaseline = {
   respect: 0.5,
 }
 
+export function buildAutoSystemPrompt(name: string, description: string | null | undefined) {
+  const trimmedName = name.trim()
+  const trimmedDescription = description?.trim() ?? ''
+  if (!trimmedName && !trimmedDescription) {
+    return ''
+  }
+  if (trimmedDescription) {
+    return `You are ${trimmedName || 'the assistant'}. ${trimmedDescription}.`
+  }
+
+  return `You are ${trimmedName || 'the assistant'}.`
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -86,6 +99,16 @@ function readModule(
   }
 
   return isRecord(value) ? (value as ManagedModuleRecord) : null
+}
+
+export function readLegacyPersonaPrompt(
+  modules: Record<string, unknown> | null | undefined,
+) {
+  const personality = readModule(modules, 'personality')
+  const prompt = personality?.prompt
+  return typeof prompt === 'string' && prompt.trim()
+    ? prompt.trim()
+    : ''
 }
 
 function normalizeScheme<T extends string>(
