@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { getDb } from '../client'
 import { messages, toolExecutions } from '../schema'
 import { randomUUID } from 'node:crypto'
@@ -17,7 +17,12 @@ export function addMessage(data: {
 
 export function getSessionMessages(sessionId: string) {
   const db = getDb()
-  return db.select().from(messages).where(eq(messages.sessionId, sessionId)).all()
+  return db
+    .select()
+    .from(messages)
+    .where(eq(messages.sessionId, sessionId))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
+    .all()
 }
 
 export function addToolExecution(data: {

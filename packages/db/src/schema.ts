@@ -50,6 +50,19 @@ export const messages = sqliteTable('messages', {
     .$defaultFn(() => new Date()),
 })
 
+export const sessionContextState = sqliteTable('session_context_state', {
+  sessionId: text('session_id')
+    .primaryKey()
+    .references(() => sessions.id),
+  activeStartMessageId: text('active_start_message_id'),
+  pendingFlushUntilMessageId: text('pending_flush_until_message_id'),
+  lastUserMessageAt: integer('last_user_message_at', { mode: 'timestamp_ms' }),
+  lastContextFlushAt: integer('last_context_flush_at', { mode: 'timestamp_ms' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+})
+
 export const toolExecutions = sqliteTable('tool_executions', {
   id: text('id').primaryKey(),
   messageId: text('message_id')
@@ -158,6 +171,16 @@ export const daemonState = sqliteTable('daemon_state', {
   lastHeartbeatAt: integer('last_heartbeat_at', { mode: 'timestamp_ms' }).notNull(),
   stoppedAt: integer('stopped_at', { mode: 'timestamp_ms' }),
   lastError: text('last_error'),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+})
+
+export const agentMemorySleepState = sqliteTable('agent_memory_sleep_state', {
+  agentId: text('agent_id')
+    .primaryKey()
+    .references(() => agents.id),
+  lastSleepAt: integer('last_sleep_at', { mode: 'timestamp_ms' }),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),

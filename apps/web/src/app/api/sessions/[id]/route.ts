@@ -1,4 +1,10 @@
-import { sessionRepo, messageRepo, llmCallsRepo } from '@mas/db'
+import {
+  emotionStateRepo,
+  llmCallsRepo,
+  messageRepo,
+  sessionContextStateRepo,
+  sessionRepo,
+} from '@mas/db'
 import { initDb } from '@/lib/db-init'
 
 export async function DELETE(
@@ -7,6 +13,8 @@ export async function DELETE(
 ) {
   initDb()
   const { id } = await params
+  sessionContextStateRepo.deleteSessionContextState(id)
+  emotionStateRepo.deleteEmotionStatesBySession(id)
   llmCallsRepo.deleteCallsBySession(id)
   messageRepo.deleteSessionMessages(id)
   sessionRepo.deleteSession(id)

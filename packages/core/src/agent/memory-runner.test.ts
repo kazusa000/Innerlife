@@ -70,6 +70,32 @@ function bootstrapDb(dbPath: string, memoryDbPath: string) {
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
+    CREATE TABLE messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id),
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      token_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE TABLE tool_executions (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id),
+      tool_name TEXT NOT NULL,
+      input TEXT NOT NULL,
+      output TEXT NOT NULL,
+      is_error INTEGER NOT NULL DEFAULT 0,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE TABLE session_context_state (
+      session_id TEXT PRIMARY KEY REFERENCES sessions(id),
+      active_start_message_id TEXT,
+      pending_flush_until_message_id TEXT,
+      last_user_message_at INTEGER,
+      last_context_flush_at INTEGER,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
   `)
   getRawSqlite().exec(`
     INSERT INTO agents (id, name, model) VALUES ('agent-1', 'Agent One', 'claude-sonnet-4-6');
@@ -219,8 +245,9 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
         return
       }
 
-      assert.match(params.systemPrompt, /以下是本轮回复可直接依赖的相关记忆/)
-      assert.match(params.systemPrompt, /最相关记忆（优先回答）：\[短期记忆\]\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\]/)
+      assert.match(params.systemPrompt, /下面是本轮检索到的短期记忆。/)
+      assert.match(params.systemPrompt, /短期最相关记忆：\[短期记忆\]\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\]/)
+      assert.match(params.systemPrompt, /固化记忆检索结果：未搜索到相关记忆。/)
       yield {
         type: 'message_complete',
         response: {
@@ -258,7 +285,6 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
     assert.deepEqual(observerStarts, [
       { kind: 'memory', model: 'memory-model' },
       { kind: 'turn', model: 'fake-model' },
-      { kind: 'memory', model: 'memory-model' },
     ])
     assert.deepEqual(
       requests.map((request) => ({
@@ -307,15 +333,6 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
           reasoning: { effort: 'none' },
           responseFormat: undefined,
         },
-        {
-          kind: 'summarize',
-          model: 'memory-model',
-          reasoning: { effort: 'none' },
-          responseFormat: {
-            type: 'json_schema',
-            jsonSchema: { name: 'memory_write' },
-          },
-        },
       ],
     )
     assert.deepEqual(observerEnds[0]?.metadata, {
@@ -338,6 +355,20 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
       focus: '猫的名字',
       timeRange: null,
       hitCount: 1,
+      shortTermHitCount: 1,
+      fixedHitCount: 0,
+      shortTermMemoryIds: [existingMemory.id],
+      fixedMemoryIds: [],
+      shortTermHits: [
+        {
+          id: existingMemory.id,
+          summary: '用户养了一只叫橘子的猫',
+          layer: 'short_term',
+          tags: ['猫', '橘子', '宠物'],
+          importance: 0.9,
+        },
+      ],
+      fixedHits: [],
       memoryIds: [existingMemory.id],
       hits: [
         {
@@ -355,18 +386,7 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
     )
 
     const rows = memoryRepo.listMemoriesByAgent('agent-1')
-    assert.equal(rows.length, 2)
-    assert.deepEqual(observerEnds[2]?.metadata, {
-      phase: 'summarize',
-      written: {
-        id: rows[0]!.id,
-        summary: '用户养了一只叫橘子的猫',
-        layer: 'short_term',
-        retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
-        tags: ['猫', '橘子', '宠物'],
-        importance: 0.9,
-      },
-    })
+    assert.equal(rows.length, 1)
     assert.equal(rows[0]!.displaySummary, '用户养了一只叫橘子的猫')
     assert.equal(rows[0]!.retrievalText, '用户曾告诉我，他养了一只名叫橘子的猫')
     assert.deepEqual(rows[0]!.retrievalEmbedding, [1, 0])
@@ -542,6 +562,9 @@ test('runAgent supports pure time-range recall without a retrieval query', async
 })
 
 test('runAgent emits system_error and skips memory retrieval when memory query call throws', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
   const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
   const observer: RunAgentObserver = {
     onLLMCallStart() {
@@ -552,7 +575,10 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
     },
   }
 
-  const provider = new FakeProvider(async function* (params) {
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const provider = new FakeProvider(async function* (params) {
     if (isMemoryTimePrompt(params.systemPrompt)) {
       throw new Error('memory query failed')
     }
@@ -591,7 +617,11 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
       return
     }
 
-    assert.match(params.systemPrompt, /^test\n\n当前本地时间：.+$/)
+    assert.match(params.systemPrompt, /^test\n\n当前本地时间：/)
+    assert.match(params.systemPrompt, /短期记忆检索结果：未搜索到相关记忆。/)
+    assert.match(params.systemPrompt, /固化记忆检索结果：未搜索到相关记忆。/)
+    assert.match(params.systemPrompt, /短期记忆检索结果：未搜索到相关记忆。/)
+    assert.match(params.systemPrompt, /固化记忆检索结果：未搜索到相关记忆。/)
     yield {
       type: 'message_complete',
       response: {
@@ -602,49 +632,57 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
     }
   })
 
-  const events = []
-  for await (const event of runAgent(
-    createConfig(),
-    [createTextMessage('user', '我猫叫什么')],
-    provider,
-    createSystems({
-      memory: {
-        scheme: 'sqlite',
-        summarizeModel: 'memory-model',
-        embeddingModel: 'qwen/qwen3-embedding-0.6b',
-        retrieveTopK: 5,
-        embedder: createEmbedder({}),
-      },
-    }),
-    observer,
-  )) {
-    events.push(
-      event.type === 'system_error'
-        ? { type: 'system_error', system: event.system, phase: event.phase, error: event.error.message }
-        : event,
-    )
-  }
+    const events = []
+    for await (const event of runAgent(
+      createConfig(),
+      [createTextMessage('user', '我猫叫什么')],
+      provider,
+      createSystems({
+        memory: {
+          scheme: 'sqlite',
+          summarizeModel: 'memory-model',
+          embeddingModel: 'qwen/qwen3-embedding-0.6b',
+          retrieveTopK: 5,
+          embedder: createEmbedder({}),
+        },
+      }),
+      observer,
+    )) {
+      events.push(
+        event.type === 'system_error'
+          ? { type: 'system_error', system: event.system, phase: event.phase, error: event.error.message }
+          : event,
+      )
+    }
 
-  assert.deepEqual(events[0], {
-    type: 'system_error',
-    system: 'memory:sqlite',
-    phase: 'beforeTurn',
-    error: 'memory query failed',
-  })
-  assert.equal(events.at(-1)?.type, 'complete')
-  assert.deepEqual(observerEnds[0]?.metadata, {
-    phase: 'retrieve',
-    timeAnalyzer: { timeRange: null, error: 'memory query failed' },
-    semanticAnalyzer: { retrievalQuery: null, focus: null, error: null },
-    mergedQuery: { retrievalQuery: null, focus: null, timeRange: null },
-    retrievalQuery: null,
-    focus: null,
-    timeRange: null,
-  })
-  assert.equal(observerEnds[0]?.error, 'memory query failed')
+    assert.deepEqual(events[0], {
+      type: 'system_error',
+      system: 'memory:sqlite',
+      phase: 'beforeTurn',
+      error: 'memory query failed',
+    })
+    assert.equal(events.at(-1)?.type, 'complete')
+    assert.deepEqual(observerEnds[0]?.metadata, {
+      phase: 'retrieve',
+      timeAnalyzer: { timeRange: null, error: 'memory query failed' },
+      semanticAnalyzer: { retrievalQuery: null, focus: null, error: null },
+      mergedQuery: { retrievalQuery: null, focus: null, timeRange: null },
+      retrievalQuery: null,
+      focus: null,
+      timeRange: null,
+    })
+    assert.equal(observerEnds[0]?.error, 'memory query failed')
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('runAgent emits system_error and continues when memory retrieval throws', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
   const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
   const observer: RunAgentObserver = {
     onLLMCallStart() {
@@ -695,7 +733,10 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
       },
     },
   ]
-  const provider = new FakeProvider(async function* (params) {
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const provider = new FakeProvider(async function* (params) {
     if (params.systemPrompt === 'time analyzer prompt') {
       yield {
         type: 'message_complete',
@@ -720,7 +761,7 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
       return
     }
 
-    assert.match(params.systemPrompt, /^test\n\n当前本地时间：.+$/)
+    assert.match(params.systemPrompt, /^test\n\n当前本地时间：/)
     yield {
       type: 'message_complete',
       response: {
@@ -731,44 +772,58 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
     }
   })
 
-  const events = []
-  for await (const event of runAgent(
-    createConfig(),
-    [createTextMessage('user', 'what did I say about my cat?')],
-    provider,
-    systems,
-    observer,
-  )) {
-    events.push(
-      event.type === 'system_error'
-        ? { type: 'system_error', system: event.system, phase: event.phase, error: event.error.message }
-        : event,
-    )
-  }
+    const events = []
+    for await (const event of runAgent(
+      createConfig(),
+      [createTextMessage('user', 'what did I say about my cat?')],
+      provider,
+      systems,
+      observer,
+    )) {
+      events.push(
+        event.type === 'system_error'
+          ? { type: 'system_error', system: event.system, phase: event.phase, error: event.error.message }
+          : event,
+      )
+    }
 
-  assert.deepEqual(events[0], {
-    type: 'system_error',
-    system: 'memory:sqlite',
-    phase: 'beforeTurn',
-    error: 'memory retrieve failed',
-  })
-  assert.equal(events.at(-1)?.type, 'complete')
-  assert.deepEqual(observerEnds[0]?.metadata, {
-    phase: 'retrieve',
-    timeAnalyzer: { timeRange: null, error: null },
-    semanticAnalyzer: { retrievalQuery: '用户关于猫说过的话', focus: '猫', error: null },
-    mergedQuery: { retrievalQuery: '用户关于猫说过的话', focus: '猫', timeRange: null },
-    retrievalQuery: '用户关于猫说过的话',
-    focus: '猫',
-    timeRange: null,
-    hitCount: 0,
-    memoryIds: [],
-    hits: [],
-  })
-  assert.equal(observerEnds[0]?.error, 'memory retrieve failed')
+    assert.deepEqual(events[0], {
+      type: 'system_error',
+      system: 'memory:sqlite',
+      phase: 'beforeTurn',
+      error: 'memory retrieve failed',
+    })
+    assert.equal(events.at(-1)?.type, 'complete')
+    assert.deepEqual(observerEnds[0]?.metadata, {
+      phase: 'retrieve',
+      timeAnalyzer: { timeRange: null, error: null },
+      semanticAnalyzer: { retrievalQuery: '用户关于猫说过的话', focus: '猫', error: null },
+      mergedQuery: { retrievalQuery: '用户关于猫说过的话', focus: '猫', timeRange: null },
+      retrievalQuery: '用户关于猫说过的话',
+      focus: '猫',
+      timeRange: null,
+      hitCount: 0,
+      shortTermHitCount: 0,
+      fixedHitCount: 0,
+      shortTermMemoryIds: [],
+      fixedMemoryIds: [],
+      shortTermHits: [],
+      fixedHits: [],
+      memoryIds: [],
+      hits: [],
+    })
+    assert.equal(observerEnds[0]?.error, 'memory retrieve failed')
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('runAgent emits system_error without fallback retrieval when memory query returns invalid JSON or empty retrieval_query', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
   const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
   const observer: RunAgentObserver = {
     onLLMCallStart() {
@@ -780,7 +835,10 @@ test('runAgent emits system_error without fallback retrieval when memory query r
   }
 
   let queryCalls = 0
-  const provider = new FakeProvider(async function* (params) {
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const provider = new FakeProvider(async function* (params) {
     if (isMemoryTimePrompt(params.systemPrompt)) {
       queryCalls += 1
       yield {
@@ -840,7 +898,9 @@ test('runAgent emits system_error without fallback retrieval when memory query r
       return
     }
 
-    assert.match(params.systemPrompt, /^test\n\n当前本地时间：.+$/)
+    assert.match(params.systemPrompt, /^test\n\n当前本地时间：/)
+    assert.match(params.systemPrompt, /短期记忆检索结果：未搜索到相关记忆。/)
+    assert.match(params.systemPrompt, /固化记忆检索结果：未搜索到相关记忆。/)
     yield {
       type: 'message_complete',
       response: {
@@ -851,62 +911,67 @@ test('runAgent emits system_error without fallback retrieval when memory query r
     }
   })
 
-  for (const input of ['我猫叫什么', '我猫叫什么']) {
-    const events = []
-    for await (const event of runAgent(
-      createConfig(),
-      [createTextMessage('user', input)],
-      provider,
-      createSystems({
-        memory: {
-          scheme: 'sqlite',
-          summarizeModel: 'memory-model',
-          embeddingModel: 'qwen/qwen3-embedding-0.6b',
-          retrieveTopK: 5,
-          embedder: createEmbedder({}),
-        },
-      }),
-      observer,
-    )) {
-      events.push(
-        event.type === 'system_error'
-          ? { type: 'system_error', system: event.system, phase: event.phase, error: event.error.message }
-          : event,
-      )
+    for (const input of ['我猫叫什么', '我猫叫什么']) {
+      const events = []
+      for await (const event of runAgent(
+        createConfig(),
+        [createTextMessage('user', input)],
+        provider,
+        createSystems({
+          memory: {
+            scheme: 'sqlite',
+            summarizeModel: 'memory-model',
+            embeddingModel: 'qwen/qwen3-embedding-0.6b',
+            retrieveTopK: 5,
+            embedder: createEmbedder({}),
+          },
+        }),
+        observer,
+      )) {
+        events.push(
+          event.type === 'system_error'
+            ? { type: 'system_error', system: event.system, phase: event.phase, error: event.error.message }
+            : event,
+        )
+      }
+
+      assert.equal(events.at(-1)?.type, 'complete')
+      assert.deepEqual(events[0], {
+        type: 'system_error',
+        system: 'memory:sqlite',
+        phase: 'beforeTurn',
+        error: queryCalls === 1
+          ? 'Memory time analyzer returned invalid JSON'
+          : 'Memory query analyzers returned neither retrieval_query nor time_range',
+      })
     }
 
-    assert.equal(events.at(-1)?.type, 'complete')
-    assert.deepEqual(events[0], {
-      type: 'system_error',
-      system: 'memory:sqlite',
-      phase: 'beforeTurn',
-      error: queryCalls === 1
-        ? 'Memory time analyzer returned invalid JSON'
-        : 'Memory query analyzers returned neither retrieval_query nor time_range',
+    assert.deepEqual(observerEnds[0]?.metadata, {
+      phase: 'retrieve',
+      timeAnalyzer: { timeRange: null, error: 'Memory time analyzer returned invalid JSON' },
+      semanticAnalyzer: { retrievalQuery: null, focus: null, error: null },
+      mergedQuery: { retrievalQuery: null, focus: null, timeRange: null },
+      retrievalQuery: null,
+      focus: null,
+      timeRange: null,
     })
+    assert.equal((observerEnds[2]?.metadata as { phase?: string })?.phase, 'retrieve')
+    assert.deepEqual((observerEnds[2]?.metadata as { timeAnalyzer?: unknown })?.timeAnalyzer, {
+      timeRange: null,
+      error: null,
+    })
+    assert.deepEqual((observerEnds[2]?.metadata as { semanticAnalyzer?: unknown })?.semanticAnalyzer, {
+      retrievalQuery: null,
+      focus: null,
+      error: null,
+    })
+    assert.equal((observerEnds[2]?.metadata as { retrievalQuery?: string | null })?.retrievalQuery ?? null, null)
+    assert.equal((observerEnds[2]?.metadata as { hitCount?: number })?.hitCount, undefined)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
   }
-
-  assert.deepEqual(observerEnds[0]?.metadata, {
-    phase: 'retrieve',
-    timeAnalyzer: { timeRange: null, error: 'Memory time analyzer returned invalid JSON' },
-    semanticAnalyzer: { retrievalQuery: null, focus: null, error: null },
-    mergedQuery: { retrievalQuery: null, focus: null, timeRange: null },
-    retrievalQuery: null,
-    focus: null,
-    timeRange: null,
-  })
-  assert.equal((observerEnds[3]?.metadata as { phase?: string })?.phase, 'retrieve')
-  assert.deepEqual((observerEnds[3]?.metadata as { timeAnalyzer?: unknown })?.timeAnalyzer, {
-    timeRange: null,
-    error: null,
-  })
-  assert.deepEqual((observerEnds[3]?.metadata as { semanticAnalyzer?: unknown })?.semanticAnalyzer, {
-    retrievalQuery: null,
-    focus: null,
-    error: null,
-  })
-  assert.equal((observerEnds[3]?.metadata as { retrievalQuery?: string | null })?.retrievalQuery ?? null, null)
-  assert.equal((observerEnds[3]?.metadata as { hitCount?: number })?.hitCount, undefined)
 })
 
 test('runAgent executes post-turn emotion, relationship, and memory LLM calls in parallel', async () => {
@@ -985,7 +1050,7 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
   const provider: LLMProvider = {
     name: 'parallel-fake',
     async *streamMessage(params) {
-      assert.match(params.systemPrompt, /^test\n\n当前本地时间：.+$/)
+      assert.match(params.systemPrompt, /^test\n\n当前本地时间：/)
       yield {
         type: 'message_complete',
         response: {

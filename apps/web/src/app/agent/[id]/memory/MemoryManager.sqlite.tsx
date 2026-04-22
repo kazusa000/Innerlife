@@ -31,10 +31,20 @@ interface SqliteMemory {
 interface MemorySettings {
   summarizeModel: string
   embeddingModel: string
+  contextWindowMessages: number
+  contextOverflowBatchSize: number
+  contextIdleFlushMinutes: number
+  maxShortTermMemoriesPerFlush: number
+  sleepEnabled: boolean
+  sleepTimeLocal: string
+  sleepIntervalDays: number
   timeAnalyzerPrompt: string
   semanticAnalyzerPrompt: string
   summarizePrompt: string
-  fragmentPrompt: string
+  contextToShortTermPrompt: string
+  shortTermToLongTermPrompt: string
+  shortTermFragmentPrompt: string
+  fixedFragmentPrompt: string
   consolidatePrompt: string
 }
 
@@ -46,6 +56,32 @@ interface ConsolidationReport {
   merged: number
 }
 
+interface MemoryActionResponse {
+  result?: {
+    ok?: boolean
+    reason?: string
+    createdCount?: number
+    memoryIds?: string[]
+    nextActiveStartMessageId?: string | null
+    flushedMessageCount?: number
+    deletedShortTermCount?: number
+  }
+}
+
+interface ContextSummary {
+  activeSessionId: string | null
+  activeStartMessageId: string | null
+  pendingFlushUntilMessageId: string | null
+  activeMessageCount: number
+  totalSessionMessages: number
+  lastUserMessageAt: string | null
+  lastContextFlushAt: string | null
+}
+
+interface SleepSummary {
+  lastSleepAt: string | null
+}
+
 interface MemoryListResponse {
   memories: SqliteMemory[]
   layer: 'short_term' | 'long_term' | 'fixed' | null
@@ -54,21 +90,39 @@ interface MemoryListResponse {
   total: number
   summarizeModel: string | null
   embeddingModel: string | null
+  contextWindowMessages: number
+  contextOverflowBatchSize: number
+  contextIdleFlushMinutes: number
+  maxShortTermMemoriesPerFlush: number
+  sleepEnabled: boolean
+  sleepTimeLocal: string | null
+  sleepIntervalDays: number
   timeAnalyzerPrompt: string | null
   semanticAnalyzerPrompt: string | null
   summarizePrompt: string | null
-  fragmentPrompt: string | null
+  contextToShortTermPrompt: string | null
+  shortTermToLongTermPrompt: string | null
+  shortTermFragmentPrompt: string | null
+  fixedFragmentPrompt: string | null
   consolidatePrompt: string | null
+  contextToShortTermPromptDefault: string
+  contextToShortTermPromptEffective: string
+  shortTermToLongTermPromptDefault: string
+  shortTermToLongTermPromptEffective: string
+  shortTermFragmentPromptDefault: string
+  shortTermFragmentPromptEffective: string
+  fixedFragmentPromptDefault: string
+  fixedFragmentPromptEffective: string
   timeAnalyzerPromptDefault: string
   timeAnalyzerPromptEffective: string
   semanticAnalyzerPromptDefault: string
   semanticAnalyzerPromptEffective: string
   summarizePromptDefault: string
   summarizePromptEffective: string
-  fragmentPromptDefault: string
-  fragmentPromptEffective: string
   consolidatePromptDefault: string
   consolidatePromptEffective: string
+  context: ContextSummary
+  sleep: SleepSummary
 }
 
 const MEMORY_LAYER_LABELS: Record<SqliteMemory['layer'], string> = {
@@ -104,42 +158,80 @@ function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySet
   return {
     summarizeModel: typeof data.summarizeModel === 'string' ? data.summarizeModel : '',
     embeddingModel: typeof data.embeddingModel === 'string' ? data.embeddingModel : '',
+    contextWindowMessages: typeof data.contextWindowMessages === 'number' ? data.contextWindowMessages : 50,
+    contextOverflowBatchSize: typeof data.contextOverflowBatchSize === 'number' ? data.contextOverflowBatchSize : 25,
+    contextIdleFlushMinutes: typeof data.contextIdleFlushMinutes === 'number' ? data.contextIdleFlushMinutes : 30,
+    maxShortTermMemoriesPerFlush: typeof data.maxShortTermMemoriesPerFlush === 'number' ? data.maxShortTermMemoriesPerFlush : 3,
+    sleepEnabled: typeof data.sleepEnabled === 'boolean' ? data.sleepEnabled : true,
+    sleepTimeLocal: typeof data.sleepTimeLocal === 'string' ? data.sleepTimeLocal : '03:00',
+    sleepIntervalDays: typeof data.sleepIntervalDays === 'number' ? data.sleepIntervalDays : 1,
     timeAnalyzerPrompt: typeof data.timeAnalyzerPrompt === 'string' ? data.timeAnalyzerPrompt : '',
     semanticAnalyzerPrompt: typeof data.semanticAnalyzerPrompt === 'string' ? data.semanticAnalyzerPrompt : '',
     summarizePrompt: typeof data.summarizePrompt === 'string' ? data.summarizePrompt : '',
-    fragmentPrompt: typeof data.fragmentPrompt === 'string' ? data.fragmentPrompt : '',
+    contextToShortTermPrompt: typeof data.contextToShortTermPrompt === 'string' ? data.contextToShortTermPrompt : '',
+    shortTermToLongTermPrompt: typeof data.shortTermToLongTermPrompt === 'string' ? data.shortTermToLongTermPrompt : '',
+    shortTermFragmentPrompt: typeof data.shortTermFragmentPrompt === 'string' ? data.shortTermFragmentPrompt : '',
+    fixedFragmentPrompt: typeof data.fixedFragmentPrompt === 'string' ? data.fixedFragmentPrompt : '',
     consolidatePrompt: typeof data.consolidatePrompt === 'string' ? data.consolidatePrompt : '',
   }
 }
 
 function normalizePromptDefaults(data: Partial<MemoryListResponse>): Pick<
   MemorySettings,
-  'timeAnalyzerPrompt' | 'semanticAnalyzerPrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
+  'timeAnalyzerPrompt'
+  | 'semanticAnalyzerPrompt'
+  | 'summarizePrompt'
+  | 'contextToShortTermPrompt'
+  | 'shortTermToLongTermPrompt'
+  | 'shortTermFragmentPrompt'
+  | 'fixedFragmentPrompt'
+  | 'consolidatePrompt'
 > {
   return {
     timeAnalyzerPrompt: typeof data.timeAnalyzerPromptDefault === 'string' ? data.timeAnalyzerPromptDefault : '',
     semanticAnalyzerPrompt: typeof data.semanticAnalyzerPromptDefault === 'string' ? data.semanticAnalyzerPromptDefault : '',
     summarizePrompt: typeof data.summarizePromptDefault === 'string' ? data.summarizePromptDefault : '',
-    fragmentPrompt: typeof data.fragmentPromptDefault === 'string' ? data.fragmentPromptDefault : '',
+    contextToShortTermPrompt: typeof data.contextToShortTermPromptDefault === 'string' ? data.contextToShortTermPromptDefault : '',
+    shortTermToLongTermPrompt: typeof data.shortTermToLongTermPromptDefault === 'string' ? data.shortTermToLongTermPromptDefault : '',
+    shortTermFragmentPrompt: typeof data.shortTermFragmentPromptDefault === 'string' ? data.shortTermFragmentPromptDefault : '',
+    fixedFragmentPrompt: typeof data.fixedFragmentPromptDefault === 'string' ? data.fixedFragmentPromptDefault : '',
     consolidatePrompt: typeof data.consolidatePromptDefault === 'string' ? data.consolidatePromptDefault : '',
   }
 }
 
 function normalizeEffectivePrompts(data: Partial<MemoryListResponse>): Pick<
   MemorySettings,
-  'timeAnalyzerPrompt' | 'semanticAnalyzerPrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
+  'timeAnalyzerPrompt'
+  | 'semanticAnalyzerPrompt'
+  | 'summarizePrompt'
+  | 'contextToShortTermPrompt'
+  | 'shortTermToLongTermPrompt'
+  | 'shortTermFragmentPrompt'
+  | 'fixedFragmentPrompt'
+  | 'consolidatePrompt'
 > {
   return {
     timeAnalyzerPrompt: typeof data.timeAnalyzerPromptEffective === 'string' ? data.timeAnalyzerPromptEffective : '',
     semanticAnalyzerPrompt: typeof data.semanticAnalyzerPromptEffective === 'string' ? data.semanticAnalyzerPromptEffective : '',
     summarizePrompt: typeof data.summarizePromptEffective === 'string' ? data.summarizePromptEffective : '',
-    fragmentPrompt: typeof data.fragmentPromptEffective === 'string' ? data.fragmentPromptEffective : '',
+    contextToShortTermPrompt: typeof data.contextToShortTermPromptEffective === 'string' ? data.contextToShortTermPromptEffective : '',
+    shortTermToLongTermPrompt: typeof data.shortTermToLongTermPromptEffective === 'string' ? data.shortTermToLongTermPromptEffective : '',
+    shortTermFragmentPrompt: typeof data.shortTermFragmentPromptEffective === 'string' ? data.shortTermFragmentPromptEffective : '',
+    fixedFragmentPrompt: typeof data.fixedFragmentPromptEffective === 'string' ? data.fixedFragmentPromptEffective : '',
     consolidatePrompt: typeof data.consolidatePromptEffective === 'string' ? data.consolidatePromptEffective : '',
   }
 }
 
 function areSettingsEqual(left: MemorySettings, right: MemorySettings) {
   return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function formatOptionalDate(value: string | null | undefined) {
+  if (!value) {
+    return '无'
+  }
+
+  return DATE_FORMATTER.format(new Date(value))
 }
 
 export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
@@ -153,12 +245,23 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [savedOverrides, setSavedOverrides] = useState<MemorySettings>(() => normalizeSettings({}))
   const [defaultPrompts, setDefaultPrompts] = useState<Pick<
     MemorySettings,
-    'timeAnalyzerPrompt' | 'semanticAnalyzerPrompt' | 'summarizePrompt' | 'fragmentPrompt' | 'consolidatePrompt'
+    | 'timeAnalyzerPrompt'
+    | 'semanticAnalyzerPrompt'
+    | 'summarizePrompt'
+    | 'contextToShortTermPrompt'
+    | 'shortTermToLongTermPrompt'
+    | 'shortTermFragmentPrompt'
+    | 'fixedFragmentPrompt'
+    | 'consolidatePrompt'
   >>(() => normalizePromptDefaults({}))
   const [draftSettings, setDraftSettings] = useState<MemorySettings>(() => normalizeSettings({}))
+  const [contextSummary, setContextSummary] = useState<ContextSummary | null>(null)
+  const [sleepSummary, setSleepSummary] = useState<SleepSummary | null>(null)
   const settingsDirtyRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [isConsolidating, setIsConsolidating] = useState(false)
+  const [isFlushingContext, setIsFlushingContext] = useState(false)
+  const [isSleeping, setIsSleeping] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -209,6 +312,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       setSavedSettings(settings)
       setSavedOverrides(rawSettings)
       setDefaultPrompts(normalizePromptDefaults(payload))
+      setContextSummary(payload.context)
+      setSleepSummary(payload.sleep)
       if (!settingsDirtyRef.current) {
         setDraftSettings(settings)
       }
@@ -307,6 +412,72 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     }
   }
 
+  async function handleFlushContext() {
+    setError(null)
+    setNotice('正在把旧上下文整理成短期记忆…')
+    setIsFlushingContext(true)
+
+    try {
+      const response = await fetch(`/api/agents/${agentId}/memory/context`, {
+        method: 'POST',
+      })
+      const data = await response.json() as MemoryActionResponse & { error?: string; sessionId?: string }
+      if (!response.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : '整理旧上下文失败')
+      }
+
+      const result = data.result
+      if (!result?.ok) {
+        setNotice(`旧上下文暂时没有可整理的内容：${result?.reason ?? 'nothing_to_flush'}。`)
+      } else {
+        setNotice(
+          `已从活跃上下文整理出 ${result.createdCount ?? 0} 条短期记忆，移出 ${result.flushedMessageCount ?? 0} 条消息。`,
+        )
+      }
+      startTransition(() => {
+        void refresh()
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '整理旧上下文失败')
+      setNotice(null)
+    } finally {
+      setIsFlushingContext(false)
+    }
+  }
+
+  async function handleSleep() {
+    setError(null)
+    setNotice('正在执行睡眠沉淀，把短期记忆整理进长期记忆…')
+    setIsSleeping(true)
+
+    try {
+      const response = await fetch(`/api/agents/${agentId}/memory/sleep`, {
+        method: 'POST',
+      })
+      const data = await response.json() as MemoryActionResponse & { error?: string }
+      if (!response.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : '执行睡眠沉淀失败')
+      }
+
+      const result = data.result
+      if (!result?.ok) {
+        setNotice(`当前无需执行睡眠沉淀：${result?.reason ?? 'not_sleep_time'}。`)
+      } else {
+        setNotice(
+          `睡眠完成：沉淀出 ${result.createdCount ?? 0} 条长期记忆，消费 ${result.deletedShortTermCount ?? 0} 条短期记忆。`,
+        )
+      }
+      startTransition(() => {
+        void refresh()
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '执行睡眠沉淀失败')
+      setNotice(null)
+    } finally {
+      setIsSleeping(false)
+    }
+  }
+
   async function handleSaveSettings() {
     setError(null)
     setNotice(null)
@@ -318,6 +489,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         body: JSON.stringify({
           summarizeModel: draftSettings.summarizeModel,
           embeddingModel: draftSettings.embeddingModel,
+          contextWindowMessages: draftSettings.contextWindowMessages,
+          contextOverflowBatchSize: draftSettings.contextOverflowBatchSize,
+          contextIdleFlushMinutes: draftSettings.contextIdleFlushMinutes,
+          maxShortTermMemoriesPerFlush: draftSettings.maxShortTermMemoriesPerFlush,
+          sleepEnabled: draftSettings.sleepEnabled,
+          sleepTimeLocal: draftSettings.sleepTimeLocal,
+          sleepIntervalDays: draftSettings.sleepIntervalDays,
           timeAnalyzerPrompt: draftSettings.timeAnalyzerPrompt.trim() === defaultPrompts.timeAnalyzerPrompt.trim()
             ? null
             : draftSettings.timeAnalyzerPrompt,
@@ -327,9 +505,18 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           summarizePrompt: draftSettings.summarizePrompt.trim() === defaultPrompts.summarizePrompt.trim()
             ? null
             : draftSettings.summarizePrompt,
-          fragmentPrompt: draftSettings.fragmentPrompt.trim() === defaultPrompts.fragmentPrompt.trim()
+          contextToShortTermPrompt: draftSettings.contextToShortTermPrompt.trim() === defaultPrompts.contextToShortTermPrompt.trim()
             ? null
-            : draftSettings.fragmentPrompt,
+            : draftSettings.contextToShortTermPrompt,
+          shortTermToLongTermPrompt: draftSettings.shortTermToLongTermPrompt.trim() === defaultPrompts.shortTermToLongTermPrompt.trim()
+            ? null
+            : draftSettings.shortTermToLongTermPrompt,
+          shortTermFragmentPrompt: draftSettings.shortTermFragmentPrompt.trim() === defaultPrompts.shortTermFragmentPrompt.trim()
+            ? null
+            : draftSettings.shortTermFragmentPrompt,
+          fixedFragmentPrompt: draftSettings.fixedFragmentPrompt.trim() === defaultPrompts.fixedFragmentPrompt.trim()
+            ? null
+            : draftSettings.fixedFragmentPrompt,
           consolidatePrompt: draftSettings.consolidatePrompt.trim() === defaultPrompts.consolidatePrompt.trim()
             ? null
             : draftSettings.consolidatePrompt,
@@ -343,8 +530,14 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         semanticAnalyzerPromptEffective?: string
         summarizePromptDefault?: string
         summarizePromptEffective?: string
-        fragmentPromptDefault?: string
-        fragmentPromptEffective?: string
+        contextToShortTermPromptDefault?: string
+        contextToShortTermPromptEffective?: string
+        shortTermToLongTermPromptDefault?: string
+        shortTermToLongTermPromptEffective?: string
+        shortTermFragmentPromptDefault?: string
+        shortTermFragmentPromptEffective?: string
+        fixedFragmentPromptDefault?: string
+        fixedFragmentPromptEffective?: string
         consolidatePromptDefault?: string
         consolidatePromptEffective?: string
       }
@@ -362,13 +555,16 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         timeAnalyzerPrompt: typeof data.timeAnalyzerPromptDefault === 'string' ? data.timeAnalyzerPromptDefault : current.timeAnalyzerPrompt,
         semanticAnalyzerPrompt: typeof data.semanticAnalyzerPromptDefault === 'string' ? data.semanticAnalyzerPromptDefault : current.semanticAnalyzerPrompt,
         summarizePrompt: typeof data.summarizePromptDefault === 'string' ? data.summarizePromptDefault : current.summarizePrompt,
-        fragmentPrompt: typeof data.fragmentPromptDefault === 'string' ? data.fragmentPromptDefault : current.fragmentPrompt,
+        contextToShortTermPrompt: typeof data.contextToShortTermPromptDefault === 'string' ? data.contextToShortTermPromptDefault : current.contextToShortTermPrompt,
+        shortTermToLongTermPrompt: typeof data.shortTermToLongTermPromptDefault === 'string' ? data.shortTermToLongTermPromptDefault : current.shortTermToLongTermPrompt,
+        shortTermFragmentPrompt: typeof data.shortTermFragmentPromptDefault === 'string' ? data.shortTermFragmentPromptDefault : current.shortTermFragmentPrompt,
+        fixedFragmentPrompt: typeof data.fixedFragmentPromptDefault === 'string' ? data.fixedFragmentPromptDefault : current.fixedFragmentPrompt,
         consolidatePrompt: typeof data.consolidatePromptDefault === 'string' ? data.consolidatePromptDefault : current.consolidatePrompt,
       }))
       setSavedSettings(normalizedEffective)
       setDraftSettings(normalizedEffective)
       settingsDirtyRef.current = false
-      setNotice('记忆模型和全部 prompt 已保存。')
+      setNotice('记忆管线参数、模型和全部 prompt 已保存。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存记忆配置失败')
     }
@@ -407,7 +603,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             type="button"
             className={styles.primaryButton}
             onClick={() => void handleSaveSettings()}
-            disabled={!settingsDirty || isConsolidating}
+            disabled={!settingsDirty || isConsolidating || isFlushingContext || isSleeping}
           >
             保存配置
           </button>
@@ -421,10 +617,166 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         <section className={styles.panel}>
           <div className={styles.panelHead}>
             <div>
+              <p className={styles.panelLabel}>上下文控制</p>
+              <h4 className={styles.panelTitle}>Context 控制区</h4>
+            </div>
+            <span className={styles.panelPill}>缓存 · 卸载 · 短期整理</span>
+          </div>
+          <p className={styles.panelCopy}>
+            `context` 只存在于当前模型上下文里，不参与检索。这里控制活跃上下文窗口、空闲多久后整理为短期记忆，以及单次最多生成几条短期记忆。
+          </p>
+          <div className={styles.fieldGrid}>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Context Window</span>
+              <input
+                className={styles.input}
+                type="number"
+                min={1}
+                value={draftSettings.contextWindowMessages}
+                onChange={(event) => updateSetting('contextWindowMessages', Math.max(1, Number(event.target.value) || 1))}
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Overflow Batch Size</span>
+              <input
+                className={styles.input}
+                type="number"
+                min={1}
+                value={draftSettings.contextOverflowBatchSize}
+                onChange={(event) => updateSetting('contextOverflowBatchSize', Math.max(1, Number(event.target.value) || 1))}
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Idle Flush Minutes</span>
+              <input
+                className={styles.input}
+                type="number"
+                min={1}
+                value={draftSettings.contextIdleFlushMinutes}
+                onChange={(event) => updateSetting('contextIdleFlushMinutes', Math.max(1, Number(event.target.value) || 1))}
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Max STM Per Flush</span>
+              <input
+                className={styles.input}
+                type="number"
+                min={1}
+                value={draftSettings.maxShortTermMemoriesPerFlush}
+                onChange={(event) => updateSetting('maxShortTermMemoriesPerFlush', Math.max(1, Number(event.target.value) || 1))}
+              />
+            </label>
+          </div>
+          <dl className={styles.metricList}>
+            <div>
+              <dt>活跃会话</dt>
+              <dd className={styles.mono}>{contextSummary?.activeSessionId ?? '无'}</dd>
+            </div>
+            <div>
+              <dt>活跃上下文消息数</dt>
+              <dd>{contextSummary?.activeMessageCount ?? 0}</dd>
+            </div>
+            <div>
+              <dt>会话消息总数</dt>
+              <dd>{contextSummary?.totalSessionMessages ?? 0}</dd>
+            </div>
+            <div>
+              <dt>活跃起点消息</dt>
+              <dd className={styles.mono}>{contextSummary?.activeStartMessageId ?? '无'}</dd>
+            </div>
+            <div>
+              <dt>待整理终点消息</dt>
+              <dd className={styles.mono}>{contextSummary?.pendingFlushUntilMessageId ?? '无'}</dd>
+            </div>
+            <div>
+              <dt>最近一次用户消息</dt>
+              <dd>{formatOptionalDate(contextSummary?.lastUserMessageAt)}</dd>
+            </div>
+            <div>
+              <dt>最近一次上下文整理</dt>
+              <dd>{formatOptionalDate(contextSummary?.lastContextFlushAt)}</dd>
+            </div>
+          </dl>
+          <div className={styles.heroActions}>
+            <button
+              type="button"
+              className={styles.secondaryButton}
+              onClick={() => void handleFlushContext()}
+              disabled={isFlushingContext || isSleeping || isConsolidating || loading}
+            >
+              {isFlushingContext ? '正在整理旧上下文…' : '立即整理当前旧上下文'}
+            </button>
+          </div>
+        </section>
+
+        <section className={styles.panel}>
+          <div className={styles.panelHead}>
+            <div>
+              <p className={styles.panelLabel}>睡眠区</p>
+              <h4 className={styles.panelTitle}>Sleep 区</h4>
+            </div>
+            <span className={styles.panelPill}>短期沉淀 · 长期记忆</span>
+          </div>
+          <p className={styles.panelCopy}>
+            固定每天一次“睡觉”，把短期记忆沉淀成长期记忆。第一版先使用固定本地时间和固定间隔天数，后续再做更复杂的睡眠规则。
+          </p>
+          <div className={styles.fieldGrid}>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Sleep Enabled</span>
+              <select
+                className={styles.input}
+                value={draftSettings.sleepEnabled ? 'on' : 'off'}
+                onChange={(event) => updateSetting('sleepEnabled', event.target.value === 'on')}
+              >
+                <option value="on">启用</option>
+                <option value="off">关闭</option>
+              </select>
+            </label>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Sleep Time</span>
+              <input
+                className={styles.input}
+                value={draftSettings.sleepTimeLocal}
+                onChange={(event) => updateSetting('sleepTimeLocal', event.target.value)}
+                placeholder="03:00"
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Sleep Interval Days</span>
+              <input
+                className={styles.input}
+                type="number"
+                min={1}
+                value={draftSettings.sleepIntervalDays}
+                onChange={(event) => updateSetting('sleepIntervalDays', Math.max(1, Number(event.target.value) || 1))}
+              />
+            </label>
+          </div>
+          <dl className={styles.metricList}>
+            <div>
+              <dt>最近一次睡眠</dt>
+              <dd>{formatOptionalDate(sleepSummary?.lastSleepAt)}</dd>
+            </div>
+          </dl>
+          <div className={styles.heroActions}>
+            <button
+              type="button"
+              className={styles.secondaryButton}
+              onClick={() => void handleSleep()}
+              disabled={isSleeping || isFlushingContext || isConsolidating || loading}
+            >
+              {isSleeping ? '正在执行睡眠沉淀…' : '立即睡觉'}
+            </button>
+          </div>
+        </section>
+
+        <section className={styles.panel}>
+          <div className={styles.panelHead}>
+            <div>
               <p className={styles.panelLabel}>模型设置</p>
               <h4 className={styles.panelTitle}>LLM & Embedding</h4>
             </div>
-            <span className={styles.panelPill}>检索 · 总结 · 整理</span>
+            <span className={styles.panelPill}>前置检索 · 深搜工具 · 沉淀整理</span>
           </div>
           <p className={styles.panelCopy}>
             记忆相关的模型设置统一收在这里。留空会继承虚拟人的主模型；embedding 模型则回退到系统默认值。
@@ -476,7 +828,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             {
               key: 'summarizePrompt',
               label: 'Summarize Prompt',
-              helper: '把一轮对话写成 display_summary / retrieval_text / tags / importance 的 prompt。',
+              helper: '保留给兼容旧路径或手动整理使用。新的分层记忆主要由 Context → STM / STM → LTM 两条 prompt 驱动。',
               value: draftSettings.summarizePrompt,
               defaultValue: defaultPrompts.summarizePrompt,
               sourceLabel: savedOverrides.summarizePrompt ? '自定义 override' : '系统默认',
@@ -484,19 +836,49 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               rows: 7,
             },
             {
-              key: 'fragmentPrompt',
-              label: 'Fragment Prompt',
-              helper: '控制命中记忆如何注入主 prompt。这里适合写“把这些记忆当作回忆来回答”的包装文案。',
-              value: draftSettings.fragmentPrompt,
-              defaultValue: defaultPrompts.fragmentPrompt,
-              sourceLabel: savedOverrides.fragmentPrompt ? '自定义 override' : '系统默认',
-              placeholder: '留空则使用系统默认的 memory fragment prompt。',
+              key: 'contextToShortTermPrompt',
+              label: 'Context → STM Prompt',
+              helper: 'daemon 从旧上下文整理短期记忆时使用。这里控制如何从一大段消息里提炼最多 N 条短期记忆。',
+              value: draftSettings.contextToShortTermPrompt,
+              defaultValue: defaultPrompts.contextToShortTermPrompt,
+              sourceLabel: savedOverrides.contextToShortTermPrompt ? '自定义 override' : '系统默认',
+              placeholder: '留空则使用系统默认的 context → short-term prompt。',
+              rows: 7,
+            },
+            {
+              key: 'shortTermToLongTermPrompt',
+              label: 'STM → LTM Prompt',
+              helper: '睡眠时把短期记忆沉淀成长久记忆的 prompt。这里控制如何提炼长期记忆，而不是检索逻辑。',
+              value: draftSettings.shortTermToLongTermPrompt,
+              defaultValue: defaultPrompts.shortTermToLongTermPrompt,
+              sourceLabel: savedOverrides.shortTermToLongTermPrompt ? '自定义 override' : '系统默认',
+              placeholder: '留空则使用系统默认的 short-term → long-term prompt。',
+              rows: 7,
+            },
+            {
+              key: 'shortTermFragmentPrompt',
+              label: 'Short-term Fragment Prompt',
+              helper: '短期记忆命中时注入主 prompt 的包装文案。未命中时系统会固定写入“短期记忆检索结果：未搜索到相关记忆”。',
+              value: draftSettings.shortTermFragmentPrompt,
+              defaultValue: defaultPrompts.shortTermFragmentPrompt,
+              sourceLabel: savedOverrides.shortTermFragmentPrompt ? '自定义 override' : '系统默认',
+              placeholder: '留空则使用系统默认的 short-term fragment prompt。',
+              rows: 7,
+            },
+            {
+              key: 'fixedFragmentPrompt',
+              label: 'Fixed Fragment Prompt',
+              helper: '固化记忆命中时注入主 prompt 的包装文案。未命中时系统会固定写入“固化记忆检索结果：未搜索到相关记忆”。',
+              value: draftSettings.fixedFragmentPrompt,
+              defaultValue: defaultPrompts.fixedFragmentPrompt,
+              sourceLabel: savedOverrides.fixedFragmentPrompt ? '自定义 override' : '系统默认',
+              placeholder: '留空则使用系统默认的 fixed fragment prompt。',
               rows: 7,
             },
             {
               key: 'consolidatePrompt',
               label: 'Consolidate Prompt',
-              helper: '控制 memory consolidate 时如何 rewrite / merge / keep。',
+              helper: '控制人工 memory consolidate 时如何 rewrite / merge / keep。它仍然只会在同 layer 内整理，不做跨层合并。',
               value: draftSettings.consolidatePrompt,
               defaultValue: defaultPrompts.consolidatePrompt,
               sourceLabel: savedOverrides.consolidatePrompt ? '自定义 override' : '系统默认',
@@ -512,8 +894,14 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               updateSetting('semanticAnalyzerPrompt', defaultPrompts.semanticAnalyzerPrompt)
             } else if (key === 'summarizePrompt') {
               updateSetting('summarizePrompt', defaultPrompts.summarizePrompt)
-            } else if (key === 'fragmentPrompt') {
-              updateSetting('fragmentPrompt', defaultPrompts.fragmentPrompt)
+            } else if (key === 'contextToShortTermPrompt') {
+              updateSetting('contextToShortTermPrompt', defaultPrompts.contextToShortTermPrompt)
+            } else if (key === 'shortTermToLongTermPrompt') {
+              updateSetting('shortTermToLongTermPrompt', defaultPrompts.shortTermToLongTermPrompt)
+            } else if (key === 'shortTermFragmentPrompt') {
+              updateSetting('shortTermFragmentPrompt', defaultPrompts.shortTermFragmentPrompt)
+            } else if (key === 'fixedFragmentPrompt') {
+              updateSetting('fixedFragmentPrompt', defaultPrompts.fixedFragmentPrompt)
             } else if (key === 'consolidatePrompt') {
               updateSetting('consolidatePrompt', defaultPrompts.consolidatePrompt)
             }

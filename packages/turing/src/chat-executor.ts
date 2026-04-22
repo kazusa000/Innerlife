@@ -7,11 +7,12 @@ import {
   type ContentBlock,
   type Message,
 } from '@mas/core'
-import { agentRepo, messageRepo, sessionRepo } from '@mas/db'
+import { agentRepo, messageRepo, sessionContextStateRepo, sessionRepo } from '@mas/db'
 import { createDbObserver, createNoopObserver, type ObserverEvent } from '@mas/observer'
-import { createSystems } from '@mas/systems'
+import { createSystems, isSqliteMemoryConfig } from '@mas/systems'
 
 const INTERRUPTED_SUFFIX = ' —（中断）'
+type DbMessageRecord = ReturnType<typeof messageRepo.getSessionMessages>[number]
 
 function extractAssistantText(content: ContentBlock[]): string {
   return content
@@ -32,6 +33,18 @@ function persistInterruptedMessage(sessionId: string, assistantText: string) {
   })
 }
 
+function selectActiveDbMessages(
+  dbMessages: DbMessageRecord[],
+  activeStartMessageId: string | null | undefined,
+) {
+  if (!activeStartMessageId) {
+    return []
+  }
+
+  const startIndex = dbMessages.findIndex((message) => message.id === activeStartMessageId)
+  return startIndex >= 0 ? dbMessages.slice(startIndex) : dbMessages
+}
+
 export async function executeChatTurn(input: {
   sessionId: string
   userMessage: string
@@ -45,22 +58,42 @@ export async function executeChatTurn(input: {
     content: JSON.stringify([{ type: 'text', text: input.userMessage }]),
   })
 
-  const dbMessages = messageRepo.getSessionMessages(input.sessionId)
-  const messages: Message[] = dbMessages.map((message) => ({
-    role: message.role as Message['role'],
-    content: JSON.parse(message.content),
-  }))
-
   const session = sessionRepo.getSession(input.sessionId)
   const agent = session ? agentRepo.getAgent(session.agentId) : null
   if (!agent) {
     throw new Error(`Agent for session ${input.sessionId} was not found`)
   }
 
+  const dbMessages = messageRepo.getSessionMessages(input.sessionId)
+  const memoryIsSqlite = isSqliteMemoryConfig(agent.modules?.memory)
+  let activeDbMessages = dbMessages
+
+  if (memoryIsSqlite) {
+    const existingState = sessionContextStateRepo.getSessionContextState(input.sessionId)
+    const nextActiveStartMessageId = existingState
+      ? (existingState.activeStartMessageId ?? userMessageId)
+      : (dbMessages[0]?.id ?? userMessageId)
+
+    sessionContextStateRepo.upsertSessionContextState({
+      sessionId: input.sessionId,
+      activeStartMessageId: nextActiveStartMessageId,
+      lastUserMessageAt: new Date(),
+    })
+
+    activeDbMessages = selectActiveDbMessages(dbMessages, nextActiveStartMessageId)
+  }
+
+  const messages: Message[] = activeDbMessages.map((message) => ({
+    role: message.role as Message['role'],
+    content: JSON.parse(message.content),
+  }))
+
   const provider = createProvider(agent.provider)
   const tools = getDefaultTools()
   const systems = createSystems(agent.modules ?? null)
-  const toolPrompt = 'You can use the web_fetch tool to fetch web pages. Be concise.'
+  const toolPrompt = memoryIsSqlite
+    ? 'You can use the web_fetch tool to fetch web pages. If current context, short-term memory, and fixed memory are still insufficient, you may use search_long_term_memory once to look up long-term memories. Be concise.'
+    : 'You can use the web_fetch tool to fetch web pages. Be concise.'
   const config: AgentConfig = {
     id: agent.id,
     model: agent.model,
