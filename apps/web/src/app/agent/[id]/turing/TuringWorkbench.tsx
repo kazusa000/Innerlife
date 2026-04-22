@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
+import { buildCreateRunRequest, resolveInitialJudgeConfig, type JudgeProvider } from './judge-config'
 import styles from './TuringWorkbench.module.css'
 
 type RunStatus =
@@ -82,6 +83,13 @@ interface TuringEvent {
   createdAt: string
 }
 
+interface AgentSummary {
+  id: string
+  name: string
+  provider: JudgeProvider
+  model: string
+}
+
 const ACTIVE_STATUSES = new Set<RunStatus>(['queued', 'preparing', 'running', 'interrupting'])
 
 const STAGE_LABELS: Record<string, string> = {
@@ -153,11 +161,14 @@ function readErrorMessage(value: unknown, fallback: string) {
 }
 
 export default function TuringWorkbench({ agentId }: { agentId: string }) {
+  const [agent, setAgent] = useState<AgentSummary | null>(null)
   const [daemon, setDaemon] = useState<DaemonState | null>(null)
   const [runs, setRuns] = useState<TuringRun[]>([])
   const [currentRunId, setCurrentRunId] = useState<string | null>(null)
   const [currentRun, setCurrentRun] = useState<TuringRun | null>(null)
   const [events, setEvents] = useState<TuringEvent[]>([])
+  const [judgeProvider, setJudgeProvider] = useState<JudgeProvider | null>(null)
+  const [judgeModel, setJudgeModel] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -172,6 +183,23 @@ export default function TuringWorkbench({ agentId }: { agentId: string }) {
       throw new Error(readErrorMessage(data, '加载 daemon 状态失败'))
     }
     setDaemon(data.daemon ?? null)
+  }
+
+  async function loadAgent() {
+    const response = await fetch(`/api/agents/${agentId}`, { cache: 'no-store' })
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(readErrorMessage(data, '加载 persona 配置失败'))
+    }
+
+    const nextAgent = data as AgentSummary
+    setAgent(nextAgent)
+    const defaults = resolveInitialJudgeConfig({
+      provider: nextAgent.provider,
+      model: nextAgent.model,
+    })
+    setJudgeProvider((current) => current ?? defaults.judgeProvider)
+    setJudgeModel((current) => current || defaults.judgeModel)
   }
 
   async function loadRuns(preferredRunId?: string | null) {
@@ -217,6 +245,7 @@ export default function TuringWorkbench({ agentId }: { agentId: string }) {
 
     try {
       await Promise.all([
+        loadAgent(),
         loadDaemon(),
         loadRuns(preferredRunId),
       ])
@@ -266,7 +295,11 @@ export default function TuringWorkbench({ agentId }: { agentId: string }) {
     const response = await fetch('/api/turing/runs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceAgentId: agentId }),
+      body: JSON.stringify(buildCreateRunRequest({
+        sourceAgentId: agentId,
+        judgeProvider,
+        judgeModel,
+      })),
     })
     const data = await response.json()
     if (!response.ok) {
@@ -323,7 +356,7 @@ export default function TuringWorkbench({ agentId }: { agentId: string }) {
           <p className={styles.eyebrow}>图灵测试系统</p>
           <h1 className={styles.title}>单次自动评测工作台</h1>
           <p className={styles.copy}>
-            系统会复制当前 persona，强制开启全部模块，运行固定 6 段测试套件，并异步产出拟人感报告与完整对话回放。
+            系统会复制当前 persona，强制开启全部模块，运行固定 7 段测试套件，并异步产出拟人感报告与完整对话回放。
           </p>
           <div className={styles.heroMeta}>
             <span className={styles.pill}>当前 persona：{agentId}</span>
@@ -338,12 +371,39 @@ export default function TuringWorkbench({ agentId }: { agentId: string }) {
           </div>
         </div>
 
-        <div className={styles.heroActions}>
+        <div className={styles.heroSide}>
+          <div className={styles.configCard}>
+            <p className={styles.sectionLabel}>测试官配置</p>
+            <div className={styles.configGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Judge Provider</span>
+                <select
+                  className={styles.fieldControl}
+                  value={judgeProvider ?? ''}
+                  onChange={(event) => setJudgeProvider(event.target.value as JudgeProvider)}
+                >
+                  <option value="anthropic">anthropic</option>
+                  <option value="openrouter">openrouter</option>
+                </select>
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Judge Model</span>
+                <input
+                  className={styles.fieldControl}
+                  value={judgeModel}
+                  onChange={(event) => setJudgeModel(event.target.value)}
+                  placeholder={agent?.model ?? '输入 judge model'}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className={styles.heroActions}>
           <button
             type="button"
             className={styles.primaryButton}
             onClick={() => void handleStart()}
-            disabled={pending || isActive}
+            disabled={pending || isActive || !judgeProvider}
           >
             开始图灵测试
           </button>
@@ -363,6 +423,7 @@ export default function TuringWorkbench({ agentId }: { agentId: string }) {
           >
             清理本次测试
           </button>
+          </div>
         </div>
       </section>
 
