@@ -341,6 +341,46 @@ test('memory sqlite ltp semantic analyzer returns null query on empty candidates
   })
 })
 
+test('memory sqlite ltp semantic analyzer retries with recent user messages when current utterance has no anchor', { concurrency: false }, async () => {
+  const analyzeInputs: string[] = []
+  const system = new MemorySqliteSystem({
+    semanticAnalyzerMode: 'ltp',
+    ltpClient: {
+      async analyze({ text }) {
+        analyzeInputs.push(text)
+        if (text === '我啥时候说的') {
+          return { candidates: [] }
+        }
+        return { candidates: ['海风灯塔'] }
+      },
+    },
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('我啥时候说的')
+  ctx.messages = [
+    { role: 'user', content: '你还记得海风灯塔吗' },
+    { role: 'assistant', content: '当然记得' },
+    { role: 'user', content: '是那个画面吗' },
+    { role: 'assistant', content: '像海边那个' },
+    { role: 'user', content: '我啥时候说的' },
+  ]
+
+  await system.beforeTurn?.(ctx)
+
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'local')
+  const parsed = await semanticAnalyzer?.analyze()
+  assert.deepEqual(parsed, {
+    retrievalQuery: '海风灯塔',
+    mode: 'ltp',
+    candidates: ['海风灯塔'],
+  })
+  assert.deepEqual(analyzeInputs, [
+    '我啥时候说的',
+    '你还记得海风灯塔吗\n是那个画面吗\n我啥时候说的',
+  ])
+})
+
 test('memory sqlite time parser recognizes explicit Chinese time expressions', () => {
   const reference = new Date('2026-04-22T20:24:17+02:00')
 

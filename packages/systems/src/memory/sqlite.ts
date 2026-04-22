@@ -652,6 +652,20 @@ function extractConversationMessageText(message: ConversationMessage): string {
     .join('\n')
 }
 
+function buildRecentUserLtpFallbackText(messages: ConversationMessage[], limit = 3): string | null {
+  const recentUserTexts = messages
+    .filter((message) => message.role === 'user')
+    .map((message) => extractConversationMessageText(message).trim())
+    .filter(Boolean)
+    .slice(-limit)
+
+  if (recentUserTexts.length <= 1) {
+    return null
+  }
+
+  return recentUserTexts.join('\n')
+}
+
 function extractJson(text: string): unknown {
   const withoutFences = text
     .trim()
@@ -957,12 +971,22 @@ export class MemorySqliteSystem implements AgentSystem {
         ? {
             kind: 'local',
             analyze: async () => {
-              const result = await this.ltpClient.analyze({ text: ctx.input.text })
-              const candidates = result.candidates
+              const normalizeCandidates = (rawCandidates: string[]) => rawCandidates
                 .filter((candidate) => typeof candidate === 'string')
                 .map((candidate) => candidate.trim())
                 .filter(Boolean)
                 .slice(0, 3)
+
+              const result = await this.ltpClient.analyze({ text: ctx.input.text })
+              let candidates = normalizeCandidates(result.candidates)
+
+              if (candidates.length === 0) {
+                const fallbackText = buildRecentUserLtpFallbackText(ctx.messages)
+                if (fallbackText) {
+                  const fallbackResult = await this.ltpClient.analyze({ text: fallbackText })
+                  candidates = normalizeCandidates(fallbackResult.candidates)
+                }
+              }
 
               return {
                 retrievalQuery: candidates[0] ?? null,
