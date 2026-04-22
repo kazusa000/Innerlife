@@ -16,7 +16,6 @@ test('big-five personality system injects a stable prompt fragment from module c
       },
       speechStyle: '简洁、口语化、偶尔自嘲',
       background: '一位喜欢拆解问题第一性原理的前端工程师',
-      prompt: '回答时像真实熟人，少一点客服式热情。',
     },
   })
 
@@ -43,5 +42,5 @@ test('big-five personality system injects a stable prompt fragment from module c
   assert.match(ctx.promptFragments[0]?.content ?? '', /简洁、口语化、偶尔自嘲/)
   assert.match(ctx.promptFragments[0]?.content ?? '', /背景/)
   assert.match(ctx.promptFragments[0]?.content ?? '', /第一性原理/)
-  assert.match(ctx.promptFragments[0]?.content ?? '', /真实熟人/)
+  assert.doesNotMatch(ctx.promptFragments[0]?.content ?? '', /额外人格约束/)
 })

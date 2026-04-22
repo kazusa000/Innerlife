@@ -41,6 +41,7 @@ test('buildModules preserves detailed module settings when scheme stays enabled'
         scheme: 'big-five',
         big5: { openness: 0.88 },
         speechStyle: '冷静',
+        prompt: '旧的人格 prompt',
       },
       emotion: {
         scheme: 'dimensional',

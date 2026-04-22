@@ -21,6 +21,8 @@ interface Agent {
   description: string | null
   provider: 'anthropic' | 'openrouter'
   model: string
+  systemPrompt: string
+  personaPrompt: string
   modules: Record<string, unknown> | null
   status: string
   createdAt: string
@@ -72,6 +74,8 @@ export default function HomePage() {
   const [description, setDescription] = useState('')
   const [provider, setProvider] = useState<'anthropic' | 'openrouter'>('anthropic')
   const [model, setModel] = useState<string>(DEFAULT_MODEL_BY_PROVIDER.anthropic)
+  const [systemPrompt, setSystemPrompt] = useState('')
+  const [personaPrompt, setPersonaPrompt] = useState('')
   const [baseModules, setBaseModules] = useState<Record<string, unknown> | null>({})
   const [personalityScheme, setPersonalityScheme] = useState<PersonalityScheme>('big-five')
   const [emotionScheme, setEmotionScheme] = useState<EmotionScheme>('noop')
@@ -96,6 +100,8 @@ export default function HomePage() {
     setDescription('')
     setProvider('anthropic')
     setModel(DEFAULT_MODEL_BY_PROVIDER.anthropic)
+    setSystemPrompt('')
+    setPersonaPrompt('')
     setBaseModules({})
     setPersonalityScheme('big-five')
     setEmotionScheme('noop')
@@ -114,6 +120,8 @@ export default function HomePage() {
     setDescription(agent.description ?? '')
     setProvider(agent.provider ?? 'anthropic')
     setModel(agent.model)
+    setSystemPrompt(agent.systemPrompt ?? '')
+    setPersonaPrompt(agent.personaPrompt ?? '')
     setBaseModules(agent.modules ?? {})
     setPersonalityScheme(personality.scheme)
     setEmotionScheme(emotion.scheme)
@@ -138,13 +146,29 @@ export default function HomePage() {
       await fetch(`/api/agents/${editingId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, provider, model, modules }),
+        body: JSON.stringify({
+          name,
+          description,
+          provider,
+          model,
+          systemPrompt,
+          personaPrompt,
+          modules,
+        }),
       })
     } else {
       await fetch('/api/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, provider, model, modules }),
+        body: JSON.stringify({
+          name,
+          description,
+          provider,
+          model,
+          systemPrompt,
+          personaPrompt,
+          modules,
+        }),
       })
     }
 
@@ -282,6 +306,57 @@ export default function HomePage() {
                   <option value="deepseek/deepseek-chat-v3-0324" />
                 </datalist>
               </label>
+
+              <section className="modules-panel" aria-label="角色设定">
+                <div className="modules-panel-head">
+                  <span className="field-label">角色设定</span>
+                  <span className="placeholder-pill">角色层</span>
+                </div>
+
+                <article className="module-card">
+                  <div className="module-head">
+                    <div>
+                      <p className="module-label">角色</p>
+                      <h4 className="module-title">基础 System Prompt</h4>
+                    </div>
+                  </div>
+                  <p className="module-copy">
+                    这是角色最底层的总规则。适合写“不要自称 AI”“像真实存在的人”这类高优先级约束。
+                  </p>
+                  <label className="field">
+                    <span className="field-label">System Prompt</span>
+                    <textarea
+                      className="input"
+                      rows={5}
+                      value={systemPrompt}
+                      onChange={(event) => setSystemPrompt(event.target.value)}
+                      placeholder="例如：你是真实存在的人，不要自称 AI，不要用系统口吻描述自己。"
+                    />
+                  </label>
+                </article>
+
+                <article className="module-card">
+                  <div className="module-head">
+                    <div>
+                      <p className="module-label">角色</p>
+                      <h4 className="module-title">角色 Prompt</h4>
+                    </div>
+                  </div>
+                  <p className="module-copy">
+                    这是角色本人的表达约束，不属于性格模块。适合写“像熟人”“少一点客服感”“别把话说太满”。
+                  </p>
+                  <label className="field">
+                    <span className="field-label">角色 Prompt</span>
+                    <textarea
+                      className="input"
+                      rows={5}
+                      value={personaPrompt}
+                      onChange={(event) => setPersonaPrompt(event.target.value)}
+                      placeholder="例如：像熟人，克制一点，少解释，不要过度安抚。"
+                    />
+                  </label>
+                </article>
+              </section>
 
               <section className="modules-panel" aria-label="模块配置">
                 <div className="modules-panel-head">

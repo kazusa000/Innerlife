@@ -8,11 +8,25 @@ export type AgentProvider = 'anthropic' | 'openrouter'
 
 type AgentConfig = {
   provider?: AgentProvider
+  systemPrompt?: string
+  personaPrompt?: string
 }
 
 function parseModules(modules: string | null) {
   if (!modules) return null
   return JSON.parse(modules) as Record<string, unknown>
+}
+
+function readLegacyPersonaPrompt(modules: Record<string, unknown> | null): string | null {
+  const personality = modules?.personality
+  if (!personality || typeof personality !== 'object' || Array.isArray(personality)) {
+    return null
+  }
+
+  const prompt = (personality as Record<string, unknown>).prompt
+  return typeof prompt === 'string' && prompt.trim().length > 0
+    ? prompt.trim()
+    : null
 }
 
 function serializeModules(modules: AgentModules | undefined) {
@@ -40,10 +54,16 @@ function serializeConfig(config: AgentConfig | undefined) {
 
 function mapAgent(row: typeof agents.$inferSelect) {
   const config = parseConfig(row.config)
+  const modules = parseModules(row.modules)
   return {
     ...row,
     provider: config.provider === 'openrouter' ? 'openrouter' : 'anthropic',
-    modules: parseModules(row.modules),
+    systemPrompt: typeof config.systemPrompt === 'string' ? config.systemPrompt : '',
+    personaPrompt:
+      typeof config.personaPrompt === 'string' && config.personaPrompt.trim().length > 0
+        ? config.personaPrompt.trim()
+        : readLegacyPersonaPrompt(modules) ?? '',
+    modules,
   }
 }
 
@@ -54,6 +74,8 @@ export function createAgent(data: {
   skills?: string
   provider?: AgentProvider
   model: string
+  systemPrompt?: string
+  personaPrompt?: string
   modules?: AgentModules
 }) {
   const db = getDb()
@@ -62,9 +84,17 @@ export function createAgent(data: {
     .insert(agents)
     .values({
       id,
-      ...data,
+      name: data.name,
+      description: data.description,
+      personality: data.personality,
+      skills: data.skills,
+      model: data.model,
       modules: serializeModules(data.modules) ?? null,
-      config: serializeConfig({ provider: data.provider ?? 'anthropic' }) ?? null,
+      config: serializeConfig({
+        provider: data.provider ?? 'anthropic',
+        systemPrompt: data.systemPrompt?.trim() || undefined,
+        personaPrompt: data.personaPrompt?.trim() || undefined,
+      }) ?? null,
     })
     .run()
   return getAgent(id)!
@@ -86,16 +116,30 @@ export function updateAgent(id: string, data: {
   description?: string
   provider?: AgentProvider
   model?: string
+  systemPrompt?: string
+  personaPrompt?: string
   modules?: AgentModules
 }) {
   const db = getDb()
   const existing = db.select().from(agents).where(eq(agents.id, id)).get()
-  const nextConfig = data.provider !== undefined
-    ? serializeConfig({
-        ...parseConfig(existing?.config ?? null),
-        provider: data.provider,
-      }) ?? null
-    : undefined
+  const existingConfig = parseConfig(existing?.config ?? null)
+  const nextConfig =
+    data.provider !== undefined
+    || data.systemPrompt !== undefined
+    || data.personaPrompt !== undefined
+      ? serializeConfig({
+          ...existingConfig,
+          provider: data.provider ?? existingConfig.provider,
+          systemPrompt:
+            data.systemPrompt !== undefined
+              ? (data.systemPrompt.trim() || undefined)
+              : existingConfig.systemPrompt,
+          personaPrompt:
+            data.personaPrompt !== undefined
+              ? (data.personaPrompt.trim() || undefined)
+              : existingConfig.personaPrompt,
+        }) ?? null
+      : undefined
   db
     .update(agents)
     .set({

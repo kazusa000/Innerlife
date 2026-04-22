@@ -45,6 +45,40 @@ function selectActiveDbMessages(
   return startIndex >= 0 ? dbMessages.slice(startIndex) : dbMessages
 }
 
+function readLegacyPersonaPrompt(modules: Record<string, unknown> | null | undefined) {
+  const personality = modules?.personality
+  if (!personality || typeof personality !== 'object' || Array.isArray(personality)) {
+    return ''
+  }
+
+  const prompt = (personality as Record<string, unknown>).prompt
+  return typeof prompt === 'string' ? prompt.trim() : ''
+}
+
+export function buildAgentSystemPrompt(agent: {
+  name: string
+  description: string | null
+  systemPrompt?: string
+  personaPrompt?: string
+  modules?: Record<string, unknown> | null
+}) {
+  const memoryIsSqlite = isSqliteMemoryConfig(agent.modules?.memory)
+  const toolPrompt = memoryIsSqlite
+    ? 'You can use the web_fetch tool to fetch web pages. If current context, short-term memory, and fixed memory are still insufficient, you may use search_long_term_memory once to look up long-term memories. Be concise.'
+    : 'You can use the web_fetch tool to fetch web pages. Be concise.'
+  const basePrompt = agent.systemPrompt?.trim()
+    || (agent.description
+      ? `You are ${agent.name}. ${agent.description}.`
+      : `You are ${agent.name}.`)
+  const rolePrompt = agent.personaPrompt?.trim() || readLegacyPersonaPrompt(agent.modules)
+
+  return [
+    basePrompt,
+    rolePrompt ? `角色额外约束：${rolePrompt}` : null,
+    toolPrompt,
+  ].filter(Boolean).join('\n\n')
+}
+
 export async function executeChatTurn(input: {
   sessionId: string
   userMessage: string
@@ -91,15 +125,10 @@ export async function executeChatTurn(input: {
   const provider = createProvider(agent.provider)
   const tools = getDefaultTools()
   const systems = createSystems(agent.modules ?? null)
-  const toolPrompt = memoryIsSqlite
-    ? 'You can use the web_fetch tool to fetch web pages. If current context, short-term memory, and fixed memory are still insufficient, you may use search_long_term_memory once to look up long-term memories. Be concise.'
-    : 'You can use the web_fetch tool to fetch web pages. Be concise.'
   const config: AgentConfig = {
     id: agent.id,
     model: agent.model,
-    systemPrompt: agent.description
-      ? `You are ${agent.name}. ${agent.description}. ${toolPrompt}`
-      : `You are a helpful AI assistant. ${toolPrompt}`,
+    systemPrompt: buildAgentSystemPrompt(agent),
     tools,
     maxTurns: 10,
     sessionId: input.sessionId,

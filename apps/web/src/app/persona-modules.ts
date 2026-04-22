@@ -166,6 +166,9 @@ export function buildModules(
   delete next.values
 
   next.personality = applyScheme(next.personality, personality.scheme)
+  if (isRecord(next.personality)) {
+    delete next.personality.prompt
+  }
   next.emotion = applyScheme(next.emotion, emotion.scheme)
   next.relationship = applyScheme(next.relationship, relationship.scheme)
   next.memory = applyScheme(next.memory, memory.scheme)

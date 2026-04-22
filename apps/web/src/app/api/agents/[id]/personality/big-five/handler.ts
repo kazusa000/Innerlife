@@ -13,7 +13,6 @@ type BigFivePatchBody = {
   big5?: Partial<BigFiveScores>
   speechStyle?: string
   background?: string
-  prompt?: string
 }
 
 type BigFiveConfig = {
@@ -21,7 +20,6 @@ type BigFiveConfig = {
   big5: BigFiveScores
   speechStyle: string
   background: string
-  prompt: string
 }
 
 function clampTrait(value: unknown, fallback: number) {
@@ -50,7 +48,6 @@ function normalizeBigFiveConfig(module: unknown): BigFiveConfig {
     },
     speechStyle: readText(record?.speechStyle),
     background: readText(record?.background),
-    prompt: readText(record?.prompt),
   }
 }
 
@@ -109,13 +106,6 @@ function parsePatchBody(body: unknown) {
     }
   }
 
-  if (body.prompt !== undefined && typeof body.prompt !== 'string') {
-    return {
-      ok: false as const,
-      response: Response.json({ error: 'prompt must be a string' }, { status: 400 }),
-    }
-  }
-
   return {
     ok: true as const,
     value: body as BigFivePatchBody,
@@ -136,7 +126,6 @@ export function getBigFivePersonalityConfig(agentId: string) {
     big5: config.big5,
     speechStyle: config.speechStyle,
     background: config.background,
-    prompt: config.prompt,
   })
 }
 
@@ -170,9 +159,6 @@ export function updateBigFivePersonalityConfig(agentId: string, body: unknown) {
     background: parsed.value.background !== undefined
       ? parsed.value.background.trim()
       : current.background,
-    prompt: parsed.value.prompt !== undefined
-      ? parsed.value.prompt.trim()
-      : current.prompt,
   }
 
   const nextModules = isRecord(agent.modules) ? { ...agent.modules } : {}
@@ -185,6 +171,5 @@ export function updateBigFivePersonalityConfig(agentId: string, body: unknown) {
     big5: next.big5,
     speechStyle: next.speechStyle,
     background: next.background,
-    prompt: next.prompt,
   })
 }

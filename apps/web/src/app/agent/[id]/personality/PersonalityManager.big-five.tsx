@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import PromptLab from '../PromptLab'
 import styles from '../manager-ui.module.css'
 import { DEFAULT_BIG5, type BigFiveKey, type BigFiveScores } from '@/app/persona-modules'
 
@@ -33,7 +32,6 @@ type BigFiveResponse = {
   big5: BigFiveScores
   speechStyle: string
   background: string
-  prompt: string
 }
 
 function isBigFiveResponse(value: unknown): value is BigFiveResponse {
@@ -63,7 +61,6 @@ export default function PersonalityManagerBigFive({ agentId }: PersonalityManage
   const [big5, setBig5] = useState<BigFiveScores>({ ...DEFAULT_BIG5 })
   const [speechStyle, setSpeechStyle] = useState('')
   const [background, setBackground] = useState('')
-  const [prompt, setPrompt] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -92,7 +89,6 @@ export default function PersonalityManagerBigFive({ agentId }: PersonalityManage
           setBig5(data.big5)
           setSpeechStyle(data.speechStyle)
           setBackground(data.background)
-          setPrompt(data.prompt ?? '')
         }
       } catch (err) {
         if (!cancelled) {
@@ -124,7 +120,6 @@ export default function PersonalityManagerBigFive({ agentId }: PersonalityManage
           big5,
           speechStyle,
           background,
-          prompt,
         }),
       })
       const data = await response.json() as unknown
@@ -138,8 +133,7 @@ export default function PersonalityManagerBigFive({ agentId }: PersonalityManage
       setBig5(data.big5)
       setSpeechStyle(data.speechStyle)
       setBackground(data.background)
-      setPrompt(data.prompt ?? '')
-      setNotice('Big Five 与 persona prompt 已保存。')
+      setNotice('Big Five 配置已保存。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存 Big Five 性格配置失败')
     } finally {
@@ -167,8 +161,7 @@ export default function PersonalityManagerBigFive({ agentId }: PersonalityManage
           <p className={styles.eyebrow}>人格管理</p>
           <h3 className={styles.title}>Big Five</h3>
           <p className={styles.copy}>
-            左边调整结构化人格和文字设定，右边直接开放 persona prompt。
-            这页会一起控制结构人格和最终拼接到主 prompt 的人格约束。
+            这里只维护真正属于性格模块的结构化设定。角色级 System Prompt 和角色 Prompt 已迁到首页 persona 编辑层。
           </p>
         </div>
         <div className={styles.heroActions}>
@@ -244,24 +237,6 @@ export default function PersonalityManagerBigFive({ agentId }: PersonalityManage
             </label>
           </div>
         </section>
-
-        <PromptLab
-          fields={[
-            {
-              key: 'prompt',
-              label: 'Persona Prompt',
-              helper: '附加到 Big Five 生成片段后的额外人格约束。这里适合写“像真实朋友”“少一点客服感”这类主观风格要求。',
-              value: prompt,
-              placeholder: '例如：回答时像熟人，克制一点，不要把自己说得太完美。',
-              rows: 12,
-            },
-          ]}
-          onChange={(key, value) => {
-            if (key === 'prompt') {
-              setPrompt(value)
-            }
-          }}
-        />
       </div>
     </section>
   )

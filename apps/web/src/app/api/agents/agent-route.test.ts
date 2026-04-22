@@ -19,6 +19,7 @@ import {
   turingRunRepo,
 } from '@mas/db'
 import { deleteAgentCascade } from './[id]/handler'
+import { getAgentDetail, updateAgentDetail } from './[id]/agent-handler'
 
 function bootstrap(dbPath: string, memoryDbPath: string) {
   process.env.MAS_MEMORY_DB_PATH = memoryDbPath
@@ -137,6 +138,49 @@ test('deleteAgentCascade removes agent data across session, turing, daemon memor
       .prepare('SELECT COUNT(*) as count FROM memories WHERE agent_id = ?')
       .get(agent.id) as { count: number }
     assert.equal(memoryRows.count, 0)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('agent GET/PATCH expose top-level systemPrompt and personaPrompt', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-agent-route-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+
+    const agent = agentRepo.createAgent({
+      name: 'Prompted',
+      provider: 'openrouter',
+      model: 'qwen/qwen3.5-flash-02-23',
+      systemPrompt: '你是真实存在的人。',
+      personaPrompt: '像熟人，少一点客服感。',
+      modules: {
+        personality: {
+          scheme: 'big-five',
+          prompt: 'legacy prompt',
+        },
+      },
+    })!
+
+    const getResponse = getAgentDetail(agent.id)
+    assert.equal(getResponse.status, 200)
+    assert.match(await getResponse.text(), /"systemPrompt":"你是真实存在的人。"/)
+    assert.match(await getAgentDetail(agent.id).text(), /"personaPrompt":"像熟人，少一点客服感。"/)
+
+    const patchResponse = updateAgentDetail(agent.id, {
+      systemPrompt: '不要自称 AI。',
+      personaPrompt: '像朋友，回答短一点。',
+    })
+
+    assert.equal(patchResponse.status, 200)
+    const updated = agentRepo.getAgent(agent.id)
+    assert.equal(updated?.systemPrompt, '不要自称 AI。')
+    assert.equal(updated?.personaPrompt, '像朋友，回答短一点。')
   } finally {
     resetDb()
     resetMemoryDb()

@@ -122,7 +122,6 @@ test('getBigFivePersonalityConfig returns current personality fields for big-fiv
       },
       speechStyle: '冷静、直接',
       background: '做过多年产品设计',
-      prompt: '回答时保持克制、像真实朋友，不要过度热情。',
     })
   } finally {
     resetDb()
@@ -167,7 +166,6 @@ test('updateBigFivePersonalityConfig only mutates modules.personality and preser
         extraversion: 0.57,
       },
       speechStyle: '更克制、更短句',
-      prompt: '语气像熟人，不要把自己说得太完美。',
     })
 
     assert.equal(response.status, 200)
@@ -183,7 +181,6 @@ test('updateBigFivePersonalityConfig only mutates modules.personality and preser
       },
       speechStyle: '更克制、更短句',
       background: '做过多年产品设计',
-      prompt: '语气像熟人，不要把自己说得太完美。',
     })
 
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
@@ -198,7 +195,6 @@ test('updateBigFivePersonalityConfig only mutates modules.personality and preser
         },
         speechStyle: '更克制、更短句',
         background: '做过多年产品设计',
-        prompt: '语气像熟人，不要把自己说得太完美。',
       },
       emotion: {
         scheme: 'dimensional',

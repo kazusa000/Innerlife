@@ -45,6 +45,8 @@ export function createTemporaryTestAgent(input: {
       : `[Test clone for run ${input.runId}]`,
     provider: source.provider === 'openrouter' ? 'openrouter' : 'anthropic',
     model: source.model,
+    systemPrompt: source.systemPrompt,
+    personaPrompt: source.personaPrompt,
     modules: forceModulesOn(source.modules),
   })
 
