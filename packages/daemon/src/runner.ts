@@ -1,4 +1,4 @@
-import { getDb, daemonStateRepo } from '@mas/db'
+import { getDb, daemonEventRepo, daemonStateRepo } from '@mas/db'
 import { acquireProcessLock, type ProcessLockHandle } from './lock'
 import type { DaemonRunnerOptions, LoggerLike } from './types'
 
@@ -55,6 +55,15 @@ export class DaemonRunner {
     daemonStateRepo.markDaemonRunning({
       pid: this.options.pid,
     })
+    daemonEventRepo.appendEvent({
+      kind: 'daemon_started',
+      scope: 'daemon',
+      message: 'daemon 已启动',
+      payload: {
+        pid: this.options.pid,
+        tickIntervalMs: this.options.tickIntervalMs,
+      },
+    })
 
     this.running = true
     this.stopping = false
@@ -84,12 +93,28 @@ export class DaemonRunner {
     daemonStateRepo.markDaemonStopping({
       pid: this.options.pid,
     })
+    daemonEventRepo.appendEvent({
+      kind: 'daemon_stopping',
+      scope: 'daemon',
+      message: 'daemon 正在停止',
+      payload: {
+        pid: this.options.pid,
+      },
+    })
 
     await this.lockHandle?.release()
     this.lockHandle = null
 
     daemonStateRepo.markDaemonStopped({
       pid: this.options.pid,
+    })
+    daemonEventRepo.appendEvent({
+      kind: 'daemon_stopped',
+      scope: 'daemon',
+      message: 'daemon 已停止',
+      payload: {
+        pid: this.options.pid,
+      },
     })
   }
 
@@ -102,6 +127,14 @@ export class DaemonRunner {
       daemonStateRepo.markDaemonHeartbeat({
         pid: this.options.pid,
       })
+      daemonEventRepo.appendEvent({
+        kind: 'daemon_heartbeat',
+        scope: 'daemon',
+        message: 'daemon heartbeat',
+        payload: {
+          pid: this.options.pid,
+        },
+      })
 
       try {
         await this.options.tick?.({
@@ -110,6 +143,15 @@ export class DaemonRunner {
       } catch (error) {
         const message = formatError(error)
         daemonStateRepo.recordDaemonError(message)
+        daemonEventRepo.appendEvent({
+          kind: 'tick_error',
+          scope: 'daemon',
+          message: `daemon tick 失败：${message}`,
+          payload: {
+            pid: this.options.pid,
+            error: message,
+          },
+        })
         this.options.logger.error?.(`[daemon] tick failed: ${message}`)
       } finally {
         this.inFlightTick = null

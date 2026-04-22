@@ -1,6 +1,7 @@
 import { createProvider, type ContentBlock, type Message } from '@mas/core'
 import {
   agentRepo,
+  daemonEventRepo,
   emotionStateRepo,
   messageRepo,
   memoryRepo,
@@ -381,6 +382,15 @@ export async function processTuringRun(runId: string, signal?: AbortSignal) {
       currentStage: null,
       error: null,
     })
+    daemonEventRepo.appendEvent({
+      kind: 'turing_run_picked',
+      scope: 'turing',
+      message: 'daemon 已拾取图灵测试 run',
+      payload: {
+        runId: run.id,
+        sourceAgentId: sourceAgent.id,
+      },
+    })
     turingEventRepo.appendEvent({
       runId: run.id,
       kind: 'run',
@@ -536,6 +546,18 @@ export async function processTuringRun(runId: string, signal?: AbortSignal) {
       status: abortInfo ? 'interrupted' : 'completed',
       abortReason: abortInfo?.reason ?? null,
     })
+    daemonEventRepo.appendEvent({
+      kind: abortInfo ? 'turing_run_interrupted' : 'turing_run_completed',
+      scope: 'turing',
+      message: abortInfo ? '图灵测试 run 被中断' : '图灵测试 run 已完成',
+      payload: {
+        runId: run.id,
+        sourceAgentId: sourceAgent.id,
+        currentStage: abortInfo?.stageId ?? null,
+        abortReason: abortInfo?.reason ?? null,
+        verdict: report.verdict,
+      },
+    })
 
     return turingRunRepo.getRun(run.id)
   } catch (error) {
@@ -553,6 +575,17 @@ export async function processTuringRun(runId: string, signal?: AbortSignal) {
       currentStage: run.currentStage,
       error: message,
       finishedAt: new Date(),
+    })
+    daemonEventRepo.appendEvent({
+      kind: 'turing_run_failed',
+      scope: 'turing',
+      message: '图灵测试 run 失败',
+      payload: {
+        runId: run.id,
+        sourceAgentId: run.sourceAgentId,
+        currentStage: run.currentStage,
+        error: message,
+      },
     })
     return turingRunRepo.getRun(run.id)
   }

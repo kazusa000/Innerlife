@@ -1,0 +1,50 @@
+.console {
+  margin: 0;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(96, 165, 250, 0.16);
+  background: rgba(5, 10, 22, 0.82);
+  color: #dbeafe;
+  font: 500 12px/1.65 'Fira Code', monospace;
+  white-space: pre-wrap;
+  min-height: 240px;
+  max-height: 520px;
+  overflow: auto;
+}
+
+.consoleLine {
+  display: block;
+}
+
+.inlineActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sectionAction {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.statusOnline {
+  color: #86efac;
+}
+
+.statusOffline {
+  color: #fca5a5;
+}
+
+.linkButton {
+  color: #bfdbfe;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+}

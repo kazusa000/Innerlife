@@ -108,6 +108,28 @@ export function bootstrapAppDatabases(input: {
       ON relationships(agent_id, counterpart_type, counterpart_id);
     CREATE INDEX IF NOT EXISTS idx_relationships_agent_updated_at
       ON relationships(agent_id, updated_at);
+    CREATE TABLE IF NOT EXISTS daemon_state (
+      id TEXT PRIMARY KEY,
+      pid INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      last_heartbeat_at INTEGER NOT NULL,
+      stopped_at INTEGER,
+      last_error TEXT,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE TABLE IF NOT EXISTS daemon_events (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      message TEXT NOT NULL,
+      payload_json TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_daemon_events_created_at
+      ON daemon_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_daemon_events_scope_created_at
+      ON daemon_events(scope, created_at);
     CREATE TABLE IF NOT EXISTS agent_memory_sleep_state (
       agent_id TEXT PRIMARY KEY REFERENCES agents(id),
       last_sleep_at INTEGER,

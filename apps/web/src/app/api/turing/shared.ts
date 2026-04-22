@@ -1,4 +1,5 @@
-import { agentRepo, daemonStateRepo, turingEventRepo, turingRunRepo } from '@mas/db'
+import { agentRepo, turingEventRepo, turingRunRepo } from '@mas/db'
+export { serializeDaemonState } from '../daemon/shared'
 
 function toIso(value: Date | null | undefined) {
   return value ? value.toISOString() : null
@@ -47,23 +48,5 @@ export function serializeTuringEvent(event: ReturnType<typeof turingEventRepo.ge
     message: event.message,
     payload: event.payload,
     createdAt: event.createdAt.toISOString(),
-  }
-}
-
-export function serializeDaemonState() {
-  const state = daemonStateRepo.getDaemonState()
-  if (!state) {
-    return null
-  }
-
-  return {
-    id: state.id,
-    pid: state.pid,
-    status: state.status,
-    startedAt: state.startedAt.toISOString(),
-    lastHeartbeatAt: state.lastHeartbeatAt.toISOString(),
-    stoppedAt: toIso(state.stoppedAt),
-    lastError: state.lastError,
-    updatedAt: state.updatedAt.toISOString(),
   }
 }
