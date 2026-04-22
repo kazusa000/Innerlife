@@ -128,6 +128,17 @@ export function listRunsBySourceAgent(sourceAgentId: string) {
     .map(mapRun)
 }
 
+export function listRecentRuns(limit = 10) {
+  const db = getDb()
+  const normalizedLimit = Math.max(1, Math.min(100, Math.floor(limit)))
+  return db.select()
+    .from(turingTestRuns)
+    .orderBy(desc(turingTestRuns.updatedAt), desc(turingTestRuns.createdAt))
+    .limit(normalizedLimit)
+    .all()
+    .map(mapRun)
+}
+
 export function getNextQueuedRun() {
   const db = getDb()
   const row = db.select()

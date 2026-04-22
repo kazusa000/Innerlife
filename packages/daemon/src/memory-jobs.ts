@@ -2,6 +2,7 @@ import { createProvider, type Message } from '@mas/core'
 import {
   agentMemorySleepStateRepo,
   agentRepo,
+  daemonEventRepo,
   memoryRepo,
   messageRepo,
   sessionContextStateRepo,
@@ -160,10 +161,34 @@ export async function runContextFlushForSession(input: {
   }
 
   const now = input.now ?? new Date()
+  const mode = input.mode ?? 'manual'
+
+  daemonEventRepo.appendEvent({
+    kind: 'flush_started',
+    scope: 'memory_flush',
+    message: 'context flush 开始',
+    payload: {
+      sessionId: input.sessionId,
+      agentId: agent.id,
+      mode,
+    },
+  })
+
   const settings = resolveMemoryPipelineSettings(agent.modules?.memory)
   const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
   const dbMessages = messageRepo.getSessionMessages(input.sessionId)
   if (dbMessages.length === 0) {
+    daemonEventRepo.appendEvent({
+      kind: 'flush_failed',
+      scope: 'memory_flush',
+      message: 'context flush 失败：没有消息',
+      payload: {
+        sessionId: input.sessionId,
+        agentId: agent.id,
+        mode,
+        reason: 'no_messages',
+      },
+    })
     return { ok: false as const, reason: 'no_messages' as const }
   }
 
@@ -184,11 +209,21 @@ export async function runContextFlushForSession(input: {
 
   const activeMessages = selectActiveDbMessages(dbMessages, activeStartMessageId)
   if (activeMessages.length === 0) {
+    daemonEventRepo.appendEvent({
+      kind: 'flush_failed',
+      scope: 'memory_flush',
+      message: 'context flush 失败：没有活跃 context',
+      payload: {
+        sessionId: input.sessionId,
+        agentId: agent.id,
+        mode,
+        reason: 'no_active_context',
+      },
+    })
     return { ok: false as const, reason: 'no_active_context' as const }
   }
 
   let candidateMessages: DbMessage[] = []
-  const mode = input.mode ?? 'manual'
   if (mode === 'overflow') {
     candidateMessages = selectOverflowCandidate(
       activeMessages,
@@ -201,6 +236,17 @@ export async function runContextFlushForSession(input: {
       ?? null
     const idleMs = settings.contextIdleFlushMinutes * 60 * 1000
     if (!lastUserAt || now.getTime() - lastUserAt.getTime() < idleMs) {
+      daemonEventRepo.appendEvent({
+        kind: 'flush_failed',
+        scope: 'memory_flush',
+        message: 'context flush 跳过：尚未达到空闲阈值',
+        payload: {
+          sessionId: input.sessionId,
+          agentId: agent.id,
+          mode,
+          reason: 'not_idle_enough',
+        },
+      })
       return { ok: false as const, reason: 'not_idle_enough' as const }
     }
     candidateMessages = activeMessages
@@ -211,6 +257,17 @@ export async function runContextFlushForSession(input: {
   }
 
   if (candidateMessages.length === 0) {
+    daemonEventRepo.appendEvent({
+      kind: 'flush_failed',
+      scope: 'memory_flush',
+      message: 'context flush 跳过：没有可搬运的旧 context',
+      payload: {
+        sessionId: input.sessionId,
+        agentId: agent.id,
+        mode,
+        reason: 'nothing_to_flush',
+      },
+    })
     return { ok: false as const, reason: 'nothing_to_flush' as const }
   }
 
@@ -260,6 +317,20 @@ export async function runContextFlushForSession(input: {
     at: now,
   })
 
+  daemonEventRepo.appendEvent({
+    kind: 'flush_success',
+    scope: 'memory_flush',
+    message: 'context flush 完成',
+    payload: {
+      sessionId: input.sessionId,
+      agentId: agent.id,
+      mode,
+      createdCount: created.length,
+      flushedMessageCount: candidateMessages.length,
+      nextActiveStartMessageId,
+    },
+  })
+
   return {
     ok: true as const,
     mode,
@@ -282,8 +353,30 @@ export async function runSleepForAgent(input: {
   }
 
   const now = input.now ?? new Date()
+  const mode = input.mode ?? 'scheduled'
+
+  daemonEventRepo.appendEvent({
+    kind: 'sleep_started',
+    scope: 'memory_sleep',
+    message: 'sleep 开始',
+    payload: {
+      agentId: input.agentId,
+      mode,
+    },
+  })
+
   const settings = resolveMemoryPipelineSettings(agent.modules?.memory)
   if (!settings.sleepEnabled && input.mode !== 'manual') {
+    daemonEventRepo.appendEvent({
+      kind: 'sleep_failed',
+      scope: 'memory_sleep',
+      message: 'sleep 跳过：功能未启用',
+      payload: {
+        agentId: input.agentId,
+        mode,
+        reason: 'sleep_disabled',
+      },
+    })
     return { ok: false as const, reason: 'sleep_disabled' as const }
   }
 
@@ -294,6 +387,16 @@ export async function runSleepForAgent(input: {
     sleepTimeLocal: settings.sleepTimeLocal,
     sleepIntervalDays: settings.sleepIntervalDays,
   })) {
+    daemonEventRepo.appendEvent({
+      kind: 'sleep_failed',
+      scope: 'memory_sleep',
+      message: 'sleep 跳过：尚未到睡眠时间',
+      payload: {
+        agentId: input.agentId,
+        mode,
+        reason: 'not_sleep_time',
+      },
+    })
     return { ok: false as const, reason: 'not_sleep_time' as const }
   }
 
@@ -306,6 +409,17 @@ export async function runSleepForAgent(input: {
     agentMemorySleepStateRepo.upsertAgentMemorySleepState({
       agentId: agent.id,
       lastSleepAt: now,
+    })
+    daemonEventRepo.appendEvent({
+      kind: 'sleep_success',
+      scope: 'memory_sleep',
+      message: 'sleep 完成：没有可沉淀的短期记忆',
+      payload: {
+        agentId: input.agentId,
+        mode,
+        createdCount: 0,
+        deletedShortTermCount: 0,
+      },
     })
     return { ok: true as const, createdCount: 0, deletedShortTermCount: 0 }
   }
@@ -352,6 +466,18 @@ export async function runSleepForAgent(input: {
   agentMemorySleepStateRepo.upsertAgentMemorySleepState({
     agentId: agent.id,
     lastSleepAt: now,
+  })
+
+  daemonEventRepo.appendEvent({
+    kind: 'sleep_success',
+    scope: 'memory_sleep',
+    message: 'sleep 完成',
+    payload: {
+      agentId: input.agentId,
+      mode,
+      createdCount: created.length,
+      deletedShortTermCount: shortTermMemories.length,
+    },
   })
 
   return {

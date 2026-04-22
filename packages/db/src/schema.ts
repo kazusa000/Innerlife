@@ -176,6 +176,22 @@ export const daemonState = sqliteTable('daemon_state', {
     .$defaultFn(() => new Date()),
 })
 
+export const daemonEvents = sqliteTable('daemon_events', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  scope: text('scope', {
+    enum: ['daemon', 'turing', 'memory_flush', 'memory_sleep'],
+  }).notNull(),
+  message: text('message').notNull(),
+  payloadJson: text('payload_json'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (table) => ({
+  createdAtIdx: index('idx_daemon_events_created_at').on(table.createdAt),
+  scopeCreatedAtIdx: index('idx_daemon_events_scope_created_at').on(table.scope, table.createdAt),
+}))
+
 export const agentMemorySleepState = sqliteTable('agent_memory_sleep_state', {
   agentId: text('agent_id')
     .primaryKey()

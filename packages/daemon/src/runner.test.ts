@@ -35,6 +35,14 @@ function bootstrapDb(dbPath: string) {
       last_error TEXT,
       updated_at INTEGER NOT NULL
     );
+    CREATE TABLE daemon_events (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      message TEXT NOT NULL,
+      payload_json TEXT,
+      created_at INTEGER NOT NULL
+    );
   `)
 }
 

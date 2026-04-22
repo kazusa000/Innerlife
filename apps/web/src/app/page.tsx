@@ -180,15 +180,24 @@ export default function HomePage() {
               首页现在只负责选择模型提供方、模型和各模块方案。具体参数都迁到对应管理系统里。
             </p>
           </div>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              resetForm()
-              setShowForm(true)
-            }}
-          >
-            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> 新建虚拟人
-          </button>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => router.push('/daemon')}
+            >
+              Daemon
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                resetForm()
+                setShowForm(true)
+              }}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> 新建虚拟人
+            </button>
+          </div>
         </header>
 
         {showForm && (
