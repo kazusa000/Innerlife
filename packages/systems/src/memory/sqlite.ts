@@ -1,8 +1,10 @@
 import { memoryRepo } from '@mas/db'
 import type {
   AgentSystem,
+  ConversationMessage,
   MemoryRecord,
   MemoryQueryResult,
+  MemoryLayeredRetrieveResult,
   MemorySemanticAnalysisResult,
   MemoryTimeAnalysisResult,
   MemoryResponseFormat,
@@ -19,6 +21,12 @@ import {
 
 const DEFAULT_RETRIEVE_TOP_K = 5
 const MAX_MEMORY_CONTENT_CHARS = 500
+const DEFAULT_CONTEXT_WINDOW_MESSAGES = 50
+const DEFAULT_CONTEXT_OVERFLOW_BATCH_SIZE = 25
+const DEFAULT_CONTEXT_IDLE_FLUSH_MINUTES = 30
+const DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH = 3
+const DEFAULT_SLEEP_TIME_LOCAL = '03:00'
+const DEFAULT_SLEEP_INTERVAL_DAYS = 1
 const MEMORY_TIME_ANALYZER_RESPONSE_FORMAT: MemoryResponseFormat = {
   type: 'json_schema',
   jsonSchema: {
@@ -83,18 +91,70 @@ const MEMORY_WRITE_RESPONSE_FORMAT: MemoryResponseFormat = {
     },
   },
 }
+export const MEMORY_BATCH_WRITE_RESPONSE_FORMAT: MemoryResponseFormat = {
+  type: 'json_schema',
+  jsonSchema: {
+    name: 'memory_batch_write',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        memories: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              display_summary: { type: 'string' },
+              retrieval_text: { type: 'string' },
+              tags: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+              importance: { type: 'number' },
+            },
+            required: ['display_summary', 'retrieval_text', 'tags', 'importance'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['memories'],
+      additionalProperties: false,
+    },
+  },
+}
 
 interface MemoryModuleConfig {
   summarizeModel: string | null
   embeddingModel: string
   retrieveTopK: number
+  contextWindowMessages: number
+  contextOverflowBatchSize: number
+  contextIdleFlushMinutes: number
+  maxShortTermMemoriesPerFlush: number
+  sleepEnabled: boolean
+  sleepTimeLocal: string
+  sleepIntervalDays: number
   embedder: MemoryEmbedder
   retrievePrompt: string | null
   timeAnalyzerPrompt: string | null
   semanticAnalyzerPrompt: string | null
   summarizePrompt: string | null
+  contextToShortTermPrompt: string | null
+  shortTermToLongTermPrompt: string | null
   fragmentPrompt: string | null
+  shortTermFragmentPrompt: string | null
+  fixedFragmentPrompt: string | null
   consolidatePrompt: string | null
+}
+
+export interface MemoryPipelineSettings {
+  contextWindowMessages: number
+  contextOverflowBatchSize: number
+  contextIdleFlushMinutes: number
+  maxShortTermMemoriesPerFlush: number
+  sleepEnabled: boolean
+  sleepTimeLocal: string
+  sleepIntervalDays: number
 }
 
 export interface MemoryConsolidationKeepAction {
@@ -143,8 +203,47 @@ function formatMemoryLayerLabel(layer: MemoryRecord['layer']): string {
   }
 }
 
+function buildPromptWithRequiredJsonContract(
+  promptOverride: string | null | undefined,
+  defaultLines: string[],
+  contractLines: string[],
+): string {
+  const override = promptOverride?.trim()
+  if (!override) {
+    return defaultLines.join('\n')
+  }
+
+  return [override, ...contractLines].join('\n')
+}
+
 function readOptionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function readPositiveInt(value: unknown, fallback: number) {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.floor(value)
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.floor(parsed)
+    }
+  }
+  return fallback
+}
+
+function readBoolean(value: unknown, fallback: boolean) {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function readSleepTime(value: unknown) {
+  if (typeof value !== 'string') {
+    return DEFAULT_SLEEP_TIME_LOCAL
+  }
+
+  const trimmed = value.trim()
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : DEFAULT_SLEEP_TIME_LOCAL
 }
 
 function readConfig(config: unknown): MemoryModuleConfig {
@@ -155,12 +254,23 @@ function readConfig(config: unknown): MemoryModuleConfig {
       summarizeModel: null,
       embeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
       retrieveTopK: DEFAULT_RETRIEVE_TOP_K,
+      contextWindowMessages: DEFAULT_CONTEXT_WINDOW_MESSAGES,
+      contextOverflowBatchSize: DEFAULT_CONTEXT_OVERFLOW_BATCH_SIZE,
+      contextIdleFlushMinutes: DEFAULT_CONTEXT_IDLE_FLUSH_MINUTES,
+      maxShortTermMemoriesPerFlush: DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH,
+      sleepEnabled: true,
+      sleepTimeLocal: DEFAULT_SLEEP_TIME_LOCAL,
+      sleepIntervalDays: DEFAULT_SLEEP_INTERVAL_DAYS,
       embedder,
       retrievePrompt: null,
       timeAnalyzerPrompt: null,
       semanticAnalyzerPrompt: null,
       summarizePrompt: null,
+      contextToShortTermPrompt: null,
+      shortTermToLongTermPrompt: null,
       fragmentPrompt: null,
+      shortTermFragmentPrompt: null,
+      fixedFragmentPrompt: null,
       consolidatePrompt: null,
     }
   }
@@ -177,6 +287,13 @@ function readConfig(config: unknown): MemoryModuleConfig {
     retrieveTopK: typeof record.retrieveTopK === 'number' && record.retrieveTopK > 0
       ? Math.floor(record.retrieveTopK)
       : DEFAULT_RETRIEVE_TOP_K,
+    contextWindowMessages: readPositiveInt(record.contextWindowMessages, DEFAULT_CONTEXT_WINDOW_MESSAGES),
+    contextOverflowBatchSize: readPositiveInt(record.contextOverflowBatchSize, DEFAULT_CONTEXT_OVERFLOW_BATCH_SIZE),
+    contextIdleFlushMinutes: readPositiveInt(record.contextIdleFlushMinutes, DEFAULT_CONTEXT_IDLE_FLUSH_MINUTES),
+    maxShortTermMemoriesPerFlush: readPositiveInt(record.maxShortTermMemoriesPerFlush, DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH),
+    sleepEnabled: readBoolean(record.sleepEnabled, true),
+    sleepTimeLocal: readSleepTime(record.sleepTimeLocal),
+    sleepIntervalDays: readPositiveInt(record.sleepIntervalDays, DEFAULT_SLEEP_INTERVAL_DAYS),
     embedder:
       record.embedder && typeof record.embedder === 'object' && 'embed' in record.embedder
         ? record.embedder as MemoryEmbedder
@@ -185,7 +302,11 @@ function readConfig(config: unknown): MemoryModuleConfig {
     timeAnalyzerPrompt: readOptionalText(record.timeAnalyzerPrompt),
     semanticAnalyzerPrompt: readOptionalText(record.semanticAnalyzerPrompt),
     summarizePrompt: readOptionalText(record.summarizePrompt),
+    contextToShortTermPrompt: readOptionalText(record.contextToShortTermPrompt),
+    shortTermToLongTermPrompt: readOptionalText(record.shortTermToLongTermPrompt),
     fragmentPrompt: readOptionalText(record.fragmentPrompt),
+    shortTermFragmentPrompt: readOptionalText(record.shortTermFragmentPrompt),
+    fixedFragmentPrompt: readOptionalText(record.fixedFragmentPrompt),
     consolidatePrompt: readOptionalText(record.consolidatePrompt),
   }
 }
@@ -196,12 +317,36 @@ export function resolveMemorySqliteConfig(config: unknown) {
     summarizeModel: resolved.summarizeModel,
     embeddingModel: resolved.embeddingModel,
     retrieveTopK: resolved.retrieveTopK,
+    contextWindowMessages: resolved.contextWindowMessages,
+    contextOverflowBatchSize: resolved.contextOverflowBatchSize,
+    contextIdleFlushMinutes: resolved.contextIdleFlushMinutes,
+    maxShortTermMemoriesPerFlush: resolved.maxShortTermMemoriesPerFlush,
+    sleepEnabled: resolved.sleepEnabled,
+    sleepTimeLocal: resolved.sleepTimeLocal,
+    sleepIntervalDays: resolved.sleepIntervalDays,
     retrievePrompt: resolved.retrievePrompt,
     timeAnalyzerPrompt: resolved.timeAnalyzerPrompt,
     semanticAnalyzerPrompt: resolved.semanticAnalyzerPrompt,
     summarizePrompt: resolved.summarizePrompt,
+    contextToShortTermPrompt: resolved.contextToShortTermPrompt,
+    shortTermToLongTermPrompt: resolved.shortTermToLongTermPrompt,
     fragmentPrompt: resolved.fragmentPrompt,
+    shortTermFragmentPrompt: resolved.shortTermFragmentPrompt,
+    fixedFragmentPrompt: resolved.fixedFragmentPrompt,
     consolidatePrompt: resolved.consolidatePrompt,
+  }
+}
+
+export function resolveMemoryPipelineSettings(config: unknown): MemoryPipelineSettings {
+  const resolved = readConfig(config)
+  return {
+    contextWindowMessages: resolved.contextWindowMessages,
+    contextOverflowBatchSize: resolved.contextOverflowBatchSize,
+    contextIdleFlushMinutes: resolved.contextIdleFlushMinutes,
+    maxShortTermMemoriesPerFlush: resolved.maxShortTermMemoriesPerFlush,
+    sleepEnabled: resolved.sleepEnabled,
+    sleepTimeLocal: resolved.sleepTimeLocal,
+    sleepIntervalDays: resolved.sleepIntervalDays,
   }
 }
 
@@ -213,11 +358,7 @@ export function isSqliteMemoryConfig(config: unknown): boolean {
 }
 
 export function buildSummaryPrompt(promptOverride?: string | null): string {
-  if (promptOverride?.trim()) {
-    return promptOverride.trim()
-  }
-
-  return [
+  const defaultLines = [
     '你负责把一轮已经完成的对话整理成后续可用的长期记忆。',
     '只允许使用提供的本轮对话文本，不要补充不存在的信息。',
     '请严格返回只有以下键的 JSON：',
@@ -225,7 +366,62 @@ export function buildSummaryPrompt(promptOverride?: string | null): string {
     WRITE_GUIDANCE,
     'importance 必须是 0 到 1 之间的数字。',
     '不要输出 markdown、代码块或任何额外说明。',
-  ].join('\n')
+  ]
+  const contractLines = [
+    '请严格返回 json，对象键只能是：',
+    '{"display_summary": string, "retrieval_text": string, "tags": string[], "importance": number}',
+    WRITE_GUIDANCE,
+    'importance 必须是 0 到 1 之间的数字。',
+    '不要输出 markdown、代码块或任何额外说明。',
+  ]
+
+  return buildPromptWithRequiredJsonContract(promptOverride, defaultLines, contractLines)
+}
+
+export function buildContextToShortTermPrompt(promptOverride?: string | null, maxMemories = DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH): string {
+  const defaultLines = [
+    '你负责把一大段旧上下文整理成短期记忆。',
+    `请从提供的消息片段里提炼最多 ${maxMemories} 条短期记忆。`,
+    '不要逐句复述聊天记录，只保留对后续对话最有价值的几个近期印象。',
+    '请严格返回如下 JSON 结构：',
+    '{"memories": Array<{"display_summary": string, "retrieval_text": string, "tags": string[], "importance": number}>}',
+    WRITE_GUIDANCE,
+    '如果这段上下文里没有值得留下的短期记忆，也必须返回 {"memories": []}。',
+    '不要输出 markdown、代码块或任何额外说明。',
+  ]
+  const contractLines = [
+    `请从提供的消息片段里提炼最多 ${maxMemories} 条短期记忆。`,
+    '请严格返回 json，结构必须是：',
+    '{"memories": Array<{"display_summary": string, "retrieval_text": string, "tags": string[], "importance": number}>}',
+    WRITE_GUIDANCE,
+    '如果这段上下文里没有值得留下的短期记忆，也必须返回 {"memories": []}。',
+    '不要输出 markdown、代码块或任何额外说明。',
+  ]
+
+  return buildPromptWithRequiredJsonContract(promptOverride, defaultLines, contractLines)
+}
+
+export function buildShortTermToLongTermPrompt(promptOverride?: string | null, maxMemories = DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH): string {
+  const defaultLines = [
+    '你负责在睡眠阶段把短期记忆沉淀成更稳定的长期记忆。',
+    `请从提供的短期记忆里整理出最多 ${maxMemories} 条长期记忆。`,
+    '长期记忆应更稳定、更抽象，不要保留太多转瞬即逝的聊天细节。',
+    '请严格返回如下 JSON 结构：',
+    '{"memories": Array<{"display_summary": string, "retrieval_text": string, "tags": string[], "importance": number}>}',
+    WRITE_GUIDANCE,
+    '如果没有值得沉淀的长期记忆，也必须返回 {"memories": []}。',
+    '不要输出 markdown、代码块或任何额外说明。',
+  ]
+  const contractLines = [
+    `请从提供的短期记忆里整理出最多 ${maxMemories} 条长期记忆。`,
+    '请严格返回 json，结构必须是：',
+    '{"memories": Array<{"display_summary": string, "retrieval_text": string, "tags": string[], "importance": number}>}',
+    WRITE_GUIDANCE,
+    '如果没有值得沉淀的长期记忆，也必须返回 {"memories": []}。',
+    '不要输出 markdown、代码块或任何额外说明。',
+  ]
+
+  return buildPromptWithRequiredJsonContract(promptOverride, defaultLines, contractLines)
 }
 
 function resolveTimeAnalyzerPromptOverride(config: Pick<MemoryModuleConfig, 'timeAnalyzerPrompt' | 'retrievePrompt'>) {
@@ -237,11 +433,7 @@ function resolveSemanticAnalyzerPromptOverride(config: Pick<MemoryModuleConfig, 
 }
 
 export function buildTimeAnalyzerPrompt(promptOverride?: string | null): string {
-  if (promptOverride?.trim()) {
-    return promptOverride.trim()
-  }
-
-  return [
+  const defaultLines = [
     '你是 sqlite 记忆系统的时间分析器。',
     '你会收到电脑当前的本地时间，以及用户最新一条消息。',
     '请严格返回如下 JSON 结构：',
@@ -259,15 +451,19 @@ export function buildTimeAnalyzerPrompt(promptOverride?: string | null): string 
     '“今天上午/今天下午/今晚/昨晚/今早/昨天上午”要对应最窄、最贴近原话的局部时间窗口，不要扩大成整天，不要跨到其他时段，也不要跨到下一天；如果该时段尚未发生，就回指最近一个已经结束的同类过去时段。',
     '"start" 和 "end" 必须是 ISO 8601 datetime 字符串。',
     '不要输出 markdown、代码块或任何额外说明。',
-  ].join('\n')
+  ]
+  const contractLines = [
+    '请严格返回 json，结构只能是：',
+    '{"time_range": {"start": string, "end": string} | null}',
+    '"start" 和 "end" 必须是 ISO 8601 datetime 字符串。',
+    '不要输出 markdown、代码块或任何额外说明。',
+  ]
+
+  return buildPromptWithRequiredJsonContract(promptOverride, defaultLines, contractLines)
 }
 
 export function buildSemanticAnalyzerPrompt(promptOverride?: string | null): string {
-  if (promptOverride?.trim()) {
-    return promptOverride.trim()
-  }
-
-  return [
+  const defaultLines = [
     '你是 sqlite 记忆系统的语义分析器。',
     '你会收到用户最新一条消息。',
     '请严格返回如下 JSON 结构：',
@@ -285,7 +481,14 @@ export function buildSemanticAnalyzerPrompt(promptOverride?: string | null): str
     'retrieval_query 和 focus 默认使用与用户消息相同的语言；中文提问就用中文，不要改成英文。',
     'focus 只写简短关注点；没有明显 focus 就返回 null。',
     '不要输出 markdown、代码块或任何额外说明。',
-  ].join('\n')
+  ]
+  const contractLines = [
+    '请严格返回 json，结构只能是：',
+    '{"retrieval_query": string | null, "focus": string | null}',
+    '不要输出 markdown、代码块或任何额外说明。',
+  ]
+
+  return buildPromptWithRequiredJsonContract(promptOverride, defaultLines, contractLines)
 }
 
 export function buildMemoryFragmentPrompt(promptOverride?: string | null): string {
@@ -306,28 +509,80 @@ export function buildMemoryFragmentPrompt(promptOverride?: string | null): strin
   ].join('\n')
 }
 
-function renderMemoryFragment(memories: MemoryRecord[], promptOverride?: string | null): string | null {
-  if (memories.length === 0) {
-    return null
-  }
-
-  const [primaryMemory, ...secondaryMemories] = memories
-  const renderMemoryLine = (label: string, memory: MemoryRecord) =>
-    `${label}：[${formatMemoryLayerLabel(memory.layer)}][${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.displaySummary}`
-
+export function buildShortTermFragmentPrompt(promptOverride?: string | null): string {
   if (promptOverride?.trim()) {
-    return [
-      buildMemoryFragmentPrompt(promptOverride),
-      renderMemoryLine('最相关记忆', primaryMemory),
-      ...secondaryMemories.map((memory) => renderMemoryLine('补充记忆', memory)),
-    ].join('\n')
+    return promptOverride.trim()
   }
 
   return [
-    buildMemoryFragmentPrompt(),
-    renderMemoryLine('最相关记忆（优先回答）', primaryMemory),
-    ...secondaryMemories.map((memory) => renderMemoryLine('补充记忆', memory)),
+    '下面是本轮检索到的短期记忆。',
+    '它们代表你近期还能想起的印象和刚过去不久的互动。',
+    '如果这些短期记忆足以回答，就直接基于它们回答。',
   ].join('\n')
+}
+
+export function buildFixedMemoryFragmentPrompt(promptOverride?: string | null): string {
+  if (promptOverride?.trim()) {
+    return promptOverride.trim()
+  }
+
+  return [
+    '下面是本轮检索到的固化记忆。',
+    '它们代表稳定、长期成立的事实或偏好。',
+    '如果这些固化记忆相关，就把它们当作可靠背景来使用。',
+  ].join('\n')
+}
+
+export function buildLongTermSearchToolPrompt() {
+  return [
+    '只在当前上下文、短期记忆和固化记忆仍不足以回答时，才搜索长期记忆。',
+    '不要把长期记忆搜索当成默认动作。',
+    '每轮最多调用一次。',
+    '如果工具返回未搜索到相关记忆，就直接接受这个结果，不要继续重复搜索或编造旧事。',
+  ].join(' ')
+}
+
+function renderMemoryLayerResult(input: {
+  title: string
+  missText: string
+  memories: MemoryRecord[]
+  prompt: string
+}): string {
+  if (input.memories.length === 0) {
+    return [input.prompt, input.missText].join('\n')
+  }
+
+  const [primaryMemory, ...secondaryMemories] = input.memories
+  const renderMemoryLine = (label: string, memory: MemoryRecord) =>
+    `${label}：[${formatMemoryLayerLabel(memory.layer)}][${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.displaySummary}`
+
+  return [
+    input.prompt,
+    renderMemoryLine(`${input.title}最相关记忆`, primaryMemory),
+    ...secondaryMemories.map((memory) => renderMemoryLine(`${input.title}补充记忆`, memory)),
+  ].join('\n')
+}
+
+function renderLayeredMemoryFragment(input: {
+  shortTermMemories: MemoryRecord[]
+  fixedMemories: MemoryRecord[]
+  shortTermPrompt?: string | null
+  fixedPrompt?: string | null
+}): string {
+  return [
+    renderMemoryLayerResult({
+      title: '短期',
+      memories: input.shortTermMemories,
+      prompt: buildShortTermFragmentPrompt(input.shortTermPrompt),
+      missText: '短期记忆检索结果：未搜索到相关记忆。',
+    }),
+    renderMemoryLayerResult({
+      title: '固化',
+      memories: input.fixedMemories,
+      prompt: buildFixedMemoryFragmentPrompt(input.fixedPrompt),
+      missText: '固化记忆检索结果：未搜索到相关记忆。',
+    }),
+  ].join('\n\n')
 }
 
 function extractResponseText(ctx: TurnContext): string {
@@ -413,6 +668,53 @@ function buildSourceText(ctx: TurnContext): string {
   ].join('\n'), MAX_MEMORY_CONTENT_CHARS)
 }
 
+export function buildContextToShortTermSourceText(messages: ConversationMessage[]): string {
+  const lines: string[] = ['待整理的旧上下文：']
+  for (const message of messages) {
+    lines.push(`${message.role === 'user' ? '用户' : message.role === 'assistant' ? '助手' : '系统'}：${extractConversationMessageText(message)}`)
+  }
+  return truncate(lines.join('\n'), MAX_MEMORY_CONTENT_CHARS * 4)
+}
+
+export function buildShortTermToLongTermSourceText(memories: MemoryRecord[]): string {
+  return [
+    '待沉淀的短期记忆：',
+    JSON.stringify(
+      memories.map((memory) => ({
+        id: memory.id,
+        display_summary: memory.displaySummary,
+        retrieval_text: memory.retrievalText,
+        tags: memory.tags,
+        importance: memory.importance,
+        createdAt: memory.createdAt.toISOString(),
+      })),
+      null,
+      2,
+    ),
+  ].join('\n')
+}
+
+function extractConversationMessageText(message: ConversationMessage): string {
+  if (typeof message.content === 'string') {
+    return message.content
+  }
+
+  return message.content
+    .map((block) => {
+      if (block.type === 'text' && typeof block.text === 'string') {
+        return block.text
+      }
+      if (block.type === 'tool_use' && block.name) {
+        return `[tool_use:${block.name}]`
+      }
+      if (block.type === 'tool_result' && typeof block.content === 'string') {
+        return `[tool_result] ${block.content}`
+      }
+      return JSON.stringify(block)
+    })
+    .join('\n')
+}
+
 function extractJson(text: string): unknown {
   const withoutFences = text
     .trim()
@@ -447,7 +749,7 @@ function normalizeImportance(value: unknown): number {
   return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : 0.5
 }
 
-function parseMemoryWriteResponse(responseText: string): MemoryWriteResult {
+export function parseMemoryWriteResponse(responseText: string): MemoryWriteResult {
   const parsed = extractJson(responseText)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Memory summarize call did not return a JSON object')
@@ -467,6 +769,41 @@ function parseMemoryWriteResponse(responseText: string): MemoryWriteResult {
     tags: normalizeTags(record.tags),
     importance: normalizeImportance(record.importance),
   }
+}
+
+export function parseMemoryBatchWriteResponse(responseText: string, maxCount: number): MemoryWriteResult[] {
+  const parsed = extractJson(responseText)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Memory batch call did not return a JSON object')
+  }
+
+  const rawMemories = (parsed as { memories?: unknown }).memories
+  if (!Array.isArray(rawMemories)) {
+    throw new Error('Memory batch call did not return a memories array')
+  }
+
+  return rawMemories
+    .slice(0, maxCount)
+    .map((memory, index) => {
+      if (!memory || typeof memory !== 'object' || Array.isArray(memory)) {
+        throw new Error(`Memory batch item ${index} is not an object`)
+      }
+
+      const record = memory as Record<string, unknown>
+      const displaySummary = typeof record.display_summary === 'string' ? record.display_summary.trim() : ''
+      const retrievalText = typeof record.retrieval_text === 'string' ? record.retrieval_text.trim() : ''
+
+      if (!displaySummary || !retrievalText) {
+        throw new Error(`Memory batch item ${index} is missing display_summary or retrieval_text`)
+      }
+
+      return {
+        displaySummary,
+        retrievalText,
+        tags: normalizeTags(record.tags),
+        importance: normalizeImportance(record.importance),
+      }
+    })
 }
 
 function parseDateWithPrecision(value: string, side: 'start' | 'end'): Date {
@@ -548,11 +885,7 @@ function parseSemanticAnalyzerResponse(responseText: string): MemorySemanticAnal
 }
 
 export function buildMemoryConsolidationPrompt(promptOverride?: string | null): string {
-  if (promptOverride?.trim()) {
-    return promptOverride.trim()
-  }
-
-  return [
+  const defaultLines = [
     '你要为单个 agent 整理已经存储的 sqlite 记忆。',
     '只允许使用提供的记忆列表，不要补充外部信息。',
     '请严格返回如下 JSON 结构：',
@@ -566,7 +899,21 @@ export function buildMemoryConsolidationPrompt(promptOverride?: string | null): 
     WRITE_GUIDANCE,
     'importance 必须是 0 到 1 之间的数字。',
     '不要输出 markdown、代码块或任何额外说明。',
-  ].join('\n')
+  ]
+  const contractLines = [
+    '请严格返回 json，结构必须是：',
+    '{"actions": Array<keep|rewrite|merge>}',
+    'keep 动作：{"op":"keep","id":"memory-id"}',
+    'rewrite 动作：{"op":"rewrite","id":"memory-id","display_summary":string,"retrieval_text":string,"tags":string[],"importance":number}',
+    'merge 动作：{"op":"merge","sourceIds":string[],"display_summary":string,"retrieval_text":string,"tags":string[],"importance":number}',
+    '同一个 memory id 最多只能出现在一个动作里。',
+    'merge 时 sourceIds 至少要包含 2 个 id。',
+    WRITE_GUIDANCE,
+    'importance 必须是 0 到 1 之间的数字。',
+    '不要输出 markdown、代码块或任何额外说明。',
+  ]
+
+  return buildPromptWithRequiredJsonContract(promptOverride, defaultLines, contractLines)
 }
 
 export function buildMemoryConsolidationSourceText(memories: MemoryRecord[]): string {
@@ -668,11 +1015,22 @@ export class MemorySqliteSystem implements AgentSystem {
   private readonly embeddingModel: string
   private readonly retrieveTopK: number
   private readonly embedder: MemoryEmbedder
+  private readonly contextWindowMessages: number
+  private readonly contextOverflowBatchSize: number
+  private readonly contextIdleFlushMinutes: number
+  private readonly maxShortTermMemoriesPerFlush: number
+  private readonly sleepEnabled: boolean
+  private readonly sleepTimeLocal: string
+  private readonly sleepIntervalDays: number
   private readonly legacyRetrievePrompt: string | null
   private readonly timeAnalyzerPrompt: string | null
   private readonly semanticAnalyzerPrompt: string | null
   private readonly summarizePrompt: string | null
+  private readonly contextToShortTermPrompt: string | null
+  private readonly shortTermToLongTermPrompt: string | null
   private readonly fragmentPrompt: string | null
+  private readonly shortTermFragmentPrompt: string | null
+  private readonly fixedFragmentPrompt: string | null
 
   constructor(config?: unknown) {
     const resolved = readConfig(config)
@@ -680,11 +1038,22 @@ export class MemorySqliteSystem implements AgentSystem {
     this.embeddingModel = resolved.embeddingModel
     this.retrieveTopK = resolved.retrieveTopK
     this.embedder = resolved.embedder
+    this.contextWindowMessages = resolved.contextWindowMessages
+    this.contextOverflowBatchSize = resolved.contextOverflowBatchSize
+    this.contextIdleFlushMinutes = resolved.contextIdleFlushMinutes
+    this.maxShortTermMemoriesPerFlush = resolved.maxShortTermMemoriesPerFlush
+    this.sleepEnabled = resolved.sleepEnabled
+    this.sleepTimeLocal = resolved.sleepTimeLocal
+    this.sleepIntervalDays = resolved.sleepIntervalDays
     this.legacyRetrievePrompt = resolved.retrievePrompt
     this.timeAnalyzerPrompt = resolved.timeAnalyzerPrompt
     this.semanticAnalyzerPrompt = resolved.semanticAnalyzerPrompt
     this.summarizePrompt = resolved.summarizePrompt
+    this.contextToShortTermPrompt = resolved.contextToShortTermPrompt
+    this.shortTermToLongTermPrompt = resolved.shortTermToLongTermPrompt
     this.fragmentPrompt = resolved.fragmentPrompt
+    this.shortTermFragmentPrompt = resolved.shortTermFragmentPrompt
+    this.fixedFragmentPrompt = resolved.fixedFragmentPrompt
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
@@ -737,12 +1106,24 @@ export class MemorySqliteSystem implements AgentSystem {
           inputType: 'search_query',
         })
 
-        return memoryRepo.findRelevantMemories({
-          agentId: ctx.agentId,
-          queryEmbeddings,
-          topK: this.retrieveTopK,
-          timeRange: query.timeRange,
-        })
+        const [shortTerm, fixed] = await Promise.all([
+          Promise.resolve(memoryRepo.findRelevantMemories({
+            agentId: ctx.agentId,
+            queryEmbeddings,
+            topK: this.retrieveTopK,
+            layers: ['short_term'],
+            timeRange: query.timeRange,
+          })),
+          Promise.resolve(memoryRepo.findRelevantMemories({
+            agentId: ctx.agentId,
+            queryEmbeddings,
+            topK: this.retrieveTopK,
+            layers: ['fixed'],
+            timeRange: query.timeRange,
+          })),
+        ])
+
+        return { shortTerm, fixed }
       },
     }
 
@@ -750,11 +1131,14 @@ export class MemorySqliteSystem implements AgentSystem {
   }
 
   async beforeLLM(ctx: TurnContext): Promise<void> {
-    const memories = Array.isArray(ctx.state.memories) ? ctx.state.memories : []
-    const content = renderMemoryFragment(memories, this.fragmentPrompt)
-    if (!content) {
-      return
-    }
+    const shortTermMemories = Array.isArray(ctx.state.shortTermMemories) ? ctx.state.shortTermMemories : []
+    const fixedMemories = Array.isArray(ctx.state.fixedMemories) ? ctx.state.fixedMemories : []
+    const content = renderLayeredMemoryFragment({
+      shortTermMemories,
+      fixedMemories,
+      shortTermPrompt: this.shortTermFragmentPrompt ?? this.fragmentPrompt,
+      fixedPrompt: this.fixedFragmentPrompt ?? this.fragmentPrompt,
+    })
 
     ctx.promptFragments.push({
       source: this.name,
@@ -764,41 +1148,6 @@ export class MemorySqliteSystem implements AgentSystem {
   }
 
   async afterTurn(ctx: TurnContext): Promise<void> {
-    const sourceText = buildSourceText(ctx)
-    if (!sourceText) {
-      return
-    }
-
-    const pending: PendingMemoryWrite = {
-      kind: 'sqlite',
-      system: this.name,
-      model: this.summarizeModel,
-      reasoning: { effort: 'none' },
-      responseFormat: MEMORY_WRITE_RESPONSE_FORMAT,
-      prompt: buildSummaryPrompt(this.summarizePrompt),
-      sourceText,
-      parse: parseMemoryWriteResponse,
-      persist: async (result) => {
-        const [retrievalEmbedding] = await this.embedder.embed([result.retrievalText], {
-          model: this.embeddingModel,
-          inputType: 'search_document',
-        })
-
-        return memoryRepo.addMemory({
-          agentId: ctx.agentId,
-          sessionId: ctx.sessionId,
-          layer: 'short_term',
-          sourceText,
-          displaySummary: result.displaySummary,
-          retrievalText: result.retrievalText,
-          retrievalEmbedding: retrievalEmbedding ?? [],
-          retrievalModel: this.embeddingModel,
-          tags: result.tags,
-          importance: result.importance,
-        })
-      },
-    }
-
-    ctx.pendingMemoryWrite = pending
+    ctx.pendingMemoryWrite = undefined
   }
 }

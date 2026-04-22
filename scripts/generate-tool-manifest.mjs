@@ -14,6 +14,7 @@ const ignoredFiles = new Set([
   'types.ts',
 ])
 const enabledDefaultToolFiles = new Set([
+  'search-long-term-memory.ts',
   'web-fetch.ts',
 ])
 

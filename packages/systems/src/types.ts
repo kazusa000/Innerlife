@@ -97,6 +97,11 @@ export interface MemorySemanticAnalysisResult {
   focus: string | null
 }
 
+export interface MemoryLayeredRetrieveResult {
+  shortTerm: MemoryRecord[]
+  fixed: MemoryRecord[]
+}
+
 export interface PendingMemoryQueryAnalyzer<Result> {
   prompt: string
   inputText: string
@@ -127,7 +132,7 @@ export interface PendingMemoryQuery {
     time: MemoryTimeAnalysisResult | null
     semantic: MemorySemanticAnalysisResult
   }): MemoryQueryResult
-  retrieve(query: MemoryQueryResult): Promise<MemoryRecord[]> | MemoryRecord[]
+  retrieve(query: MemoryQueryResult): Promise<MemoryLayeredRetrieveResult> | MemoryLayeredRetrieveResult
 }
 
 export interface EmotionStateVector {
@@ -204,6 +209,8 @@ export interface TurnContext {
   }
   state: {
     memories?: MemoryRecord[]
+    shortTermMemories?: MemoryRecord[]
+    fixedMemories?: MemoryRecord[]
     [key: string]: unknown
   }
   turnMetadata: Record<string, unknown>

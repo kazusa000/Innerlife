@@ -116,3 +116,8 @@ export function deleteEmotionStatesByAgent(agentId: string) {
   const db = getDb()
   db.delete(emotionStates).where(eq(emotionStates.agentId, agentId)).run()
 }
+
+export function deleteEmotionStatesBySession(sessionId: string) {
+  const db = getDb()
+  db.delete(emotionStates).where(eq(emotionStates.sessionId, sessionId)).run()
+}

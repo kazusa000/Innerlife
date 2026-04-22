@@ -1,11 +1,23 @@
-import { agentRepo, memoryRepo } from '@mas/db'
 import {
+  agentMemorySleepStateRepo,
+  agentRepo,
+  memoryRepo,
+  messageRepo,
+  sessionContextStateRepo,
+  sessionRepo,
+} from '@mas/db'
+import {
+  buildContextToShortTermPrompt,
+  buildFixedMemoryFragmentPrompt,
   buildMemoryConsolidationPrompt,
   buildMemoryFragmentPrompt,
   buildSemanticAnalyzerPrompt,
+  buildShortTermFragmentPrompt,
+  buildShortTermToLongTermPrompt,
   buildSummaryPrompt,
   buildTimeAnalyzerPrompt,
   isSqliteMemoryConfig,
+  resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
 } from '@mas/systems'
 
@@ -19,6 +31,8 @@ type MemoryListOptions = {
   layer?: 'short_term' | 'long_term' | 'fixed'
 }
 
+type SessionMessageRecord = ReturnType<typeof messageRepo.getSessionMessages>[number]
+
 function readOptionalText(value: unknown) {
   if (typeof value !== 'string') {
     return null
@@ -26,6 +40,35 @@ function readOptionalText(value: unknown) {
 
   const trimmed = value.trim()
   return trimmed || null
+}
+
+function readOptionalInt(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.floor(value)
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.floor(parsed)
+    }
+  }
+  return null
+}
+
+function hasOwn(body: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(body, key)
+}
+
+function selectActiveDbMessages(
+  dbMessages: SessionMessageRecord[],
+  activeStartMessageId: string | null | undefined,
+) {
+  if (!activeStartMessageId) {
+    return []
+  }
+
+  const startIndex = dbMessages.findIndex((message) => message.id === activeStartMessageId)
+  return startIndex >= 0 ? dbMessages.slice(startIndex) : dbMessages
 }
 
 export function listSqliteMemories(agentId: string, query?: string, options: MemoryListOptions = {}) {
@@ -39,6 +82,7 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
   }
 
   const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+  const pipelineSettings = resolveMemoryPipelineSettings(agent.modules?.memory)
   const page = typeof options.page === 'number' ? options.page : 1
   const pageSize = typeof options.pageSize === 'number' ? options.pageSize : 20
   const result = memoryRepo.listSqliteMemoriesPageByAgent({
@@ -48,6 +92,19 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     page,
     pageSize,
   })
+  const activeSession = sessionRepo.getLatestActiveSessionByAgent(agentId)
+  const contextState = activeSession
+    ? sessionContextStateRepo.getSessionContextState(activeSession.id)
+    : undefined
+  const activeSessionMessages = activeSession
+    ? messageRepo.getSessionMessages(activeSession.id)
+    : []
+  const activeMessages = selectActiveDbMessages(
+    activeSessionMessages,
+    contextState?.activeStartMessageId
+      ?? (activeSessionMessages[0]?.id ?? null),
+  )
+  const sleepState = agentMemorySleepStateRepo.getAgentMemorySleepState(agentId)
 
   return Response.json({
     agentId,
@@ -59,6 +116,13 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     total: result.total,
     summarizeModel: memoryConfig.summarizeModel,
     embeddingModel: memoryConfig.embeddingModel,
+    contextWindowMessages: pipelineSettings.contextWindowMessages,
+    contextOverflowBatchSize: pipelineSettings.contextOverflowBatchSize,
+    contextIdleFlushMinutes: pipelineSettings.contextIdleFlushMinutes,
+    maxShortTermMemoriesPerFlush: pipelineSettings.maxShortTermMemoriesPerFlush,
+    sleepEnabled: pipelineSettings.sleepEnabled,
+    sleepTimeLocal: pipelineSettings.sleepTimeLocal,
+    sleepIntervalDays: pipelineSettings.sleepIntervalDays,
     timeAnalyzerPrompt:
       readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.timeAnalyzerPrompt)
       ?? readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.retrievePrompt),
@@ -66,7 +130,11 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
       readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.semanticAnalyzerPrompt)
       ?? readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.retrievePrompt),
     summarizePrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.summarizePrompt),
+    contextToShortTermPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.contextToShortTermPrompt),
+    shortTermToLongTermPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.shortTermToLongTermPrompt),
     fragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fragmentPrompt),
+    shortTermFragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.shortTermFragmentPrompt),
+    fixedFragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fixedFragmentPrompt),
     consolidatePrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.consolidatePrompt),
     timeAnalyzerPromptDefault: buildTimeAnalyzerPrompt(),
     timeAnalyzerPromptEffective: buildTimeAnalyzerPrompt(memoryConfig.timeAnalyzerPrompt ?? memoryConfig.retrievePrompt),
@@ -74,10 +142,36 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt),
     summarizePromptDefault: buildSummaryPrompt(),
     summarizePromptEffective: buildSummaryPrompt(memoryConfig.summarizePrompt),
+    contextToShortTermPromptDefault: buildContextToShortTermPrompt(null, pipelineSettings.maxShortTermMemoriesPerFlush),
+    contextToShortTermPromptEffective: buildContextToShortTermPrompt(
+      memoryConfig.contextToShortTermPrompt ?? memoryConfig.summarizePrompt,
+      pipelineSettings.maxShortTermMemoriesPerFlush,
+    ),
+    shortTermToLongTermPromptDefault: buildShortTermToLongTermPrompt(null, pipelineSettings.maxShortTermMemoriesPerFlush),
+    shortTermToLongTermPromptEffective: buildShortTermToLongTermPrompt(
+      memoryConfig.shortTermToLongTermPrompt ?? memoryConfig.consolidatePrompt,
+      pipelineSettings.maxShortTermMemoriesPerFlush,
+    ),
     fragmentPromptDefault: buildMemoryFragmentPrompt(),
     fragmentPromptEffective: buildMemoryFragmentPrompt(memoryConfig.fragmentPrompt),
+    shortTermFragmentPromptDefault: buildShortTermFragmentPrompt(),
+    shortTermFragmentPromptEffective: buildShortTermFragmentPrompt(memoryConfig.shortTermFragmentPrompt ?? memoryConfig.fragmentPrompt),
+    fixedFragmentPromptDefault: buildFixedMemoryFragmentPrompt(),
+    fixedFragmentPromptEffective: buildFixedMemoryFragmentPrompt(memoryConfig.fixedFragmentPrompt ?? memoryConfig.fragmentPrompt),
     consolidatePromptDefault: buildMemoryConsolidationPrompt(),
     consolidatePromptEffective: buildMemoryConsolidationPrompt(memoryConfig.consolidatePrompt),
+    context: {
+      activeSessionId: activeSession?.id ?? null,
+      activeStartMessageId: contextState?.activeStartMessageId ?? (activeSessionMessages[0]?.id ?? null),
+      pendingFlushUntilMessageId: contextState?.pendingFlushUntilMessageId ?? null,
+      activeMessageCount: activeMessages.length,
+      totalSessionMessages: activeSessionMessages.length,
+      lastUserMessageAt: contextState?.lastUserMessageAt?.toISOString() ?? null,
+      lastContextFlushAt: contextState?.lastContextFlushAt?.toISOString() ?? null,
+    },
+    sleep: {
+      lastSleepAt: sleepState?.lastSleepAt?.toISOString() ?? null,
+    },
     memories: result.memories.map((memory) => ({
       id: memory.id,
       sessionId: memory.sessionId,
@@ -112,8 +206,13 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     'timeAnalyzerPrompt',
     'semanticAnalyzerPrompt',
     'summarizePrompt',
+    'contextToShortTermPrompt',
+    'shortTermToLongTermPrompt',
     'fragmentPrompt',
+    'shortTermFragmentPrompt',
+    'fixedFragmentPrompt',
     'consolidatePrompt',
+    'sleepTimeLocal',
   ] as const
 
   for (const field of stringOrNullFields) {
@@ -131,19 +230,33 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     ? { ...nextModules.memory }
     : { scheme: 'sqlite' }
   const nextValues = {
-    summarizeModel: readOptionalText(body.summarizeModel),
-    embeddingModel: readOptionalText(body.embeddingModel),
-    timeAnalyzerPrompt: readOptionalText(body.timeAnalyzerPrompt),
-    semanticAnalyzerPrompt: readOptionalText(body.semanticAnalyzerPrompt),
-    summarizePrompt: readOptionalText(body.summarizePrompt),
-    fragmentPrompt: readOptionalText(body.fragmentPrompt),
-    consolidatePrompt: readOptionalText(body.consolidatePrompt),
+    summarizeModel: hasOwn(body, 'summarizeModel') ? readOptionalText(body.summarizeModel) : undefined,
+    embeddingModel: hasOwn(body, 'embeddingModel') ? readOptionalText(body.embeddingModel) : undefined,
+    contextWindowMessages: hasOwn(body, 'contextWindowMessages') ? readOptionalInt(body.contextWindowMessages) : undefined,
+    contextOverflowBatchSize: hasOwn(body, 'contextOverflowBatchSize') ? readOptionalInt(body.contextOverflowBatchSize) : undefined,
+    contextIdleFlushMinutes: hasOwn(body, 'contextIdleFlushMinutes') ? readOptionalInt(body.contextIdleFlushMinutes) : undefined,
+    maxShortTermMemoriesPerFlush: hasOwn(body, 'maxShortTermMemoriesPerFlush') ? readOptionalInt(body.maxShortTermMemoriesPerFlush) : undefined,
+    sleepEnabled: hasOwn(body, 'sleepEnabled') ? (typeof body.sleepEnabled === 'boolean' ? body.sleepEnabled : null) : undefined,
+    sleepTimeLocal: hasOwn(body, 'sleepTimeLocal') ? readOptionalText(body.sleepTimeLocal) : undefined,
+    sleepIntervalDays: hasOwn(body, 'sleepIntervalDays') ? readOptionalInt(body.sleepIntervalDays) : undefined,
+    timeAnalyzerPrompt: hasOwn(body, 'timeAnalyzerPrompt') ? readOptionalText(body.timeAnalyzerPrompt) : undefined,
+    semanticAnalyzerPrompt: hasOwn(body, 'semanticAnalyzerPrompt') ? readOptionalText(body.semanticAnalyzerPrompt) : undefined,
+    summarizePrompt: hasOwn(body, 'summarizePrompt') ? readOptionalText(body.summarizePrompt) : undefined,
+    contextToShortTermPrompt: hasOwn(body, 'contextToShortTermPrompt') ? readOptionalText(body.contextToShortTermPrompt) : undefined,
+    shortTermToLongTermPrompt: hasOwn(body, 'shortTermToLongTermPrompt') ? readOptionalText(body.shortTermToLongTermPrompt) : undefined,
+    fragmentPrompt: hasOwn(body, 'fragmentPrompt') ? readOptionalText(body.fragmentPrompt) : undefined,
+    shortTermFragmentPrompt: hasOwn(body, 'shortTermFragmentPrompt') ? readOptionalText(body.shortTermFragmentPrompt) : undefined,
+    fixedFragmentPrompt: hasOwn(body, 'fixedFragmentPrompt') ? readOptionalText(body.fixedFragmentPrompt) : undefined,
+    consolidatePrompt: hasOwn(body, 'consolidatePrompt') ? readOptionalText(body.consolidatePrompt) : undefined,
   }
 
   nextMemory.scheme = 'sqlite'
   delete nextMemory.retrievePrompt
   for (const [key, value] of Object.entries(nextValues)) {
-    if (value) {
+    if (value === undefined) {
+      continue
+    }
+    if (value !== null) {
       nextMemory[key] = value
     } else {
       delete nextMemory[key]
@@ -152,26 +265,57 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   nextModules.memory = nextMemory
 
   agentRepo.updateAgent(agentId, { modules: nextModules })
+  const resolvedMemory = resolveMemorySqliteConfig(nextMemory)
+  const resolvedPipeline = resolveMemoryPipelineSettings(nextMemory)
 
   return Response.json({
     agentId,
     scheme: 'sqlite',
-    summarizeModel: nextValues.summarizeModel,
-    embeddingModel: nextValues.embeddingModel,
-    timeAnalyzerPrompt: nextValues.timeAnalyzerPrompt,
-    semanticAnalyzerPrompt: nextValues.semanticAnalyzerPrompt,
-    summarizePrompt: nextValues.summarizePrompt,
-    fragmentPrompt: nextValues.fragmentPrompt,
-    consolidatePrompt: nextValues.consolidatePrompt,
+    summarizeModel: resolvedMemory.summarizeModel,
+    embeddingModel: resolvedMemory.embeddingModel,
+    contextWindowMessages: resolvedPipeline.contextWindowMessages,
+    contextOverflowBatchSize: resolvedPipeline.contextOverflowBatchSize,
+    contextIdleFlushMinutes: resolvedPipeline.contextIdleFlushMinutes,
+    maxShortTermMemoriesPerFlush: resolvedPipeline.maxShortTermMemoriesPerFlush,
+    sleepEnabled: resolvedPipeline.sleepEnabled,
+    sleepTimeLocal: resolvedPipeline.sleepTimeLocal,
+    sleepIntervalDays: resolvedPipeline.sleepIntervalDays,
+    timeAnalyzerPrompt: resolvedMemory.timeAnalyzerPrompt ?? resolvedMemory.retrievePrompt,
+    semanticAnalyzerPrompt: resolvedMemory.semanticAnalyzerPrompt ?? resolvedMemory.retrievePrompt,
+    summarizePrompt: resolvedMemory.summarizePrompt,
+    contextToShortTermPrompt: resolvedMemory.contextToShortTermPrompt,
+    shortTermToLongTermPrompt: resolvedMemory.shortTermToLongTermPrompt,
+    fragmentPrompt: resolvedMemory.fragmentPrompt,
+    shortTermFragmentPrompt: resolvedMemory.shortTermFragmentPrompt ?? resolvedMemory.fragmentPrompt,
+    fixedFragmentPrompt: resolvedMemory.fixedFragmentPrompt ?? resolvedMemory.fragmentPrompt,
+    consolidatePrompt: resolvedMemory.consolidatePrompt,
     timeAnalyzerPromptDefault: buildTimeAnalyzerPrompt(),
-    timeAnalyzerPromptEffective: buildTimeAnalyzerPrompt(nextValues.timeAnalyzerPrompt),
+    timeAnalyzerPromptEffective: buildTimeAnalyzerPrompt(resolvedMemory.timeAnalyzerPrompt ?? resolvedMemory.retrievePrompt),
     semanticAnalyzerPromptDefault: buildSemanticAnalyzerPrompt(),
-    semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(nextValues.semanticAnalyzerPrompt),
+    semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(resolvedMemory.semanticAnalyzerPrompt ?? resolvedMemory.retrievePrompt),
     summarizePromptDefault: buildSummaryPrompt(),
-    summarizePromptEffective: buildSummaryPrompt(nextValues.summarizePrompt),
+    summarizePromptEffective: buildSummaryPrompt(resolvedMemory.summarizePrompt),
+    contextToShortTermPromptDefault: buildContextToShortTermPrompt(null, resolvedPipeline.maxShortTermMemoriesPerFlush),
+    contextToShortTermPromptEffective: buildContextToShortTermPrompt(
+      resolvedMemory.contextToShortTermPrompt ?? resolvedMemory.summarizePrompt,
+      resolvedPipeline.maxShortTermMemoriesPerFlush,
+    ),
+    shortTermToLongTermPromptDefault: buildShortTermToLongTermPrompt(null, resolvedPipeline.maxShortTermMemoriesPerFlush),
+    shortTermToLongTermPromptEffective: buildShortTermToLongTermPrompt(
+      resolvedMemory.shortTermToLongTermPrompt ?? resolvedMemory.consolidatePrompt,
+      resolvedPipeline.maxShortTermMemoriesPerFlush,
+    ),
     fragmentPromptDefault: buildMemoryFragmentPrompt(),
-    fragmentPromptEffective: buildMemoryFragmentPrompt(nextValues.fragmentPrompt),
+    fragmentPromptEffective: buildMemoryFragmentPrompt(resolvedMemory.fragmentPrompt),
+    shortTermFragmentPromptDefault: buildShortTermFragmentPrompt(),
+    shortTermFragmentPromptEffective: buildShortTermFragmentPrompt(
+      resolvedMemory.shortTermFragmentPrompt ?? resolvedMemory.fragmentPrompt,
+    ),
+    fixedFragmentPromptDefault: buildFixedMemoryFragmentPrompt(),
+    fixedFragmentPromptEffective: buildFixedMemoryFragmentPrompt(
+      resolvedMemory.fixedFragmentPrompt ?? resolvedMemory.fragmentPrompt,
+    ),
     consolidatePromptDefault: buildMemoryConsolidationPrompt(),
-    consolidatePromptEffective: buildMemoryConsolidationPrompt(nextValues.consolidatePrompt),
+    consolidatePromptEffective: buildMemoryConsolidationPrompt(resolvedMemory.consolidatePrompt),
   })
 }

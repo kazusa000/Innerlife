@@ -262,6 +262,8 @@ export async function* runAgent(
     )
 
     const toolResults: ContentBlock[] = []
+    const postToolSystemMessages: Message[] = []
+    let longTermSearchCalls = 0
 
     for (const toolCall of toolUses) {
       try {
@@ -274,7 +276,28 @@ export async function* runAgent(
       yield { type: 'tool_start', toolName: toolCall.name, input: toolCall.input }
       let result
       try {
-        result = await executeTool(config.tools, toolCall, { signal })
+        if (toolCall.name === 'search_long_term_memory') {
+          longTermSearchCalls += 1
+          if (longTermSearchCalls > 1) {
+            result = {
+              output: '长期记忆检索结果：未搜索到相关记忆。',
+              isError: true,
+              metadata: { noResults: true, reason: 'too_many_calls' },
+            }
+          } else {
+            result = await executeTool(config.tools, toolCall, {
+              signal,
+              agentId: config.id,
+              sessionId: config.sessionId,
+            })
+          }
+        } else {
+          result = await executeTool(config.tools, toolCall, {
+            signal,
+            agentId: config.id,
+            sessionId: config.sessionId,
+          })
+        }
       } catch (err) {
         if (isAbortError(err)) {
           yield { type: 'aborted' }
@@ -290,9 +313,19 @@ export async function* runAgent(
         content: result.output,
         is_error: result.isError,
       })
+
+      if (toolCall.name === 'search_long_term_memory' && result.metadata?.noResults) {
+        postToolSystemMessages.push({
+          role: 'system',
+          content: '长期记忆检索结果：未搜索到相关记忆。',
+        })
+      }
     }
 
     messages.push({ role: 'user', content: toolResults })
+    if (postToolSystemMessages.length > 0) {
+      messages.push(...postToolSystemMessages)
+    }
   }
 }
 
@@ -658,7 +691,10 @@ async function runPendingMemoryQuery(
   let timeResult = { timeRange: null as null | { start: Date; end: Date } }
   let semanticResult = { retrievalQuery: null as string | null, focus: null as string | null }
   let query = { retrievalQuery: null as string | null, timeRange: null as null | { start: Date; end: Date }, focus: null as string | null }
-  let memories: NonNullable<TurnContext['state']['memories']> = []
+  let memoryResult = {
+    shortTerm: [] as NonNullable<TurnContext['state']['shortTermMemories']>,
+    fixed: [] as NonNullable<TurnContext['state']['fixedMemories']>,
+  }
 
   const runAnalyzer = async <T,>(
     kind: 'time' | 'semantic',
@@ -729,14 +765,20 @@ async function runPendingMemoryQuery(
   ctx.state.memoryRetrievalQuery = query.retrievalQuery
   ctx.state.memoryRetrievalTimeRange = query.timeRange
   ctx.state.memories = []
+  ctx.state.shortTermMemories = []
+  ctx.state.fixedMemories = []
 
   if (query.retrievalQuery || query.timeRange) {
     try {
-      memories = await pending.retrieve(query)
-      ctx.state.memories = memories
-      const hits = memories.map((memory) => serializeMemoryHit(memory))
+      memoryResult = await pending.retrieve(query)
+      ctx.state.shortTermMemories = memoryResult.shortTerm
+      ctx.state.fixedMemories = memoryResult.fixed
+      ctx.state.memories = [...memoryResult.shortTerm, ...memoryResult.fixed]
+      const shortTermHits = memoryResult.shortTerm.map((memory) => serializeMemoryHit(memory))
+      const fixedHits = memoryResult.fixed.map((memory) => serializeMemoryHit(memory))
+      const hits = [...shortTermHits, ...fixedHits]
       ctx.turnMetadata.memory = {
-        hitCount: memories.length,
+        hitCount: hits.length,
         timeAnalyzer: {
           timeRange: query.timeRange
             ? {
@@ -769,7 +811,13 @@ async function runPendingMemoryQuery(
               end: query.timeRange.end.toISOString(),
             }
           : null,
-        memoryIds: memories.map((memory) => memory.id),
+        shortTermHitCount: memoryResult.shortTerm.length,
+        fixedHitCount: memoryResult.fixed.length,
+        shortTermMemoryIds: memoryResult.shortTerm.map((memory) => memory.id),
+        fixedMemoryIds: memoryResult.fixed.map((memory) => memory.id),
+        shortTermHits,
+        fixedHits,
+        memoryIds: [...memoryResult.shortTerm, ...memoryResult.fixed].map((memory) => memory.id),
         hits,
       }
     } catch (err) {
@@ -826,9 +874,17 @@ async function runPendingMemoryQuery(
   }
 
   if (query.retrievalQuery || query.timeRange) {
-    const hits = memories.map((memory) => serializeMemoryHit(memory))
-    metadata.hitCount = memories.length
-    metadata.memoryIds = memories.map((memory) => memory.id)
+    const shortTermHits = memoryResult.shortTerm.map((memory) => serializeMemoryHit(memory))
+    const fixedHits = memoryResult.fixed.map((memory) => serializeMemoryHit(memory))
+    const hits = [...shortTermHits, ...fixedHits]
+    metadata.hitCount = hits.length
+    metadata.shortTermHitCount = memoryResult.shortTerm.length
+    metadata.fixedHitCount = memoryResult.fixed.length
+    metadata.shortTermMemoryIds = memoryResult.shortTerm.map((memory) => memory.id)
+    metadata.fixedMemoryIds = memoryResult.fixed.map((memory) => memory.id)
+    metadata.shortTermHits = shortTermHits
+    metadata.fixedHits = fixedHits
+    metadata.memoryIds = [...memoryResult.shortTerm, ...memoryResult.fixed].map((memory) => memory.id)
     metadata.hits = hits
   }
 

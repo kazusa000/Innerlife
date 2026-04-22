@@ -6,6 +6,8 @@ export interface ToolResult {
 
 export interface ToolCallOptions {
   signal?: AbortSignal
+  agentId?: string
+  sessionId?: string
 }
 
 export interface Tool {

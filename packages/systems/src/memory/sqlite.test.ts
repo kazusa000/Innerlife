@@ -11,7 +11,17 @@ import {
   resetDb,
   resetMemoryDb,
 } from '@mas/db'
-import { MemorySqliteSystem } from './sqlite'
+import {
+  buildContextToShortTermPrompt,
+  buildMemoryConsolidationPrompt,
+  buildSemanticAnalyzerPrompt,
+  buildShortTermToLongTermPrompt,
+  buildSummaryPrompt,
+  buildTimeAnalyzerPrompt,
+  MemorySqliteSystem,
+  parseMemoryBatchWriteResponse,
+  resolveMemoryPipelineSettings,
+} from './sqlite'
 import type { TurnContext } from '../types'
 
 function bootstrapDb(dbPath: string, memoryDbPath: string) {
@@ -133,14 +143,17 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
       focus: '猫的名字',
     })
 
-    ctx.state.memories = retrieved ?? []
+    ctx.state.shortTermMemories = retrieved?.shortTerm ?? []
+    ctx.state.fixedMemories = retrieved?.fixed ?? []
+    ctx.state.memories = [...(retrieved?.shortTerm ?? []), ...(retrieved?.fixed ?? [])]
     await system.beforeLLM?.(ctx)
 
     const loaded = ctx.state.memories as Array<{ id: string; displaySummary: string }>
     assert.deepEqual(loaded.map((memory) => memory.id), [catMemory.id])
     assert.equal(ctx.promptFragments[0]?.priority, 30)
     assert.match(ctx.promptFragments[0]?.content ?? '', /以下是你可直接依赖的记忆/)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /最相关记忆：/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /短期最相关记忆：/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /固化记忆检索结果：未搜索到相关记忆/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /\[短期记忆\]/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\]/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /橘子的猫/)
@@ -209,7 +222,8 @@ test('memory sqlite retrieval skips semantic embeddings for pure time recall and
     })
 
     assert.deepEqual(embedInputs, [[]])
-    assert.deepEqual(retrieved?.map((memory) => memory.id), [newestTarget.id, olderRecallMemory.id])
+    assert.deepEqual(retrieved?.shortTerm.map((memory) => memory.id), [newestTarget.id, olderRecallMemory.id])
+    assert.deepEqual(retrieved?.fixed, [])
   } finally {
     resetDb()
     resetMemoryDb()
@@ -217,7 +231,7 @@ test('memory sqlite retrieval skips semantic embeddings for pure time recall and
   }
 })
 
-test('memory sqlite system prepares a pending write with display_summary and retrieval_text', { concurrency: false }, async () => {
+test('memory sqlite system no longer writes short-term memory on every turn', async () => {
   const system = new MemorySqliteSystem({
     summarizeModel: 'memory-model',
     summarizePrompt: '请把这一轮对话整理成 display_summary、retrieval_text、tags、importance。',
@@ -232,9 +246,7 @@ test('memory sqlite system prepares a pending write with display_summary and ret
 
   await system.afterTurn?.(ctx)
 
-  assert.equal(ctx.pendingMemoryWrite?.kind, 'sqlite')
-  assert.equal(ctx.pendingMemoryWrite?.model, 'memory-model')
-  assert.match(ctx.pendingMemoryWrite?.prompt ?? '', /整理成 display_summary、retrieval_text、tags、importance/)
+  assert.equal(ctx.pendingMemoryWrite, undefined)
 })
 
 test('memory sqlite system uses memory model override for retrieval queries too', { concurrency: false }, async () => {
@@ -321,61 +333,92 @@ test('memory sqlite uses legacy retrievePrompt as effective prompt for both anal
 
   await system.beforeTurn?.(ctx)
 
-  assert.equal(ctx.pendingMemoryQuery?.timeAnalyzer.prompt, '统一记忆分析器 prompt')
-  assert.equal(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt, '统一记忆分析器 prompt')
+  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /统一记忆分析器 prompt/)
+  assert.match(ctx.pendingMemoryQuery?.timeAnalyzer.prompt ?? '', /请严格返回 json/)
+  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /统一记忆分析器 prompt/)
+  assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /请严格返回 json/)
 })
 
-test('memory sqlite system parses and persists display summary plus retrieval text', { concurrency: false }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
-  const dbPath = join(dir, 'data.db')
-  const memoryDbPath = join(dir, 'memory.db')
+test('memory sqlite structured prompt overrides keep required json contract', () => {
+  const timePrompt = buildTimeAnalyzerPrompt('只提取时间范围')
+  assert.match(timePrompt, /^只提取时间范围/)
+  assert.match(timePrompt, /请严格返回 json/)
+  assert.match(timePrompt, /"time_range"/)
 
-  try {
-    bootstrapDb(dbPath, memoryDbPath)
+  const semanticPrompt = buildSemanticAnalyzerPrompt('只提取主题锚点')
+  assert.match(semanticPrompt, /^只提取主题锚点/)
+  assert.match(semanticPrompt, /请严格返回 json/)
+  assert.match(semanticPrompt, /"retrieval_query"/)
+  assert.match(semanticPrompt, /"focus"/)
 
-    const system = new MemorySqliteSystem({
-      summarizeModel: 'memory-model',
-      embeddingModel: 'qwen/qwen3-embedding-0.6b',
-      embedder: createEmbedder({
-        用户告诉过我他的名字是王家骏: [0.2, 0.8],
-      }),
-    })
-    const ctx = createContext('我叫王家骏')
-    ctx.response = {
-      content: [{ type: 'text', text: '记住了，你叫王家骏。' }],
-      stopReason: 'end_turn',
-      usage: { inputTokens: 12, outputTokens: 9 },
-    }
+  const summaryPrompt = buildSummaryPrompt('整理成记忆')
+  assert.match(summaryPrompt, /^整理成记忆/)
+  assert.match(summaryPrompt, /请严格返回 json/)
+  assert.match(summaryPrompt, /"display_summary"/)
+  assert.match(summaryPrompt, /importance/)
 
-    await system.afterTurn?.(ctx)
+  const contextPrompt = buildContextToShortTermPrompt('整理旧上下文', 2)
+  assert.match(contextPrompt, /^整理旧上下文/)
+  assert.match(contextPrompt, /请严格返回 json/)
+  assert.match(contextPrompt, /最多 2 条短期记忆/)
+  assert.match(contextPrompt, /"memories"/)
 
-    const parsed = ctx.pendingMemoryWrite?.parse(JSON.stringify({
-      display_summary: '用户叫王家骏',
-      retrieval_text: '用户告诉过我他的名字是王家骏',
-      tags: ['名字', '称呼', '身份', '王家骏'],
-      importance: 0.9,
-    }))
+  const sleepPrompt = buildShortTermToLongTermPrompt('整理短期记忆', 2)
+  assert.match(sleepPrompt, /^整理短期记忆/)
+  assert.match(sleepPrompt, /请严格返回 json/)
+  assert.match(sleepPrompt, /最多 2 条长期记忆/)
+  assert.match(sleepPrompt, /"memories"/)
 
-    assert.deepEqual(parsed, {
+  const consolidatePrompt = buildMemoryConsolidationPrompt('整理重复记忆')
+  assert.match(consolidatePrompt, /^整理重复记忆/)
+  assert.match(consolidatePrompt, /请严格返回 json/)
+  assert.match(consolidatePrompt, /"actions"/)
+})
+
+test('memory sqlite batch parser returns up to configured number of short-term memories', () => {
+  const parsed = parseMemoryBatchWriteResponse(JSON.stringify({
+    memories: [
+      {
+        display_summary: '用户叫王家骏',
+        retrieval_text: '用户告诉过我他的名字是王家骏',
+        tags: ['名字', '称呼', '身份', '王家骏'],
+        importance: 0.9,
+      },
+      {
+        display_summary: '用户喜欢番茄鸡蛋面',
+        retrieval_text: '用户最喜欢的食物是番茄鸡蛋面',
+        tags: ['食物', '偏好'],
+        importance: 0.8,
+      },
+    ],
+  }), 3)
+
+  assert.deepEqual(parsed, [
+    {
       displaySummary: '用户叫王家骏',
       retrievalText: '用户告诉过我他的名字是王家骏',
       tags: ['名字', '称呼', '身份', '王家骏'],
       importance: 0.9,
-    })
+    },
+    {
+      displaySummary: '用户喜欢番茄鸡蛋面',
+      retrievalText: '用户最喜欢的食物是番茄鸡蛋面',
+      tags: ['食物', '偏好'],
+      importance: 0.8,
+    },
+  ])
+})
 
-    await ctx.pendingMemoryWrite?.persist(parsed!)
-
-    const stored = memoryRepo.listMemoriesByAgent('agent-1')
-    assert.equal(stored.length, 1)
-    assert.equal(stored[0]?.displaySummary, '用户叫王家骏')
-    assert.equal(stored[0]?.retrievalText, '用户告诉过我他的名字是王家骏')
-    assert.deepEqual(stored[0]?.retrievalEmbedding, [0.2, 0.8])
-    assert.equal(stored[0]?.layer, 'short_term')
-  } finally {
-    resetDb()
-    resetMemoryDb()
-    rmSync(dir, { recursive: true, force: true })
-  }
+test('memory sqlite exposes default pipeline settings', () => {
+  assert.deepEqual(resolveMemoryPipelineSettings({}), {
+    contextWindowMessages: 50,
+    contextOverflowBatchSize: 25,
+    contextIdleFlushMinutes: 30,
+    maxShortTermMemoriesPerFlush: 3,
+    sleepEnabled: true,
+    sleepTimeLocal: '03:00',
+    sleepIntervalDays: 1,
+  })
 })
 
 test('memory sqlite query parse allows pure time recall without retrieval query', { concurrency: false }, async () => {

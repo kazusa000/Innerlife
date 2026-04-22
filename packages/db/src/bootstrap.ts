@@ -46,6 +46,14 @@ export function bootstrapAppDatabases(input: {
       token_count INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
+    CREATE TABLE IF NOT EXISTS session_context_state (
+      session_id TEXT PRIMARY KEY REFERENCES sessions(id),
+      active_start_message_id TEXT,
+      pending_flush_until_message_id TEXT,
+      last_user_message_at INTEGER,
+      last_context_flush_at INTEGER,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
     CREATE TABLE IF NOT EXISTS tool_executions (
       id TEXT PRIMARY KEY,
       message_id TEXT NOT NULL REFERENCES messages(id),
@@ -100,6 +108,11 @@ export function bootstrapAppDatabases(input: {
       ON relationships(agent_id, counterpart_type, counterpart_id);
     CREATE INDEX IF NOT EXISTS idx_relationships_agent_updated_at
       ON relationships(agent_id, updated_at);
+    CREATE TABLE IF NOT EXISTS agent_memory_sleep_state (
+      agent_id TEXT PRIMARY KEY REFERENCES agents(id),
+      last_sleep_at INTEGER,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
     CREATE TABLE IF NOT EXISTS turing_test_runs (
       id TEXT PRIMARY KEY,
       source_agent_id TEXT NOT NULL REFERENCES agents(id),

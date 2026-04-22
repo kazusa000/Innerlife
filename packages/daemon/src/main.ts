@@ -3,6 +3,7 @@ import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
 import { bootstrapAppDatabases } from '@mas/db'
 import { processNextQueuedTuringRun } from '@mas/turing'
+import { processMemoryJobs } from './memory-jobs'
 import { DaemonRunner } from './runner'
 
 const DEFAULT_TICK_INTERVAL_MS = 5_000
@@ -54,6 +55,7 @@ export async function main() {
     tickIntervalMs: readTickInterval(),
     logger: console,
     tick: async ({ signal }) => {
+      await processMemoryJobs(signal)
       await processNextQueuedTuringRun(signal)
     },
   })

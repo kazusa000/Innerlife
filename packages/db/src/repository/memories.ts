@@ -341,6 +341,7 @@ export function findRelevantMemories(input: {
   agentId: string
   queryEmbeddings: number[][]
   topK: number
+  layers?: MemoryLayer[]
   timeRange?: {
     start: Date
     end: Date
@@ -354,6 +355,14 @@ export function findRelevantMemories(input: {
     .filter((embedding) => embedding.length > 0)
   const conditions = ['agent_id = ?']
   const values: unknown[] = [input.agentId]
+  const normalizedLayers = Array.isArray(input.layers)
+    ? [...new Set(input.layers.map((layer) => normalizeLayer(layer)))]
+    : []
+
+  if (normalizedLayers.length > 0) {
+    conditions.push(`layer IN (${normalizedLayers.map(() => '?').join(', ')})`)
+    values.push(...normalizedLayers)
+  }
 
   if (input.timeRange) {
     conditions.push('created_at >= ?')

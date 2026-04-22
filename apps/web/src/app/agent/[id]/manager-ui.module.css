@@ -137,6 +137,99 @@
   gap: 18px;
 }
 
+.sectionLayout {
+  display: grid;
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.contentStack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.sectionPanel {
+  scroll-margin-top: 18px;
+}
+
+.sideNav {
+  position: sticky;
+  top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid var(--border-soft);
+  background:
+    linear-gradient(180deg, rgba(8, 14, 27, 0.98), rgba(10, 18, 34, 0.96));
+  box-shadow: 0 18px 48px rgba(2, 6, 23, 0.28);
+}
+
+.sideNavHead {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sideNavTitle {
+  margin: 0;
+  font: 600 18px/1.2 'Fira Sans', sans-serif;
+  color: var(--text-primary);
+}
+
+.sideNavCopy {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.sideNavList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sideNavLink {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: rgba(17, 27, 49, 0.54);
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.sideNavLink:hover {
+  transform: translateY(-1px);
+  border-color: rgba(96, 165, 250, 0.24);
+  background: rgba(20, 32, 58, 0.78);
+}
+
+.sideNavLinkActive {
+  border-color: rgba(96, 165, 250, 0.42);
+  background:
+    linear-gradient(135deg, rgba(30, 64, 175, 0.28), rgba(17, 27, 49, 0.92));
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.12);
+}
+
+.sideNavLabel {
+  font: 600 15px/1.3 'Fira Sans', sans-serif;
+  color: var(--text-primary);
+}
+
+.sideNavMeta {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .panel {
   border-radius: 24px;
   border: 1px solid var(--border-soft);
@@ -535,12 +628,26 @@
 }
 
 @media (max-width: 1080px) {
+  .sectionLayout,
   .grid,
   .statusGrid,
   .expandedGrid,
   .traitGrid,
   .fieldGrid {
     grid-template-columns: 1fr;
+  }
+
+  .sideNav {
+    position: static;
+  }
+
+  .sideNavList {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .sideNavLink {
+    flex: 1 1 180px;
   }
 }
 
