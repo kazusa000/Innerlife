@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { getDaemonSections } from './daemon-sections'
+import { getDaemonNavGroups, getDaemonSections } from './daemon-sections'
 
 test('daemon workbench sections define left navigation order and anchors', () => {
   assert.deepEqual(getDaemonSections(), [
@@ -9,5 +9,32 @@ test('daemon workbench sections define left navigation order and anchors', () =>
     { id: 'flush', anchor: 'daemon-section-flush', label: '记忆 Flush', description: 'context → STM' },
     { id: 'sleep', anchor: 'daemon-section-sleep', label: '睡眠', description: 'STM → LTM' },
     { id: 'events', anchor: 'daemon-section-events', label: '事件流', description: '后台日志' },
+  ])
+})
+
+test('daemon workbench nav groups collapse function-related sections under 功能', () => {
+  assert.deepEqual(getDaemonNavGroups(), [
+    {
+      id: 'overview',
+      label: '概览',
+      description: '运行状态',
+      anchor: 'daemon-section-overview',
+    },
+    {
+      id: 'events',
+      label: '事件流',
+      description: '后台日志',
+      anchor: 'daemon-section-events',
+    },
+    {
+      id: 'features',
+      label: '功能',
+      description: '图灵测试 / Flush / 睡眠',
+      children: [
+        { id: 'turing', label: '图灵测试', anchor: 'daemon-section-turing', description: '最近 run' },
+        { id: 'flush', label: '记忆 Flush', anchor: 'daemon-section-flush', description: 'context → STM' },
+        { id: 'sleep', label: '睡眠', anchor: 'daemon-section-sleep', description: 'STM → LTM' },
+      ],
+    },
   ])
 })

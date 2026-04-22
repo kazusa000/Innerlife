@@ -1,14 +1,16 @@
 'use client'
 
 import styles from '../agent/[id]/manager-ui.module.css'
-import type { DaemonSection, DaemonSectionId } from './daemon-sections'
+import localStyles from './DaemonWorkbench.module.css'
+import { getDaemonNavGroups, type DaemonSectionId } from './daemon-sections'
 
 interface DaemonSectionNavProps {
-  sections: DaemonSection[]
   activeSection: DaemonSectionId
 }
 
-export function DaemonSectionNav({ sections, activeSection }: DaemonSectionNavProps) {
+const NAV_GROUPS = getDaemonNavGroups()
+
+export function DaemonSectionNav({ activeSection }: DaemonSectionNavProps) {
   return (
     <aside className={styles.sideNav}>
       <div className={styles.sideNavHead}>
@@ -20,16 +22,45 @@ export function DaemonSectionNav({ sections, activeSection }: DaemonSectionNavPr
       </div>
 
       <nav className={styles.sideNavList} aria-label="Daemon sections">
-        {sections.map((section) => (
-          <a
-            key={section.id}
-            href={`#${section.anchor}`}
-            className={`${styles.sideNavLink} ${activeSection === section.id ? styles.sideNavLinkActive : ''}`}
-          >
-            <span className={styles.sideNavLabel}>{section.label}</span>
-            <span className={styles.sideNavMeta}>{section.description}</span>
-          </a>
-        ))}
+        {NAV_GROUPS.map((group) => {
+          if (group.id !== 'features') {
+            return (
+              <a
+                key={group.id}
+                href={`#${group.anchor}`}
+                className={`${styles.sideNavLink} ${activeSection === group.id ? styles.sideNavLinkActive : ''}`}
+              >
+                <span className={styles.sideNavLabel}>{group.label}</span>
+                <span className={styles.sideNavMeta}>{group.description}</span>
+              </a>
+            )
+          }
+
+          const groupActive = group.children.some((child) => child.id === activeSection)
+          return (
+            <div
+              key={group.id}
+              className={`${localStyles.navGroup} ${groupActive ? localStyles.navGroupActive : ''}`}
+            >
+              <div className={localStyles.navGroupHead}>
+                <span className={styles.sideNavLabel}>{group.label}</span>
+                <span className={styles.sideNavMeta}>{group.description}</span>
+              </div>
+              <div className={localStyles.navChildren}>
+                {group.children.map((child) => (
+                  <a
+                    key={child.id}
+                    href={`#${child.anchor}`}
+                    className={`${localStyles.navChildLink} ${activeSection === child.id ? localStyles.navChildLinkActive : ''}`}
+                  >
+                    <span className={localStyles.navChildLabel}>{child.label}</span>
+                    <span className={localStyles.navChildMeta}>{child.description}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )
+        })}
       </nav>
     </aside>
   )

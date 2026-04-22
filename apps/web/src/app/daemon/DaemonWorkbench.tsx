@@ -265,7 +265,7 @@ export default function DaemonWorkbench() {
       {notice ? <p className={styles.notice}>{notice}</p> : null}
 
       <div className={styles.sectionLayout}>
-        <DaemonSectionNav sections={SECTIONS} activeSection={activeSection} />
+          <DaemonSectionNav activeSection={activeSection} />
 
         <div className={styles.contentStack}>
           <div
@@ -275,6 +275,15 @@ export default function DaemonWorkbench() {
             className={styles.sectionPanel}
           >
             <DaemonOverviewPanel {...overview} />
+          </div>
+
+          <div
+            id="daemon-section-events"
+            data-section-id="events"
+            ref={registerSection('events')}
+            className={styles.sectionPanel}
+          >
+            <DaemonEventsPanel events={events} />
           </div>
 
           <div
@@ -310,15 +319,6 @@ export default function DaemonWorkbench() {
               sleepingAgentId={sleepingAgentId}
               onSleep={handleSleep}
             />
-          </div>
-
-          <div
-            id="daemon-section-events"
-            data-section-id="events"
-            ref={registerSection('events')}
-            className={styles.sectionPanel}
-          >
-            <DaemonEventsPanel events={events} />
           </div>
         </div>
       </div>
