@@ -903,9 +903,14 @@ test('runAgent uses ltp semantic analyzer mode without semantic llm call', async
     })
 
     const requests: string[] = []
+    const observerStarts: Array<{ kind: string; systemPrompt: string }> = []
     const observerEnds: Array<{ metadata?: unknown }> = []
     const observer: RunAgentObserver = {
-      onLLMCallStart() {
+      onLLMCallStart(payload) {
+        observerStarts.push({
+          kind: payload.kind,
+          systemPrompt: payload.systemPrompt,
+        })
         return 'call-1'
       },
       onLLMCallEnd(_callId, payload) {
@@ -955,7 +960,27 @@ test('runAgent uses ltp semantic analyzer mode without semantic llm call', async
     assert.equal(events.at(-1)?.type, 'complete')
     assert.equal(requests.length, 1)
     assert.ok(requests.every((prompt) => !isMemorySemanticPrompt(prompt)))
-    assert.deepEqual((observerEnds[0]?.metadata as { memory?: unknown })?.memory, {
+    assert.equal(observerStarts.some((payload) => payload.kind === 'memory'), true)
+    assert.match(
+      observerStarts.find((payload) => payload.kind === 'memory')?.systemPrompt ?? '',
+      /LTP|Recognizers-Text/,
+    )
+    assert.equal(
+      observerEnds.some((payload) => {
+        const metadata = payload.metadata as { phase?: unknown } | undefined
+        return metadata?.phase === 'retrieve'
+      }),
+      true,
+    )
+    const turnObserverMetadata = observerEnds.find((payload) => {
+      const metadata = payload.metadata as { memory?: unknown } | undefined
+      return metadata?.memory !== undefined
+    })
+    const retrieveObserverMetadata = observerEnds.find((payload) => {
+      const metadata = payload.metadata as { phase?: unknown } | undefined
+      return metadata?.phase === 'retrieve'
+    })
+    assert.deepEqual((turnObserverMetadata?.metadata as { memory?: unknown })?.memory, {
       timeAnalyzer: { timeRange: null, error: null },
       semanticAnalyzer: {
         mode: 'ltp',
@@ -995,7 +1020,48 @@ test('runAgent uses ltp semantic analyzer mode without semantic llm call', async
         },
       ],
     })
-    const fragments = (observerEnds[0]?.metadata as { fragments?: Array<{ source?: string }> })?.fragments ?? []
+    assert.deepEqual(retrieveObserverMetadata?.metadata, {
+      phase: 'retrieve',
+      timeAnalyzer: { timeRange: null, error: null },
+      semanticAnalyzer: {
+        mode: 'ltp',
+        candidates: ['海边灯塔画面', '灯塔画面'],
+        selectedQuery: '海边灯塔画面',
+        error: null,
+      },
+      mergedQuery: {
+        retrievalQuery: '海边灯塔画面',
+        timeRange: null,
+      },
+      retrievalQuery: '海边灯塔画面',
+      timeRange: null,
+      hitCount: 1,
+      shortTermHitCount: 1,
+      fixedHitCount: 0,
+      shortTermMemoryIds: [memoryRepo.listMemoriesByAgent('agent-1')[0]!.id],
+      fixedMemoryIds: [],
+      shortTermHits: [
+        {
+          id: memoryRepo.listMemoriesByAgent('agent-1')[0]!.id,
+          summary: '用户之前聊过海边灯塔画面',
+          layer: 'short_term',
+          tags: ['海边', '灯塔', '画面'],
+          importance: 0.9,
+        },
+      ],
+      fixedHits: [],
+      memoryIds: [memoryRepo.listMemoriesByAgent('agent-1')[0]!.id],
+      hits: [
+        {
+          id: memoryRepo.listMemoriesByAgent('agent-1')[0]!.id,
+          summary: '用户之前聊过海边灯塔画面',
+          layer: 'short_term',
+          tags: ['海边', '灯塔', '画面'],
+          importance: 0.9,
+        },
+      ],
+    })
+    const fragments = (turnObserverMetadata?.metadata as { fragments?: Array<{ source?: string }> })?.fragments ?? []
     assert.equal(fragments.some((fragment) => fragment.source === 'memory'), true)
   } finally {
     resetDb()

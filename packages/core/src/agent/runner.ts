@@ -660,23 +660,36 @@ async function runPendingMemoryQuery(
     return {}
   }
 
-  const observerMessages: Message[] = pending.semanticAnalyzer.kind === 'llm'
-    ? [
-        {
-          role: 'user',
-          content: [{ type: 'text', text: `semantic analyzer 输入\n${pending.semanticAnalyzer.inputText}` }],
-        },
-      ]
-    : []
-  const callId = pending.semanticAnalyzer.kind === 'llm'
-    ? observer?.onLLMCallStart({
-        kind: 'memory',
-        model: pending.model ?? config.model,
+  const observerPayload = pending.semanticAnalyzer.kind === 'llm'
+    ? {
         systemPrompt: pending.semanticAnalyzer.prompt,
-        tools: [],
-        messages: cloneMessages(observerMessages),
-      })
-    : undefined
+        messages: [
+          {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: `semantic analyzer 输入\n${pending.semanticAnalyzer.inputText}` }],
+          },
+        ] satisfies Message[],
+      }
+    : {
+        systemPrompt: [
+          'Local memory analyzers',
+          '- time analyzer: Recognizers-Text',
+          '- semantic analyzer: LTP candidate extractor',
+        ].join('\n'),
+        messages: [
+          {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: `memory retrieve 输入\n${ctx.input.text}` }],
+          },
+        ] satisfies Message[],
+      }
+  const callId = observer?.onLLMCallStart({
+    kind: 'memory',
+    model: pending.model ?? config.model,
+    systemPrompt: observerPayload.systemPrompt,
+    tools: [],
+    messages: cloneMessages(observerPayload.messages),
+  })
 
   let semanticResponse: LLMResponse | undefined
   let timeError: Error | undefined
