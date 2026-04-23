@@ -199,6 +199,51 @@ test('findRelevantMemories keeps time-range candidates even when semantic simila
   }
 })
 
+test('findRelevantMemories excludes candidates below the semantic similarity threshold', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapMemoryDb(dbPath)
+
+    const aboveThreshold = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User likes late-night coding sessions.',
+      displaySummary: '用户喜欢深夜写代码',
+      retrievalText: '用户喜欢在深夜写代码',
+      retrievalEmbedding: vector([0.61, Math.sqrt(1 - 0.61 ** 2)]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['代码', '深夜'],
+      importance: 0.7,
+      createdAt: new Date('2026-04-20T21:00:00.000Z'),
+    })
+    addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User had soup for dinner.',
+      displaySummary: '用户晚饭喝了汤',
+      retrievalText: '用户晚饭喝了汤',
+      retrievalEmbedding: vector([0.59, Math.sqrt(1 - 0.59 ** 2)]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['晚饭'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-20T22:00:00.000Z'),
+    })
+
+    const results = findRelevantMemories({
+      agentId: 'agent-1',
+      queryEmbeddings: [vector([1, 0])],
+      topK: 5,
+    })
+
+    assert.deepEqual(results.map((memory) => memory.id), [aboveThreshold.id])
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('findRelevantMemories prefers newest memories for pure time-range recall without semantic query', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
   const dbPath = join(dir, 'memory.db')

@@ -73,6 +73,8 @@ type MemoryRow = {
   created_at: number
 }
 
+const MIN_SEMANTIC_SIMILARITY = 0.6
+
 function normalizeTags(tags: string[]): string[] {
   return [...new Set(
     tags
@@ -383,7 +385,11 @@ export function findRelevantMemories(input: {
         ? Math.max(...queryEmbeddings.map((queryEmbedding) => cosineSimilarity(queryEmbedding, memory.retrievalEmbedding)))
         : 0,
     }))
-    .filter(({ similarity }) => hasTimeRange || queryEmbeddings.length === 0 || similarity > 0)
+    .filter(({ similarity }) => (
+      hasTimeRange
+      || queryEmbeddings.length === 0
+      || similarity >= MIN_SEMANTIC_SIMILARITY
+    ))
     .sort((left, right) => {
       if (isPureTimeRecall) {
         const createdAtDelta = right.memory.createdAt.getTime() - left.memory.createdAt.getTime()
