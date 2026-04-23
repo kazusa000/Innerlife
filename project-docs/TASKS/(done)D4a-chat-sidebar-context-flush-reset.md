@@ -100,7 +100,7 @@
 - [x] 操作完成后会切到新 session，并给出 flush 结果提示
 - [x] 非 sqlite agent 仍保留现有 `清除上下文` 行为，不出现错误文案
 - [x] 至少人工验证 2 个场景：
-- [ ] sqlite agent 聊几轮后点击按钮，能看到新 session，且 `/agent/[id]/memory` 里出现新增的 short_term memory
+- [x] sqlite agent 聊几轮后点击按钮，能看到新 session，且 `/agent/[id]/memory` 里出现新增的 short_term memory
 - [x] sqlite agent 在几乎没有活跃 context 时点击按钮，仍能 reset，但提示“没有可搬运的旧 context”或等价文案
 - [x] 如果涉及侧栏按钮和状态提示样式，验证小窗口下内容不截断、滚轮能滚到底部
 - [x] typecheck + 测试通过不等于任务完成，必须浏览器人工验证
@@ -131,6 +131,6 @@
 ## Completion Note
 
 - **Changes**: 扩展了 `POST /api/agents/:id/active-session` 的 `flushContext` 语义；sqlite agent 会先执行 `mode: 'manual'` 的 context flush，再决定是否 reset。聊天侧栏改成按 memory scheme 发送不同请求体、显示不同按钮/loading 文案，并把 flush 成功、soft result、hard failure 明确反馈给用户。
-- **Verified**: `node --import tsx --test apps/web/src/app/api/agents/active-session-api.test.ts`；`node --import tsx --test apps/web/src/app/chat/context-reset.test.ts`；`npm run typecheck --workspace @mas/web`；`npm run build --workspace @mas/web`；额外用 Playwright 对 sqlite 成功、sqlite soft result、非 sqlite 三个侧栏场景做了真实页面 smoke（mock API）。
-- **Caveats**: 当前 worktree 没有 `.env`，无法做 live provider-backed 的“聊几轮 -> flush -> `/agent/[id]/memory` 中出现真实 short_term memory”复验；上面那条仍需在有 LLM key 的环境里补一次真实链路检查。
+- **Verified**: `node --import tsx --test apps/web/src/app/api/agents/active-session-api.test.ts`；`node --import tsx --test apps/web/src/app/chat/context-reset.test.ts`；`npm run typecheck --workspace @mas/web`；`npm run build --workspace @mas/web`；Playwright mock smoke 覆盖 sqlite 成功 / sqlite soft result / 非 sqlite 三个侧栏场景；2026-04-23 还基于 `/home/wjj/Project/multi-agent-system/multi-agent-system/.env` 启动真实服务，在聊天页对 sqlite agent 实际对话两轮后点击侧栏按钮，确认 active session 从 `a3011e01-247b-4b93-a06c-b3ab4f074f47` 切到 `1a44ec0d-664c-4d40-8385-7a78bc5f3a79`，并在 memory API 中看到新增 1 条 short-term memory，摘要包含 `SKY-1776960517306 / 海盐焦糖 / 安特卫普旧书店`。
+- **Caveats**: 真实验证使用的是任务 worktree 自己的 `data.db` / `storage/memory/memory.db`，没有动主工作区数据库；测试过程中创建了临时 sqlite agent，若 Coordinator 介意样例数据，可在 review 后清理。
 - **Design deltas** (if any): 无。实现保持在任务卡给定的 `active-session` 编排范围内，没有新增 route，也没有改 daemon 自动 flush / sleep 规则。
