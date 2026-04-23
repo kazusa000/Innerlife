@@ -75,3 +75,9 @@
 - 工具配置建议放在 `agents.config.tools`，不要塞回 `modules`，避免把“内在系统配置”和“行为层工具配置”混在一起
 - `apps/web/src/app/page.tsx`、`packages/turing/src/chat-executor.ts`、`packages/core/src/tools/registry.ts` 是 hot file；这张卡应保持改动聚焦，不顺手处理别的 bug
 - 设计参考：`DESIGN.md §5 工具系统`、`§10.1 行为层 Tool Set`、`§11 / Phase 2`
+
+## Questions
+
+- 当前环境缺少 provider / embedding 认证，真实 `/api/chat` 流在 `memory:sqlite beforeTurn` 会报
+  `Could not resolve authentication method...`，因此“浏览器里观察到 `search_long_term_memory`
+  被调用并在同一轮产出最终回复”这一条只能用自动化测试覆盖，无法在本地完成最终手工验收。

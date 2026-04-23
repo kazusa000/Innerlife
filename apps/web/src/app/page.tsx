@@ -251,7 +251,7 @@ export default function HomePage() {
 
   function openManager(
     agentId: string,
-    section: 'personality' | 'emotion' | 'relationships' | 'memory' | 'turing',
+    section: 'personality' | 'emotion' | 'relationships' | 'memory' | 'tools' | 'turing',
   ) {
     router.push(`/agent/${agentId}/${section}`)
   }
@@ -709,6 +709,16 @@ export default function HomePage() {
                       onClick={() => openManager(agent.id, 'turing')}
                     >
                       <span className="manager-index">05</span>
+                      <span className="manager-copy">
+                        <strong>工具</strong>
+                        <small>开关、提示、可用性</small>
+                      </span>
+                    </button>
+                    <button
+                      className="manager-tile"
+                      onClick={() => openManager(agent.id, 'turing')}
+                    >
+                      <span className="manager-index">06</span>
                       <span className="manager-copy">
                         <strong>图灵测试</strong>
                         <small>自动评测、报告、回放</small>

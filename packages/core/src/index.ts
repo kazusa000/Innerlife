@@ -26,7 +26,10 @@ export {
   getDefaultTools,
   toolsToDefinitions,
   executeTool,
+  resolveAgentTools,
+  normalizeAgentToolsConfig,
 } from './tools'
+export type { AgentToolConfig, AgentToolsConfig, BuiltInToolName } from './tools'
 export { AnthropicProvider } from './provider/anthropic'
 export { OpenRouterProvider } from './provider/openrouter'
 export { createProvider, resolveProviderName } from './provider/factory'

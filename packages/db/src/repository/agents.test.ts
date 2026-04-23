@@ -71,6 +71,74 @@ test('createAgent and updateAgent round-trip nullable modules JSON and provider 
   }
 })
 
+test('createAgent and updateAgent round-trip top-level tools config', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-agents-tools-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    resetDb()
+    getDb(dbPath)
+    getRawSqlite().exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        personality TEXT,
+        skills TEXT,
+        modules TEXT,
+        status TEXT NOT NULL DEFAULT 'idle',
+        model TEXT NOT NULL,
+        config TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+      );
+    `)
+
+    const created = createAgent({
+      name: 'Tools Test',
+      model: 'claude-sonnet-4-6',
+      tools: {
+        search_long_term_memory: {
+          description: '只在需要追溯旧互动时再查长期记忆。',
+        },
+      },
+    })
+
+    assert.deepEqual(created.tools, {
+      search_long_term_memory: {
+        description: '只在需要追溯旧互动时再查长期记忆。',
+      },
+    })
+
+    const updated = updateAgent(created.id, {
+      tools: {
+        search_long_term_memory: {
+          enabled: false,
+          description: '手动关闭长期记忆检索。',
+        },
+        web_fetch: {
+          enabled: true,
+          description: '抓取网页正文，不要保留无关导航信息。',
+        },
+      },
+    })
+
+    assert.deepEqual(updated?.tools, {
+      search_long_term_memory: {
+        enabled: false,
+        description: '手动关闭长期记忆检索。',
+      },
+      web_fetch: {
+        enabled: true,
+        description: '抓取网页正文，不要保留无关导航信息。',
+      },
+    })
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('getAgent falls back to legacy personality prompt as personaPrompt when top-level field is absent', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-agents-'))
   const dbPath = join(dir, 'test.db')

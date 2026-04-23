@@ -175,12 +175,24 @@ test('agent GET/PATCH expose top-level systemPrompt and personaPrompt', async ()
     const patchResponse = updateAgentDetail(agent.id, {
       systemPrompt: '不要自称 AI。',
       personaPrompt: '像朋友，回答短一点。',
+      tools: {
+        web_fetch: {
+          enabled: true,
+          description: '抓取网页正文，提炼关键事实。',
+        },
+      },
     })
 
     assert.equal(patchResponse.status, 200)
     const updated = agentRepo.getAgent(agent.id)
     assert.equal(updated?.systemPrompt, '不要自称 AI。')
     assert.equal(updated?.personaPrompt, '像朋友，回答短一点。')
+    assert.deepEqual(updated?.tools, {
+      web_fetch: {
+        enabled: true,
+        description: '抓取网页正文，提炼关键事实。',
+      },
+    })
   } finally {
     resetDb()
     resetMemoryDb()

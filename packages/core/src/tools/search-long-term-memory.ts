@@ -8,6 +8,11 @@ import {
 } from '@mas/systems'
 import type { Tool } from './types'
 
+const SEARCH_LONG_TERM_MEMORY_DESCRIPTION = [
+  buildLongTermSearchToolPrompt(),
+  '拿到工具结果后，继续完成本轮回复。',
+].join(' ')
+
 function formatOffset(minutesEastOfUtc: number): string {
   const sign = minutesEastOfUtc >= 0 ? '+' : '-'
   const absoluteMinutes = Math.abs(minutesEastOfUtc)
@@ -37,7 +42,7 @@ function parseDate(value: unknown) {
 
 export const SearchLongTermMemoryTool: Tool = {
   name: 'search_long_term_memory',
-  description: buildLongTermSearchToolPrompt(),
+  description: SEARCH_LONG_TERM_MEMORY_DESCRIPTION,
   inputSchema: {
     type: 'object',
     properties: {

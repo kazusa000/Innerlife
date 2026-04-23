@@ -30,7 +30,7 @@ function errorResult(url: string, message: string, status?: number): ToolResult 
 
 export const WebFetchTool: Tool = {
   name: 'web_fetch',
-  description: 'Fetch a web page and return cleaned text content.',
+  description: '抓取网页并返回清洗后的正文文本。只在确实需要外部网页信息时使用。',
   inputSchema: {
     type: 'object',
     properties: {

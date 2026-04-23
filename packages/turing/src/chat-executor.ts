@@ -1,6 +1,7 @@
 import {
   createProvider,
   getDefaultTools,
+  resolveAgentTools,
   runAgent,
   type AgentConfig,
   type AgentEvent,
@@ -60,12 +61,15 @@ export function buildAgentSystemPrompt(agent: {
   description: string | null
   systemPrompt?: string
   personaPrompt?: string
+  tools?: Record<string, unknown> | null
   modules?: Record<string, unknown> | null
-}) {
-  const memoryIsSqlite = isSqliteMemoryConfig(agent.modules?.memory)
-  const toolPrompt = memoryIsSqlite
-    ? 'You can use the web_fetch tool to fetch web pages. If current context, short-term memory, and fixed memory are still insufficient, you may use search_long_term_memory once to look up long-term memories. Be concise.'
-    : 'You can use the web_fetch tool to fetch web pages. Be concise.'
+}, toolPromptOverride?: string) {
+  const toolPrompt = toolPromptOverride
+    ?? resolveAgentTools({
+      tools: getDefaultTools(),
+      modules: agent.modules,
+      config: agent.tools ?? null,
+    }).systemPrompt
   const basePrompt = agent.systemPrompt?.trim()
     || (agent.description
       ? `You are ${agent.name}. ${agent.description}.`
@@ -123,12 +127,17 @@ export async function executeChatTurn(input: {
   }))
 
   const provider = createProvider(agent.provider)
-  const tools = getDefaultTools()
+  const toolRuntime = resolveAgentTools({
+    tools: getDefaultTools(),
+    modules: agent.modules,
+    config: agent.tools ?? null,
+  })
+  const tools = toolRuntime.effectiveTools
   const systems = createSystems(agent.modules ?? null)
   const config: AgentConfig = {
     id: agent.id,
     model: agent.model,
-    systemPrompt: buildAgentSystemPrompt(agent),
+    systemPrompt: buildAgentSystemPrompt(agent, toolRuntime.systemPrompt),
     tools,
     maxTurns: 10,
     sessionId: input.sessionId,

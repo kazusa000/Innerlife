@@ -8,6 +8,7 @@ type AgentPatchBody = {
   systemPrompt?: unknown
   personaPrompt?: unknown
   modules?: unknown
+  tools?: unknown
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,6 +37,7 @@ export function updateAgentDetail(id: string, body: AgentPatchBody) {
     systemPrompt?: string
     personaPrompt?: string
     modules?: Record<string, unknown> | null
+    tools?: Record<string, { enabled?: boolean; description?: string }> | null
   } = {}
 
   if (body.name !== undefined) {
@@ -85,6 +87,49 @@ export function updateAgentDetail(id: string, body: AgentPatchBody) {
       return Response.json({ error: 'modules must be an object or null' }, { status: 400 })
     }
     updates.modules = body.modules as Record<string, unknown> | null
+  }
+
+  if (body.tools !== undefined) {
+    if (body.tools !== null && !isRecord(body.tools)) {
+      return Response.json({ error: 'tools must be an object or null' }, { status: 400 })
+    }
+
+    if (body.tools === null) {
+      updates.tools = null
+    } else {
+      const nextTools: Record<string, { enabled?: boolean; description?: string }> = {}
+
+      for (const [toolName, rawEntry] of Object.entries(body.tools)) {
+        if (!isRecord(rawEntry)) {
+          return Response.json({ error: `tools.${toolName} must be an object` }, { status: 400 })
+        }
+
+        const nextEntry: { enabled?: boolean; description?: string } = {}
+        if (rawEntry.enabled !== undefined) {
+          if (typeof rawEntry.enabled !== 'boolean') {
+            return Response.json({ error: `tools.${toolName}.enabled must be a boolean` }, { status: 400 })
+          }
+          nextEntry.enabled = rawEntry.enabled
+        }
+
+        if (rawEntry.description !== undefined) {
+          if (typeof rawEntry.description !== 'string') {
+            return Response.json({ error: `tools.${toolName}.description must be a string` }, { status: 400 })
+          }
+
+          const trimmed = rawEntry.description.trim()
+          if (trimmed) {
+            nextEntry.description = trimmed
+          }
+        }
+
+        if (nextEntry.enabled !== undefined || nextEntry.description !== undefined) {
+          nextTools[toolName] = nextEntry
+        }
+      }
+
+      updates.tools = Object.keys(nextTools).length > 0 ? nextTools : null
+    }
   }
 
   const agent = agentRepo.updateAgent(id, updates)

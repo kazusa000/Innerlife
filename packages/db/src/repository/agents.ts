@@ -5,11 +5,16 @@ import { randomUUID } from 'node:crypto'
 
 export type AgentModules = Record<string, unknown> | null
 export type AgentProvider = 'anthropic' | 'openrouter'
+export type AgentToolsConfig = Record<string, {
+  enabled?: boolean
+  description?: string
+}>
 
 type AgentConfig = {
   provider?: AgentProvider
   systemPrompt?: string
   personaPrompt?: string
+  tools?: AgentToolsConfig
 }
 
 function parseModules(modules: string | null) {
@@ -47,6 +52,35 @@ function parseConfig(config: string | null): AgentConfig {
   }
 }
 
+function parseToolsConfig(config: unknown): AgentToolsConfig | undefined {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    return undefined
+  }
+
+  const nextTools: AgentToolsConfig = {}
+
+  for (const [toolName, rawEntry] of Object.entries(config)) {
+    if (!rawEntry || typeof rawEntry !== 'object' || Array.isArray(rawEntry)) {
+      continue
+    }
+
+    const entry: { enabled?: boolean; description?: string } = {}
+    if (typeof rawEntry.enabled === 'boolean') {
+      entry.enabled = rawEntry.enabled
+    }
+
+    if (typeof rawEntry.description === 'string' && rawEntry.description.trim()) {
+      entry.description = rawEntry.description.trim()
+    }
+
+    if (entry.enabled !== undefined || entry.description !== undefined) {
+      nextTools[toolName] = entry
+    }
+  }
+
+  return Object.keys(nextTools).length > 0 ? nextTools : undefined
+}
+
 function serializeConfig(config: AgentConfig | undefined) {
   if (!config) return undefined
   return JSON.stringify(config)
@@ -63,6 +97,7 @@ function mapAgent(row: typeof agents.$inferSelect) {
       typeof config.personaPrompt === 'string' && config.personaPrompt.trim().length > 0
         ? config.personaPrompt.trim()
         : readLegacyPersonaPrompt(modules) ?? '',
+    tools: parseToolsConfig(config.tools),
     modules,
   }
 }
@@ -77,6 +112,7 @@ export function createAgent(data: {
   systemPrompt?: string
   personaPrompt?: string
   modules?: AgentModules
+  tools?: AgentToolsConfig
 }) {
   const db = getDb()
   const id = randomUUID()
@@ -94,6 +130,7 @@ export function createAgent(data: {
         provider: data.provider ?? 'anthropic',
         systemPrompt: data.systemPrompt?.trim() || undefined,
         personaPrompt: data.personaPrompt?.trim() || undefined,
+        tools: data.tools,
       }) ?? null,
     })
     .run()
@@ -119,6 +156,7 @@ export function updateAgent(id: string, data: {
   systemPrompt?: string
   personaPrompt?: string
   modules?: AgentModules
+  tools?: AgentToolsConfig | null
 }) {
   const db = getDb()
   const existing = db.select().from(agents).where(eq(agents.id, id)).get()
@@ -127,6 +165,7 @@ export function updateAgent(id: string, data: {
     data.provider !== undefined
     || data.systemPrompt !== undefined
     || data.personaPrompt !== undefined
+    || data.tools !== undefined
       ? serializeConfig({
           ...existingConfig,
           provider: data.provider ?? existingConfig.provider,
@@ -138,6 +177,10 @@ export function updateAgent(id: string, data: {
             data.personaPrompt !== undefined
               ? (data.personaPrompt.trim() || undefined)
               : existingConfig.personaPrompt,
+          tools:
+            data.tools !== undefined
+              ? (data.tools ?? undefined)
+              : existingConfig.tools,
         }) ?? null
       : undefined
   db
