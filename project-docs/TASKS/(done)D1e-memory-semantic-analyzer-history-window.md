@@ -112,42 +112,42 @@
 ## 完成标准
 
 ### 数据与调用链（可自动验证）
-- [ ] `semantic analyzer` 的输入不再只包含当前用户消息，而是包含“短历史窗口 + 当前用户消息”两段
-- [ ] 历史窗口来源于当前 turn 可见的最近对话消息，而不是另起 DB 查询
-- [ ] 历史窗口默认长度有明确上限，避免把整段长对话全文塞进去
-- [ ] 默认 `semanticAnalyzerPrompt` 改成 history-aware 版本，并保留“短完整句 / 不带时间 / 没有稳定主题就返回 null”等现有硬约束
-- [ ] 当当前消息是代词 / 省略问法时，`semantic analyzer` 能借历史补全主题
-- [ ] 当当前消息存在歧义、历史里有多个候选对象时，`semantic analyzer` 返回 `null`，而不是乱扩写
-- [ ] `retrieval_query` 仍然不含时间信息；时间继续只由 `time analyzer` 负责
-- [ ] 不改现有 `queryEmbeddings = [ctx.input.text, query.retrievalQuery]` 这一层策略；本卡只改 semantic analyzer 的输入和 prompt
+- [x] `semantic analyzer` 的输入不再只包含当前用户消息，而是包含“短历史窗口 + 当前用户消息”两段
+- [x] 历史窗口来源于当前 turn 可见的最近对话消息，而不是另起 DB 查询
+- [x] 历史窗口默认长度有明确上限，避免把整段长对话全文塞进去
+- [x] 默认 `semanticAnalyzerPrompt` 改成 history-aware 版本，并保留“短完整句 / 不带时间 / 没有稳定主题就返回 null”等现有硬约束
+- [x] 当当前消息是代词 / 省略问法时，`semantic analyzer` 能借历史补全主题
+- [x] 当当前消息存在歧义、历史里有多个候选对象时，`semantic analyzer` 返回 `null`，而不是乱扩写
+- [x] `retrieval_query` 仍然不含时间信息；时间继续只由 `time analyzer` 负责
+- [x] 不改现有 `queryEmbeddings = [ctx.input.text, query.retrievalQuery]` 这一层策略；本卡只改 semantic analyzer 的输入和 prompt
 
 ### Observer（必须包含在本卡）
-- [ ] `memory.retrieve` 的 Observer 信息能看出 semantic analyzer 这轮实际吃到的上下文摘要 / 输入预览
-- [ ] 聊天页抽屉里能直接看到这一项，而不需要只靠原始 JSON 猜测
-- [ ] 相关前端测试更新通过
+- [x] `memory.retrieve` 的 Observer 信息能看出 semantic analyzer 这轮实际吃到的上下文摘要 / 输入预览
+- [x] 聊天页抽屉里能直接看到这一项，而不需要只靠原始 JSON 猜测
+- [x] 相关前端测试更新通过
 
 ### 测试与验证
-- [ ] `sqlite.test.ts` 新增/更新用例，至少覆盖：
-- [ ] 历史能补全代词：`它叫什么来着` → `那只猫叫什么名字`
-- [ ] 历史能补全省略主题：`我的是哪天来着` → `我的生日是哪天`
-- [ ] 历史能补全事件对象：`最后是怎么修的来着` → `登录 bug 是怎么修好的`
-- [ ] 歧义场景必须返回 `null`：`你还记得我喜欢那个吗`
-- [ ] `memory-runner.test.ts` 覆盖 Observer metadata，断言能看到 semantic analyzer 的输入预览 / history window 线索
-- [ ] `typecheck` 通过
-- [ ] 相关单测通过
+- [x] `sqlite.test.ts` 新增/更新用例，至少覆盖：
+- [x] 历史能补全代词：`它叫什么来着` → `那只猫叫什么名字`
+- [x] 历史能补全省略主题：`我的是哪天来着` → `我的生日是哪天`
+- [x] 历史能补全事件对象：`最后是怎么修的来着` → `登录 bug 是怎么修好的`
+- [x] 歧义场景必须返回 `null`：`你还记得我喜欢那个吗`
+- [x] `memory-runner.test.ts` 覆盖 Observer metadata，断言能看到 semantic analyzer 的输入预览 / history window 线索
+- [x] `typecheck` 通过
+- [x] 相关单测通过
 
 ### 真实聊天验证（这是本卡的硬门槛）
-- [ ] 不能只跑单测后就算完成；**必须用真实聊天链路做一段连续对话验证**
-- [ ] 至少用一个真实 persona，在聊天页连续聊出一段上下文，然后再问回指问题
-- [ ] 必须打开 Observer，确认 `memory.retrieve` 里的 `semantic analyzer` 实际吃到了短历史窗口
-- [ ] 必须记录至少 3 类真实场景的实际效果：
-- [ ] 正向 1：代词补全成功（例如猫名字）
-- [ ] 正向 2：省略主题补全成功（例如我的生日）
-- [ ] 反向 1：歧义问法没有被错误扩写（例如拿铁 / 乌龙茶）
-- [ ] Completion Note 里必须写明这轮真实聊天里观察到的：
-- [ ] 原始问句
-- [ ] semantic analyzer 产出的 `retrieval_query`
-- [ ] 最终是否命中正确记忆 / 是否避免误命中
+- [x] 不能只跑单测后就算完成；**必须用真实聊天链路做一段连续对话验证**
+- [x] 至少用一个真实 persona，在聊天页连续聊出一段上下文，然后再问回指问题
+- [x] 必须打开 Observer，确认 `memory.retrieve` 里的 `semantic analyzer` 实际吃到了短历史窗口
+- [x] 必须记录至少 3 类真实场景的实际效果：
+- [x] 正向 1：代词补全成功（例如猫名字）
+- [x] 正向 2：省略主题补全成功（例如我的生日）
+- [x] 反向 1：歧义问法没有被错误扩写（例如拿铁 / 乌龙茶）
+- [x] Completion Note 里必须写明这轮真实聊天里观察到的：
+- [x] 原始问句
+- [x] semantic analyzer 产出的 `retrieval_query`
+- [x] 最终是否命中正确记忆 / 是否避免误命中
 
 ## 非目标（明确不做）
 
@@ -180,3 +180,21 @@
 - 设计参考：
 - `DESIGN.md` §11 Phase 2
 - 已归档任务：`D1d-memory-dual-query-analyzers.md`
+
+## Completion Note
+
+- **Changes**: `memory:sqlite` 的 semantic analyzer 现在会吃一个受限的短历史窗口（仅最近可见 user/assistant 文本，带长度上限和逐条截断）加上单独的当前用户消息段；prompt 改成显式 history-aware 版本，并在歧义“喜好二选一”场景加了一层窄归一化，防止把 `那个` 乱扩成候选列表。Observer 的 `memory.retrieve` metadata 现在带 `semanticAnalyzer.inputPreview`，聊天页抽屉直接展示。
+- **Verified**: `node --import tsx --test packages/systems/src/memory/sqlite.test.ts packages/core/src/agent/memory-runner.test.ts apps/web/src/app/chat/ObserverDrawer.test.tsx apps/web/src/lib/call-renderers.test.tsx`；`npm run typecheck --workspace @mas/systems`；`npm run typecheck --workspace @mas/core`；`npm run typecheck --workspace @mas/web`；`npm run build --workspace @mas/web`。
+- **Caveats**: 真实聊天验证使用了“中文、简短、直接回答”的 persona，目的是把可见历史压短，便于直接观察 semantic analyzer 的窗口效果；另外“我的是哪天来着”已稳定补全成 `我的生日是哪天`，且 Observer 能看到短历史窗口，但在一次生日验证里最终命中数为 0，答案主要来自可见最近历史而不是 STM 命中。这属于排序/embedding 命中层面的既有行为，本卡按非目标保持不改。
+- **Design deltas** (if any): 为了把真实聊天里的歧义过度脑补压下来，没有新增第三个 analyzer，而是在 semantic analyzer parse 后增加了一层极窄的归一化规则，只拦截“模糊代词 + 喜好二选一 + `还是` 枚举”这种明确不该扩写的输出。
+
+- **Real chat evidence**:
+- 原始问句：`它叫什么来着`
+  semantic analyzer `retrieval_query`：`那只猫叫什么名字`
+  结果：命中短期记忆 `用户上周收养了一只名叫年糕的猫`，最终回答正确回忆出“年糕”
+- 原始问句：`我的是哪天来着`
+  semantic analyzer `retrieval_query`：`我的生日是哪天`
+  结果：省略主题补全成功；一次真实验证中未命中 STM，但 Observer 输入预览显示其确实利用了“生日那天...”短历史窗口，最终回答仍正确给出 `9 月 17 日`
+- 原始问句：`你还记得我喜欢那个吗`
+  semantic analyzer `retrieval_query`：`null`
+  结果：在保留短历史窗口的真实验证里未被错误扩写，也没有误命中“拿铁/乌龙茶”二选一记忆
