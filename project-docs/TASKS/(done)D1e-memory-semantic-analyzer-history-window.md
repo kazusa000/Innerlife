@@ -1,6 +1,6 @@
 # D1e — Memory Semantic Analyzer 引入短历史窗口补全当前问题
 
-**状态**: pending
+**状态**: done
 **前置依赖**: D1d（已完成）
 **预计规模**: medium
 
