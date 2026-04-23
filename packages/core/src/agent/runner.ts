@@ -1145,6 +1145,9 @@ async function runPendingRelationshipAnalysis(
           after: serializeRelationshipState(afterState),
           delta: serializeRelationshipState(analysis.delta),
           trigger: analysis.trigger,
+          counterpartId: pending.counterpart?.id ?? null,
+          counterpartName: pending.counterpart?.name ?? null,
+          counterpartType: pending.counterpart?.type ?? null,
         },
       })
     }
@@ -1165,7 +1168,7 @@ async function runPendingRelationshipAnalysis(
     return {
       event: {
         type: 'system_error',
-        system: 'relationship:multi-dim',
+        system: `relationship:${pending.kind}`,
         phase: 'afterLLM',
         error: err,
       },

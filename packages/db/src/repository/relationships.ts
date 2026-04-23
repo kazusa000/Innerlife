@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto'
 import { getDb } from '../client'
 import { relationships } from '../schema'
 
+export type RelationshipCounterpartType = 'user' | 'named'
+
 export interface RelationshipDimensions {
   trust: number
   affinity: number
@@ -25,6 +27,7 @@ export interface RelationshipHistoryEntry {
 export interface RelationshipRecord {
   id: string
   agentId: string
+  counterpartType: RelationshipCounterpartType
   counterpartId: string
   dimensions: RelationshipDimensions
   history: RelationshipHistoryEntry[]
@@ -129,6 +132,7 @@ function mapRelationship(row: typeof relationships.$inferSelect): RelationshipRe
   return {
     id: row.id,
     agentId: row.agentId,
+    counterpartType: row.counterpartType,
     counterpartId: row.counterpartId,
     dimensions: parseDimensions(row.dimensions),
     history: parseHistory(row.history),
@@ -136,13 +140,17 @@ function mapRelationship(row: typeof relationships.$inferSelect): RelationshipRe
   }
 }
 
-export function getRelationship(agentId: string, counterpartId: string) {
+export function getRelationship(
+  agentId: string,
+  counterpartId: string,
+  counterpartType: RelationshipCounterpartType = 'user',
+) {
   const db = getDb()
   const row = db.select()
     .from(relationships)
     .where(and(
       eq(relationships.agentId, agentId),
-      eq(relationships.counterpartType, 'user'),
+      eq(relationships.counterpartType, counterpartType),
       eq(relationships.counterpartId, counterpartId),
     ))
     .get()
@@ -159,15 +167,17 @@ export function listRelationshipHistory(relationshipId: string) {
 export function upsertRelationship(data: {
   agentId: string
   counterpartId: string
+  counterpartType?: RelationshipCounterpartType
   dimensions: RelationshipDimensions
   history: RelationshipHistoryEntry[]
   updatedAt?: Date
 }) {
   const db = getDb()
-  const existing = getRelationship(data.agentId, data.counterpartId)
+  const counterpartType = data.counterpartType ?? 'user'
+  const existing = getRelationship(data.agentId, data.counterpartId, counterpartType)
   const payload = {
     agentId: data.agentId,
-    counterpartType: 'user' as const,
+    counterpartType,
     counterpartId: data.counterpartId,
     dimensions: JSON.stringify(normalizeDimensions(data.dimensions)),
     history: serializeHistory(data.history),
@@ -179,7 +189,7 @@ export function upsertRelationship(data: {
       .set(payload)
       .where(eq(relationships.id, existing.id))
       .run()
-    return getRelationship(data.agentId, data.counterpartId)!
+    return getRelationship(data.agentId, data.counterpartId, counterpartType)!
   }
 
   db.insert(relationships)
@@ -189,10 +199,25 @@ export function upsertRelationship(data: {
     })
     .run()
 
-  return getRelationship(data.agentId, data.counterpartId)!
+  return getRelationship(data.agentId, data.counterpartId, counterpartType)!
 }
 
 export function deleteRelationshipsByAgent(agentId: string) {
   const db = getDb()
   db.delete(relationships).where(eq(relationships.agentId, agentId)).run()
+}
+
+export function deleteRelationshipsByCounterpart(
+  agentId: string,
+  counterpartId: string,
+  counterpartType: RelationshipCounterpartType = 'user',
+) {
+  const db = getDb()
+  db.delete(relationships)
+    .where(and(
+      eq(relationships.agentId, agentId),
+      eq(relationships.counterpartType, counterpartType),
+      eq(relationships.counterpartId, counterpartId),
+    ))
+    .run()
 }

@@ -113,6 +113,9 @@ function ChatPageInner() {
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
       <Sidebar
+        agentId={agent?.id}
+        sessionId={currentId}
+        relationshipScheme={typeof agent?.modules?.relationship?.scheme === 'string' ? agent.modules.relationship.scheme : null}
         agentName={agent?.name}
         onBack={() => router.push('/')}
         onResetContext={handleResetContext}

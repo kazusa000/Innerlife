@@ -2,7 +2,7 @@ import { SummaryCompactionSystem } from './compaction'
 import { DimensionalEmotionSystem } from './emotion'
 import { MemorySqliteSystem } from './memory'
 import { HelloWorldSystem, NoopSystem } from './noop'
-import { MultiDimRelationshipSystem } from './relationship'
+import { MultiDimRelationshipSystem, NamedMultiDimRelationshipSystem } from './relationship'
 import type { AgentModules, AgentSystem, SystemRegistry } from './types'
 
 export const systemRegistry: SystemRegistry = {
@@ -25,6 +25,7 @@ export const systemRegistry: SystemRegistry = {
   relationship: {
     noop: () => new NoopSystem('relationship'),
     'multi-dim': (config) => new MultiDimRelationshipSystem(config),
+    'named-multi-dim': (config) => new NamedMultiDimRelationshipSystem(config),
   },
 }
 

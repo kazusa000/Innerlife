@@ -43,6 +43,13 @@
       "when": 1776721181868,
       "tag": "0005_regular_deadpool",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1776897452724,
+      "tag": "0006_dapper_gateway",
+      "breakpoints": true
     }
   ]
 }

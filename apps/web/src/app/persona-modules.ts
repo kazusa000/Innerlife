@@ -1,5 +1,5 @@
 export type EmotionScheme = 'noop' | 'dimensional'
-export type RelationshipScheme = 'noop' | 'multi-dim'
+export type RelationshipScheme = 'noop' | 'multi-dim' | 'named-multi-dim'
 export type MemoryScheme = 'noop' | 'sqlite'
 
 export type EmotionBaseline = {
@@ -94,7 +94,7 @@ export function getRelationshipFormState(
 ): RelationshipFormState {
   const relationship = readModule(modules, 'relationship')
   return {
-    scheme: normalizeScheme(relationship?.scheme, ['noop', 'multi-dim'], fallback),
+    scheme: normalizeScheme(relationship?.scheme, ['noop', 'multi-dim', 'named-multi-dim'], fallback),
   }
 }
 

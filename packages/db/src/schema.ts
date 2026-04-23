@@ -37,6 +37,36 @@ export const sessions = sqliteTable('sessions', {
     .$defaultFn(() => new Date()),
 })
 
+export const relationshipCounterparts = sqliteTable('relationship_counterparts', {
+  id: text('id').primaryKey(),
+  agentId: text('agent_id')
+    .notNull()
+    .references(() => agents.id),
+  name: text('name').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (table) => ({
+  agentUpdatedAtIdx: index('idx_relationship_counterparts_agent_updated_at').on(table.agentId, table.updatedAt),
+}))
+
+export const sessionRelationshipBindings = sqliteTable('session_relationship_bindings', {
+  sessionId: text('session_id')
+    .primaryKey()
+    .references(() => sessions.id),
+  counterpartId: text('counterpart_id')
+    .notNull()
+    .references(() => relationshipCounterparts.id),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (table) => ({
+  counterpartIdx: index('idx_session_relationship_bindings_counterpart_id').on(table.counterpartId),
+}))
+
 export const messages = sqliteTable('messages', {
   id: text('id').primaryKey(),
   sessionId: text('session_id')
@@ -145,7 +175,7 @@ export const relationships = sqliteTable('relationships', {
   agentId: text('agent_id')
     .notNull()
     .references(() => agents.id),
-  counterpartType: text('counterpart_type', { enum: ['user'] }).notNull(),
+  counterpartType: text('counterpart_type', { enum: ['user', 'named'] }).notNull(),
   counterpartId: text('counterpart_id').notNull(),
   dimensions: text('dimensions').notNull(),
   history: text('history').notNull(),

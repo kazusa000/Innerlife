@@ -14,6 +14,8 @@ export function RelationshipCallCardMultiDim({ call }: { call: LiveCall }) {
   const after = getRelationshipVector(metadata?.after)
   const delta = getRelationshipVector(metadata?.delta)
   const trigger = readString(metadata?.trigger)
+  const counterpartName = readString(metadata?.counterpartName)
+  const counterpartId = readString(metadata?.counterpartId)
   const [open, setOpen] = useState(true)
 
   return (
@@ -89,6 +91,8 @@ export function RelationshipCallCardMultiDim({ call }: { call: LiveCall }) {
           <CollapsibleSection title={OBSERVER_UI_COPY.delta} accent={CALL_ACCENTS.relationship.color} defaultOpen>
             <DetailList
               rows={[
+                { label: '对象', value: counterpartName ?? '无' },
+                { label: '对象 ID', value: counterpartId ?? '无' },
                 { label: 'trust', value: delta ? formatMetric(delta.trust) : '无' },
                 { label: 'affinity', value: delta ? formatMetric(delta.affinity) : '无' },
                 { label: 'familiarity', value: delta ? formatMetric(delta.familiarity) : '无' },

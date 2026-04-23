@@ -610,14 +610,26 @@ emotion_states                         -- 当前情绪状态持久化
   trigger     TEXT                    -- 触发原因
   createdAt   INTEGER
 
-relationships                         -- 当前 user ↔ agent 关系状态
+relationships                         -- 当前 counterpart ↔ agent 关系状态
   id          TEXT PRIMARY KEY
   agentId     TEXT FK → agents.id
-  counterpartType TEXT                -- 当前只支持 'user'
-  counterpartId TEXT                  -- 当前默认 'default-user'
+  counterpartType TEXT                -- 'user' | 'named'
+  counterpartId TEXT                  -- default-user 或手动命名对象 id
   dimensions  TEXT (JSON)             -- { trust, affinity, familiarity, respect }
   history     TEXT (JSON)             -- 关系变化日志
   updatedAt   INTEGER
+
+relationship_counterparts             -- 手动命名的关系对象（per-agent）
+  id          TEXT PRIMARY KEY
+  agentId     TEXT FK → agents.id
+  name        TEXT
+  createdAt   INTEGER
+  updatedAt   INTEGER
+
+session_relationship_bindings         -- 某条 session 当前绑定的关系对象
+  sessionId    TEXT PK FK → sessions.id
+  counterpartId TEXT FK → relationship_counterparts.id
+  updatedAt    INTEGER
 
 scheduled_tasks                       -- Phase 4: 自主行为任务
   id          TEXT PRIMARY KEY
@@ -692,6 +704,13 @@ POST   /api/agents/:id/start         启动 agent
 POST   /api/agents/:id/stop          停止 agent
 GET    /api/agents/:id/relationships                 关系管理入口元信息（当前 scheme / 可用能力）
 GET    /api/agents/:id/relationships/multi-dim      multi-dim 关系详情 / 历史 / 图谱数据
+GET    /api/agents/:id/relationships/named-multi-dim named-multi-dim 配置 / 对象列表 / 当前对象详情
+POST   /api/agents/:id/relationships/named-multi-dim/counterparts 创建关系对象
+PATCH  /api/agents/:id/relationships/named-multi-dim/counterparts/:counterpartId 重命名关系对象
+DELETE /api/agents/:id/relationships/named-multi-dim/counterparts/:counterpartId 删除关系对象
+GET    /api/sessions/:id/relationship-counterpart   查询当前 session 绑定对象
+PUT    /api/sessions/:id/relationship-counterpart   绑定当前 session 的关系对象
+DELETE /api/sessions/:id/relationship-counterpart   解绑当前 session 的关系对象
 
 # Phase 4+
 POST   /api/scheduled-tasks           创建定时任务
@@ -958,6 +977,25 @@ interface BigFiveParams {
 持久化：`relationships` 表（agentId, counterpartType, counterpartId, dimensions JSON, history JSON, updatedAt）
 
 关系系统的管理入口固定为 `/agent/[id]/relationships`。入口页只负责根据 `agents.modules.relationship.scheme` 分发到对应管理子系统；`simple`、`multi-dim`、未来的新方案彼此独立，不共享同一套管理视图或数据语义。
+
+#### named-multi-dim 方案
+
+`named-multi-dim` 用于“同一个 agent 面向不同人有不同关系”的场景。
+
+- agent 可手动维护多个关系对象，第一版对象字段只有 `name`
+- 每条 `session` 只能绑定一个关系对象
+- 未绑定对象时，该 session 上的关系系统视为未启用
+- 绑定对象后：
+  - `beforeTurn` 读取该对象当前关系状态，没有则从 baseline 起
+  - `beforeLLM` 注入带对象名称的关系 fragment
+  - `afterLLM / afterTurn` 继续沿用四维 delta + decay + history 机制
+  - 写入目标变为 `relationships(agentId, counterpartType='named', counterpartId=<对象 id>)`
+
+配套持久化：
+- `relationship_counterparts`：手动命名对象
+- `session_relationship_bindings`：session 当前绑定对象
+
+固定入口仍是 `/agent/[id]/relationships`，但当 scheme = `named-multi-dim` 时，管理页会切换成“左侧对象列表 + 右侧当前对象详情”的工作台；聊天页侧栏也会出现“当前关系对象”绑定入口。
 
 ### 10.6 内在系统 — 记忆（Memory）
 
