@@ -113,6 +113,7 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                   rows={[
                     { label: '模式', value: semanticAnalyzer?.mode ?? '无' },
                     { label: '检索改写', value: semanticAnalyzer?.retrievalQuery ?? '无' },
+                    { label: '输入预览', value: semanticAnalyzer?.inputPreview ?? '无' },
                     { label: '错误', value: semanticAnalyzer?.error ?? '无' },
                   ]}
                 />

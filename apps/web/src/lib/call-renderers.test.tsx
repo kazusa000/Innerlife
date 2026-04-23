@@ -19,6 +19,7 @@ test('MemoryView renders retrieve time range metadata', () => {
         semanticAnalyzer: {
           retrievalQuery: '最近在修 sqlite memory 的 consolidate 按钮问题',
           mode: 'llm',
+          inputPreview: '最近对话（仅供补全当前问题）：\n用户：我们昨天在聊 sqlite memory。\n\n当前用户消息：\n最后是怎么修的来着',
           error: null,
         },
         mergedQuery: {
@@ -43,5 +44,6 @@ test('MemoryView renders retrieve time range metadata', () => {
   assert.equal(html.includes('2026-04-20T13:55:00.000Z'), true)
   assert.equal(html.includes('2026-04-20T14:00:00.000Z'), true)
   assert.equal(html.includes('最近在修 sqlite memory 的 consolidate 按钮问题'), true)
+  assert.equal(html.includes('最后是怎么修的来着'), true)
   assert.equal(html.includes('聚焦点'), false)
 })

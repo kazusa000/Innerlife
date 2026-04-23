@@ -76,6 +76,7 @@ export interface MemoryTimeAnalyzerMeta {
 export interface MemorySemanticAnalyzerMeta {
   mode: 'llm' | null
   retrievalQuery: string | null
+  inputPreview: string | null
   error: string | null
 }
 
@@ -312,6 +313,7 @@ export function getMemorySemanticAnalyzer(call: LiveCall): MemorySemanticAnalyze
   return {
     mode: readString(analyzer.mode) as 'llm' | null,
     retrievalQuery: readString(analyzer.retrievalQuery),
+    inputPreview: readString(analyzer.inputPreview),
     error: readString(analyzer.error),
   }
 }

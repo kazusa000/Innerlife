@@ -794,6 +794,7 @@ async function runPendingMemoryQuery(
         semanticAnalyzer: {
           mode: 'llm',
           retrievalQuery: query.retrievalQuery,
+          inputPreview: semanticAnalyzer.inputText,
           error: semanticError?.message ?? null,
         },
         mergedQuery: {
@@ -852,6 +853,7 @@ async function runPendingMemoryQuery(
     semanticAnalyzer: {
       mode: 'llm',
       retrievalQuery: query.retrievalQuery,
+      inputPreview: semanticAnalyzer.inputText,
       error: semanticError?.message ?? null,
     },
     mergedQuery: {

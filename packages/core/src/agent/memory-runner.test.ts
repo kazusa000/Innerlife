@@ -175,6 +175,7 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
       model: string
       reasoning?: unknown
       responseFormat?: unknown
+      messages?: Message[]
     }> = []
     const observer: RunAgentObserver = {
       onLLMCallStart(payload) {
@@ -192,9 +193,30 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
         model: params.model,
         reasoning: params.reasoning,
         responseFormat: params.responseFormat,
+        messages: params.messages,
       })
 
       if (isMemorySemanticPrompt(params.systemPrompt)) {
+        assert.deepEqual(params.messages, [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: [
+                  '最近对话（仅供补全当前问题）：',
+                  '用户：我上周收养了一只猫。',
+                  '助手：记住了，你上周收养了一只猫。',
+                  '用户：我给它起名叫橘子。',
+                  '助手：好的，我记住那只猫叫橘子。',
+                  '',
+                  '当前用户消息：',
+                  '我猫叫什么',
+                ].join('\n'),
+              },
+            ],
+          },
+        ])
         yield {
           type: 'message_complete',
           response: {
@@ -251,7 +273,13 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
     const events = []
     for await (const event of runAgent(
       createConfig(),
-      [createTextMessage('user', '我猫叫什么')],
+      [
+        createTextMessage('user', '我上周收养了一只猫。'),
+        createTextMessage('assistant', '记住了，你上周收养了一只猫。'),
+        createTextMessage('user', '我给它起名叫橘子。'),
+        createTextMessage('assistant', '好的，我记住那只猫叫橘子。'),
+        createTextMessage('user', '我猫叫什么'),
+      ],
       provider,
       createSystems({
         memory: {
@@ -323,6 +351,16 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
       semanticAnalyzer: {
         retrievalQuery: '用户告诉过我的猫叫什么名字',
         mode: 'llm',
+        inputPreview: [
+          '最近对话（仅供补全当前问题）：',
+          '用户：我上周收养了一只猫。',
+          '助手：记住了，你上周收养了一只猫。',
+          '用户：我给它起名叫橘子。',
+          '助手：好的，我记住那只猫叫橘子。',
+          '',
+          '当前用户消息：',
+          '我猫叫什么',
+        ].join('\n'),
         error: null,
       },
       mergedQuery: {
@@ -505,6 +543,13 @@ test('runAgent supports pure time-range recall without a retrieval query', async
     assert.deepEqual((observerEnds[0]?.metadata as { semanticAnalyzer?: unknown })?.semanticAnalyzer, {
       retrievalQuery: null,
       mode: 'llm',
+      inputPreview: [
+        '最近对话（仅供补全当前问题）：',
+        '（无）',
+        '',
+        '当前用户消息：',
+        '昨天发生了什么',
+      ].join('\n'),
       error: null,
     })
     assert.deepEqual(retrieveMetadata?.timeRange, {
@@ -611,7 +656,18 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
       timeAnalyzer: { timeRange: null, error: null },
-      semanticAnalyzer: { retrievalQuery: null, mode: 'llm', error: 'memory query failed' },
+      semanticAnalyzer: {
+        retrievalQuery: null,
+        mode: 'llm',
+        inputPreview: [
+          '最近对话（仅供补全当前问题）：',
+          '（无）',
+          '',
+          '当前用户消息：',
+          '我猫叫什么',
+        ].join('\n'),
+        error: 'memory query failed',
+      },
       mergedQuery: { retrievalQuery: null, timeRange: null },
       retrievalQuery: null,
       timeRange: null,
@@ -727,7 +783,12 @@ test('runAgent emits system_error and continues when memory retrieval throws', a
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
       timeAnalyzer: { timeRange: null, error: null },
-      semanticAnalyzer: { retrievalQuery: '用户关于猫说过的话', mode: 'llm', error: null },
+      semanticAnalyzer: {
+        retrievalQuery: '用户关于猫说过的话',
+        mode: 'llm',
+        inputPreview: 'what did I say about my cat?',
+        error: null,
+      },
       mergedQuery: { retrievalQuery: '用户关于猫说过的话', timeRange: null },
       retrievalQuery: '用户关于猫说过的话',
       timeRange: null,
@@ -858,7 +919,18 @@ test('runAgent emits system_error without fallback retrieval when semantic analy
     assert.deepEqual(observerEnds[0]?.metadata, {
       phase: 'retrieve',
       timeAnalyzer: { timeRange: null, error: null },
-      semanticAnalyzer: { retrievalQuery: null, mode: 'llm', error: null },
+      semanticAnalyzer: {
+        retrievalQuery: null,
+        mode: 'llm',
+        inputPreview: [
+          '最近对话（仅供补全当前问题）：',
+          '（无）',
+          '',
+          '当前用户消息：',
+          '我猫叫什么',
+        ].join('\n'),
+        error: null,
+      },
       mergedQuery: { retrievalQuery: null, timeRange: null },
       retrievalQuery: null,
       timeRange: null,
@@ -871,6 +943,13 @@ test('runAgent emits system_error without fallback retrieval when semantic analy
     assert.deepEqual((observerEnds[2]?.metadata as { semanticAnalyzer?: unknown })?.semanticAnalyzer, {
       retrievalQuery: null,
       mode: 'llm',
+      inputPreview: [
+        '最近对话（仅供补全当前问题）：',
+        '（无）',
+        '',
+        '当前用户消息：',
+        '我猫叫什么',
+      ].join('\n'),
       error: null,
     })
     assert.equal((observerEnds[2]?.metadata as { retrievalQuery?: string | null })?.retrievalQuery ?? null, null)

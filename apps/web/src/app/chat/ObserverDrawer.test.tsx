@@ -88,6 +88,7 @@ test('main tab renders turn cards with fragment anchors and inline compaction on
           semanticAnalyzer: {
             retrievalQuery: 'cat',
             mode: 'llm',
+            inputPreview: '最近对话（仅供补全当前问题）：\n用户：我上周收养了一只猫。\n\n当前用户消息：\n它叫什么来着',
             error: null,
           },
           mergedQuery: {
@@ -148,6 +149,7 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
           semanticAnalyzer: {
             retrievalQuery: 'cat',
             mode: 'llm',
+            inputPreview: '最近对话（仅供补全当前问题）：\n用户：我上周收养了一只猫。\n\n当前用户消息：\n它叫什么来着',
             error: null,
           },
           mergedQuery: {
@@ -194,6 +196,8 @@ test('memory tab renders sqlite retrieve and summarize details', () => {
   assert.equal(html.includes('原 prompt'), true)
   assert.equal(html.includes('检索'), true)
   assert.equal(html.includes('cat memory'), true)
+  assert.equal(html.includes('输入预览'), true)
+  assert.equal(html.includes('它叫什么来着'), true)
   assert.equal(html.includes('1.2s'), true)
   assert.equal(html.includes('聚焦点'), false)
 })
