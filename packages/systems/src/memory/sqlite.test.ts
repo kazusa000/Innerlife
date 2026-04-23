@@ -279,14 +279,17 @@ test('memory sqlite semantic analyzer prompt keeps retrieval query focused on to
   assert.equal(semanticAnalyzer?.kind, 'llm')
   assert.match(semanticAnalyzer?.prompt ?? '', /retrieval_query/)
   assert.match(semanticAnalyzer?.prompt ?? '', /最短、最稳定、最能检索的主题锚点/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /短而完整的一句话|短完整句子/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /不要只输出一个词/)
   assert.match(semanticAnalyzer?.prompt ?? '', /时间信息绝不进入 retrieval_query/)
   assert.match(semanticAnalyzer?.prompt ?? '', /画面、名字、食物、bug、地点、关系或意象/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /猫名字.*bug 修复.*海边灯塔画面/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /猫叫什么名字.*bug 是怎么修复的.*海边灯塔画面是什么样的/)
   assert.match(semanticAnalyzer?.prompt ?? '', /对象、场景、画面、名字或事件类型/)
   assert.match(semanticAnalyzer?.prompt ?? '', /“画面”“场景”“名字”“地点”“食物”“bug”/)
   assert.match(semanticAnalyzer?.prompt ?? '', /“画面”“场景”“名字”“梦境”“氛围”/)
   assert.match(semanticAnalyzer?.prompt ?? '', /没有稳定主题锚点/)
   assert.match(semanticAnalyzer?.prompt ?? '', /“内容\/事情\/对话\/讨论”这类回顾外壳/)
+  assert.doesNotMatch(semanticAnalyzer?.prompt ?? '', /通常就是一个名词或很短的名词短语/)
 })
 
 test('memory sqlite time parser recognizes explicit Chinese time expressions', () => {
@@ -338,39 +341,24 @@ test('memory sqlite uses legacy retrievePrompt as effective prompt for semantic 
 
   const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
   assert.equal(semanticAnalyzer?.kind, 'llm')
-  assert.match(semanticAnalyzer?.prompt ?? '', /统一记忆分析器 prompt/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /请严格返回 json/)
+  assert.equal(semanticAnalyzer?.prompt, '统一记忆分析器 prompt')
 })
 
-test('memory sqlite structured prompt overrides keep required json contract', () => {
+test('memory sqlite structured prompt overrides replace the default prompt directly', () => {
   const semanticPrompt = buildSemanticAnalyzerPrompt('只提取主题锚点')
-  assert.match(semanticPrompt, /^只提取主题锚点/)
-  assert.match(semanticPrompt, /请严格返回 json/)
-  assert.match(semanticPrompt, /"retrieval_query"/)
-  assert.doesNotMatch(semanticPrompt, /"focus"/)
+  assert.equal(semanticPrompt, '只提取主题锚点')
 
   const summaryPrompt = buildSummaryPrompt('整理成记忆')
-  assert.match(summaryPrompt, /^整理成记忆/)
-  assert.match(summaryPrompt, /请严格返回 json/)
-  assert.match(summaryPrompt, /"display_summary"/)
-  assert.match(summaryPrompt, /importance/)
+  assert.equal(summaryPrompt, '整理成记忆')
 
   const contextPrompt = buildContextToShortTermPrompt('整理旧上下文', 2)
-  assert.match(contextPrompt, /^整理旧上下文/)
-  assert.match(contextPrompt, /请严格返回 json/)
-  assert.match(contextPrompt, /最多 2 条短期记忆/)
-  assert.match(contextPrompt, /"memories"/)
+  assert.equal(contextPrompt, '整理旧上下文')
 
   const sleepPrompt = buildShortTermToLongTermPrompt('整理短期记忆', 2)
-  assert.match(sleepPrompt, /^整理短期记忆/)
-  assert.match(sleepPrompt, /请严格返回 json/)
-  assert.match(sleepPrompt, /最多 2 条长期记忆/)
-  assert.match(sleepPrompt, /"memories"/)
+  assert.equal(sleepPrompt, '整理短期记忆')
 
   const consolidatePrompt = buildMemoryConsolidationPrompt('整理重复记忆')
-  assert.match(consolidatePrompt, /^整理重复记忆/)
-  assert.match(consolidatePrompt, /请严格返回 json/)
-  assert.match(consolidatePrompt, /"actions"/)
+  assert.equal(consolidatePrompt, '整理重复记忆')
 })
 
 test('memory sqlite batch parser returns up to configured number of short-term memories', () => {

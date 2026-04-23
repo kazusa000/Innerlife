@@ -38,9 +38,13 @@ type RelationshipResponse = {
   history: RelationshipHistoryEntry[]
 }
 
-function normalizePromptDraft(value: string, defaultValue: string) {
-  const trimmed = value.trim()
-  return !trimmed || trimmed === defaultValue.trim() ? null : trimmed
+function extractRenderedPromptTail(value: string) {
+  const lines = value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const lastLine = lines.at(-1) ?? ''
+  return lastLine.startsWith('- ') ? lastLine.slice(2) : lastLine
 }
 
 function isRelationshipResponse(value: unknown): value is RelationshipResponse {
@@ -71,10 +75,6 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
   })
   const [decayPerTurn, setDecayPerTurn] = useState('')
   const [analysisModel, setAnalysisModel] = useState('')
-  const [savedFragmentPrompt, setSavedFragmentPrompt] = useState<string | null>(null)
-  const [savedAnalysisPrompt, setSavedAnalysisPrompt] = useState<string | null>(null)
-  const [defaultFragmentPrompt, setDefaultFragmentPrompt] = useState('')
-  const [defaultAnalysisPrompt, setDefaultAnalysisPrompt] = useState('')
   const [fragmentPrompt, setFragmentPrompt] = useState('')
   const [analysisPrompt, setAnalysisPrompt] = useState('')
   const [currentState, setCurrentState] = useState<RelationshipBaseline | null>(null)
@@ -107,12 +107,8 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
           setBaseline(data.baseline)
           setDecayPerTurn(typeof data.decayPerTurn === 'number' ? String(data.decayPerTurn) : '')
           setAnalysisModel(data.analysisModel ?? '')
-          setSavedFragmentPrompt(data.fragmentPrompt ?? null)
-          setSavedAnalysisPrompt(data.analysisPrompt ?? null)
-          setDefaultFragmentPrompt(data.fragmentPromptDefault)
-          setDefaultAnalysisPrompt(data.analysisPromptDefault)
-          setFragmentPrompt(data.fragmentPromptEffective)
-          setAnalysisPrompt(data.analysisPromptEffective)
+          setFragmentPrompt(data.fragmentPrompt ?? extractRenderedPromptTail(data.fragmentPromptDefault))
+          setAnalysisPrompt(data.analysisPrompt ?? data.analysisPromptDefault)
           setCurrentState(data.currentState)
           setHistory(data.history)
         }
@@ -146,8 +142,8 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
           baseline,
           ...(decayPerTurn.trim() ? { decayPerTurn: Number(decayPerTurn) } : {}),
           analysisModel: analysisModel.trim() || null,
-          fragmentPrompt: normalizePromptDraft(fragmentPrompt, defaultFragmentPrompt),
-          analysisPrompt: normalizePromptDraft(analysisPrompt, defaultAnalysisPrompt),
+          fragmentPrompt: fragmentPrompt.trim() || null,
+          analysisPrompt: analysisPrompt.trim() || null,
         }),
       })
       const data = await response.json() as unknown
@@ -161,12 +157,8 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
       setBaseline(data.baseline)
       setDecayPerTurn(typeof data.decayPerTurn === 'number' ? String(data.decayPerTurn) : '')
       setAnalysisModel(data.analysisModel ?? '')
-      setSavedFragmentPrompt(data.fragmentPrompt ?? null)
-      setSavedAnalysisPrompt(data.analysisPrompt ?? null)
-      setDefaultFragmentPrompt(data.fragmentPromptDefault)
-      setDefaultAnalysisPrompt(data.analysisPromptDefault)
-      setFragmentPrompt(data.fragmentPromptEffective)
-      setAnalysisPrompt(data.analysisPromptEffective)
+      setFragmentPrompt(data.fragmentPrompt ?? extractRenderedPromptTail(data.fragmentPromptDefault))
+      setAnalysisPrompt(data.analysisPrompt ?? data.analysisPromptDefault)
       setCurrentState(data.currentState)
       setHistory(data.history)
       setNotice('关系 baseline、模型和 prompt 已保存。')
@@ -291,10 +283,7 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
               label: 'Fragment Prompt',
               helper: '控制 trust / affinity / familiarity / respect 如何轻微渗入主对话语气。',
               value: fragmentPrompt,
-              defaultValue: defaultFragmentPrompt,
-              effectiveValue: fragmentPrompt,
-              sourceLabel: savedFragmentPrompt ? '自定义 override' : '系统默认',
-              placeholder: '例如：让关系状态轻微影响亲疏感和分寸，不要播报数值。',
+              placeholder: '例如：让关系状态轻微影响亲疏感和分寸，不要播报数值。清空后保存会继续使用系统默认片段。',
               rows: 7,
             },
             {
@@ -302,10 +291,7 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
               label: 'Analysis Prompt',
               helper: '控制每轮关系分析如何读上下文、如何输出四维 delta。',
               value: analysisPrompt,
-              defaultValue: defaultAnalysisPrompt,
-              effectiveValue: analysisPrompt,
-              sourceLabel: savedAnalysisPrompt ? '自定义 override' : '系统默认',
-              placeholder: '例如：请判断这一轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。',
+              placeholder: '例如：请判断这一轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。清空后保存会回退系统默认。',
               rows: 10,
             },
           ]}
@@ -314,13 +300,6 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
               setFragmentPrompt(value)
             } else if (key === 'analysisPrompt') {
               setAnalysisPrompt(value)
-            }
-          }}
-          onReset={(key) => {
-            if (key === 'fragmentPrompt') {
-              setFragmentPrompt(defaultFragmentPrompt)
-            } else if (key === 'analysisPrompt') {
-              setAnalysisPrompt(defaultAnalysisPrompt)
             }
           }}
         />

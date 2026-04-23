@@ -19,14 +19,25 @@ interface ToolsManagerProps {
   initialTools: ToolManagerItem[]
 }
 
-function buildPatchPayload(tools: ToolManagerItem[]) {
+type ToolDraftItem = ToolManagerItem & {
+  description: string
+}
+
+function hydrateTools(tools: ToolManagerItem[]): ToolDraftItem[] {
+  return tools.map((tool) => ({
+    ...tool,
+    description: tool.effectiveDescription,
+  }))
+}
+
+function buildPatchPayload(tools: ToolDraftItem[]) {
   return {
     tools: Object.fromEntries(
       tools.map((tool) => [
         tool.name,
         {
           enabled: tool.configuredEnabled,
-          description: tool.overrideDescription ?? '',
+          description: tool.description.trim(),
         },
       ]),
     ),
@@ -58,12 +69,12 @@ function toolSummary(tool: ToolManagerItem) {
 }
 
 export default function ToolsManager({ agentId, initialTools }: ToolsManagerProps) {
-  const [tools, setTools] = useState(initialTools)
+  const [tools, setTools] = useState(() => hydrateTools(initialTools))
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  function updateTool(name: string, patch: Partial<ToolManagerItem>) {
+  function updateTool(name: string, patch: Partial<ToolDraftItem>) {
     setTools((current) =>
       current.map((tool) => (tool.name === name ? { ...tool, ...patch } : tool)),
     )
@@ -85,8 +96,8 @@ export default function ToolsManager({ agentId, initialTools }: ToolsManagerProp
         throw new Error(typeof data?.error === 'string' ? data.error : '保存工具配置失败')
       }
 
-      setTools(data.tools)
-      setNotice('工具配置已保存。刷新后会保留当前开关与描述覆盖。')
+      setTools(hydrateTools(data.tools))
+      setNotice('工具配置已保存。刷新后会保留当前开关与描述。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存工具配置失败')
     } finally {
@@ -175,37 +186,19 @@ export default function ToolsManager({ agentId, initialTools }: ToolsManagerProp
               </div>
 
               <div className={styles.promptCard}>
-                <p className={styles.promptLabel}>描述与 override</p>
+                <p className={styles.promptLabel}>工具描述</p>
                 <div className={styles.promptStack}>
                   <label className={styles.field}>
-                    <span className={styles.fieldLabel}>默认描述</span>
+                    <span className={styles.fieldLabel}>当前描述</span>
                     <textarea
                       className={styles.textarea}
-                      value={tool.defaultDescription}
-                      readOnly
-                      rows={4}
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>Override 描述</span>
-                    <textarea
-                      className={styles.textarea}
-                      value={tool.overrideDescription ?? ''}
+                      value={tool.description}
                       onChange={(event) =>
                         updateTool(tool.name, {
-                          overrideDescription: event.target.value.trim() || null,
+                          description: event.target.value,
                         })}
                       rows={4}
-                      placeholder="留空则使用默认描述"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span className={styles.fieldLabel}>生效描述</span>
-                    <textarea
-                      className={styles.textarea}
-                      value={tool.overrideDescription?.trim() || tool.defaultDescription}
-                      readOnly
-                      rows={4}
+                      placeholder="清空后保存会回退系统默认描述。"
                     />
                   </label>
                 </div>

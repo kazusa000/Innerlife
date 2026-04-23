@@ -9,9 +9,6 @@ export type PromptField = {
   value: string
   placeholder: string
   rows?: number
-  defaultValue?: string | null
-  effectiveValue?: string
-  sourceLabel?: string
 }
 
 type PromptLabProps = {
@@ -19,15 +16,13 @@ type PromptLabProps = {
   copy?: string
   fields: PromptField[]
   onChange: (key: string, value: string) => void
-  onReset?: (key: string) => void
 }
 
 export default function PromptLab({
   title = 'Prompt Lab',
-  copy = '这里显示的是当前真正生效的 prompt。你可以直接在现有内容上修改并保存；恢复默认会回到系统 prompt。',
+  copy = '这里编辑并保存的是当前会生效的文本。清空后保存会回退到系统默认。',
   fields,
   onChange,
-  onReset,
 }: PromptLabProps) {
   return (
     <section className={styles.panel}>
@@ -46,30 +41,16 @@ export default function PromptLab({
               <div>
                 <span className={styles.promptLabel}>{field.label}</span>
                 <p className={styles.promptHelper}>{field.helper}</p>
-                {field.sourceLabel && (
-                  <p className={styles.promptMeta}>当前生效：{field.sourceLabel}</p>
-                )}
               </div>
               <div className={styles.promptActions}>
-                {field.defaultValue !== undefined && onReset ? (
-                  <button
-                    type="button"
-                    className={styles.subtleButton}
-                    onClick={() => onReset(field.key)}
-                    disabled={field.value.trim() === (field.defaultValue ?? '').trim()}
-                  >
-                    恢复默认
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className={styles.subtleButton}
-                    onClick={() => onChange(field.key, '')}
-                    disabled={!field.value.trim()}
-                  >
-                    清空
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className={styles.subtleButton}
+                  onClick={() => onChange(field.key, '')}
+                  disabled={!field.value.trim()}
+                >
+                  清空
+                </button>
               </div>
             </div>
             <textarea

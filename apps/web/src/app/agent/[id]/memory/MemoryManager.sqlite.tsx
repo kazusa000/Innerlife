@@ -174,27 +174,6 @@ function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySet
   }
 }
 
-function normalizePromptDefaults(data: Partial<MemoryListResponse>): Pick<
-  MemorySettings,
-  'semanticAnalyzerPrompt'
-  | 'summarizePrompt'
-  | 'contextToShortTermPrompt'
-  | 'shortTermToLongTermPrompt'
-  | 'shortTermFragmentPrompt'
-  | 'fixedFragmentPrompt'
-  | 'consolidatePrompt'
-> {
-  return {
-    semanticAnalyzerPrompt: typeof data.semanticAnalyzerPromptDefault === 'string' ? data.semanticAnalyzerPromptDefault : '',
-    summarizePrompt: typeof data.summarizePromptDefault === 'string' ? data.summarizePromptDefault : '',
-    contextToShortTermPrompt: typeof data.contextToShortTermPromptDefault === 'string' ? data.contextToShortTermPromptDefault : '',
-    shortTermToLongTermPrompt: typeof data.shortTermToLongTermPromptDefault === 'string' ? data.shortTermToLongTermPromptDefault : '',
-    shortTermFragmentPrompt: typeof data.shortTermFragmentPromptDefault === 'string' ? data.shortTermFragmentPromptDefault : '',
-    fixedFragmentPrompt: typeof data.fixedFragmentPromptDefault === 'string' ? data.fixedFragmentPromptDefault : '',
-    consolidatePrompt: typeof data.consolidatePromptDefault === 'string' ? data.consolidatePromptDefault : '',
-  }
-}
-
 function normalizeEffectivePrompts(data: Partial<MemoryListResponse>): Pick<
   MemorySettings,
   'semanticAnalyzerPrompt'
@@ -236,17 +215,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [memories, setMemories] = useState<SqliteMemory[]>([])
   const [total, setTotal] = useState(0)
   const [savedSettings, setSavedSettings] = useState<MemorySettings>(() => normalizeSettings({}))
-  const [savedOverrides, setSavedOverrides] = useState<MemorySettings>(() => normalizeSettings({}))
-  const [defaultPrompts, setDefaultPrompts] = useState<Pick<
-    MemorySettings,
-    | 'semanticAnalyzerPrompt'
-    | 'summarizePrompt'
-    | 'contextToShortTermPrompt'
-    | 'shortTermToLongTermPrompt'
-    | 'shortTermFragmentPrompt'
-    | 'fixedFragmentPrompt'
-    | 'consolidatePrompt'
-  >>(() => normalizePromptDefaults({}))
   const [draftSettings, setDraftSettings] = useState<MemorySettings>(() => normalizeSettings({}))
   const [contextSummary, setContextSummary] = useState<ContextSummary | null>(null)
   const [sleepSummary, setSleepSummary] = useState<SleepSummary | null>(null)
@@ -304,8 +272,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       setTotal(typeof payload.total === 'number' ? payload.total : 0)
       setPage(typeof payload.page === 'number' ? payload.page : nextPage)
       setSavedSettings(settings)
-      setSavedOverrides(rawSettings)
-      setDefaultPrompts(normalizePromptDefaults(payload))
       setContextSummary(payload.context)
       setSleepSummary(payload.sleep)
       if (!settingsDirtyRef.current) {
@@ -534,27 +500,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           sleepEnabled: draftSettings.sleepEnabled,
           sleepTimeLocal: draftSettings.sleepTimeLocal,
           sleepIntervalDays: draftSettings.sleepIntervalDays,
-          semanticAnalyzerPrompt: draftSettings.semanticAnalyzerPrompt.trim() === defaultPrompts.semanticAnalyzerPrompt.trim()
-            ? null
-            : draftSettings.semanticAnalyzerPrompt,
-          summarizePrompt: draftSettings.summarizePrompt.trim() === defaultPrompts.summarizePrompt.trim()
-            ? null
-            : draftSettings.summarizePrompt,
-          contextToShortTermPrompt: draftSettings.contextToShortTermPrompt.trim() === defaultPrompts.contextToShortTermPrompt.trim()
-            ? null
-            : draftSettings.contextToShortTermPrompt,
-          shortTermToLongTermPrompt: draftSettings.shortTermToLongTermPrompt.trim() === defaultPrompts.shortTermToLongTermPrompt.trim()
-            ? null
-            : draftSettings.shortTermToLongTermPrompt,
-          shortTermFragmentPrompt: draftSettings.shortTermFragmentPrompt.trim() === defaultPrompts.shortTermFragmentPrompt.trim()
-            ? null
-            : draftSettings.shortTermFragmentPrompt,
-          fixedFragmentPrompt: draftSettings.fixedFragmentPrompt.trim() === defaultPrompts.fixedFragmentPrompt.trim()
-            ? null
-            : draftSettings.fixedFragmentPrompt,
-          consolidatePrompt: draftSettings.consolidatePrompt.trim() === defaultPrompts.consolidatePrompt.trim()
-            ? null
-            : draftSettings.consolidatePrompt,
+          semanticAnalyzerPrompt: draftSettings.semanticAnalyzerPrompt.trim() || null,
+          summarizePrompt: draftSettings.summarizePrompt.trim() || null,
+          contextToShortTermPrompt: draftSettings.contextToShortTermPrompt.trim() || null,
+          shortTermToLongTermPrompt: draftSettings.shortTermToLongTermPrompt.trim() || null,
+          shortTermFragmentPrompt: draftSettings.shortTermFragmentPrompt.trim() || null,
+          fixedFragmentPrompt: draftSettings.fixedFragmentPrompt.trim() || null,
+          consolidatePrompt: draftSettings.consolidatePrompt.trim() || null,
         }),
       })
       const data = await response.json() as Partial<MemorySettings> & {
@@ -583,16 +535,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         ...normalizedOverride,
         ...normalizeEffectivePrompts(data),
       }
-      setSavedOverrides(normalizedOverride)
-      setDefaultPrompts((current) => ({
-        semanticAnalyzerPrompt: typeof data.semanticAnalyzerPromptDefault === 'string' ? data.semanticAnalyzerPromptDefault : current.semanticAnalyzerPrompt,
-        summarizePrompt: typeof data.summarizePromptDefault === 'string' ? data.summarizePromptDefault : current.summarizePrompt,
-        contextToShortTermPrompt: typeof data.contextToShortTermPromptDefault === 'string' ? data.contextToShortTermPromptDefault : current.contextToShortTermPrompt,
-        shortTermToLongTermPrompt: typeof data.shortTermToLongTermPromptDefault === 'string' ? data.shortTermToLongTermPromptDefault : current.shortTermToLongTermPrompt,
-        shortTermFragmentPrompt: typeof data.shortTermFragmentPromptDefault === 'string' ? data.shortTermFragmentPromptDefault : current.shortTermFragmentPrompt,
-        fixedFragmentPrompt: typeof data.fixedFragmentPromptDefault === 'string' ? data.fixedFragmentPromptDefault : current.fixedFragmentPrompt,
-        consolidatePrompt: typeof data.consolidatePromptDefault === 'string' ? data.consolidatePromptDefault : current.consolidatePrompt,
-      }))
       setSavedSettings(normalizedEffective)
       setDraftSettings(normalizedEffective)
       settingsDirtyRef.current = false
@@ -881,9 +823,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               label: 'Semantic Analyzer Prompt',
               helper: '只负责提炼 retrieval_query 的 prompt。这里应该只分析“是什么”，不要混入时间。',
               value: draftSettings.semanticAnalyzerPrompt,
-              defaultValue: defaultPrompts.semanticAnalyzerPrompt,
-              sourceLabel: savedOverrides.semanticAnalyzerPrompt ? '自定义 override' : '系统默认',
-              placeholder: '留空则使用系统默认的 semantic analyzer prompt。',
+              placeholder: '清空后保存会回退系统默认的 semantic analyzer prompt。',
               rows: 7,
             },
             {
@@ -891,9 +831,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               label: 'Summarize Prompt',
               helper: '保留给兼容旧路径或手动整理使用。新的分层记忆主要由 Context → STM / STM → LTM 两条 prompt 驱动。',
               value: draftSettings.summarizePrompt,
-              defaultValue: defaultPrompts.summarizePrompt,
-              sourceLabel: savedOverrides.summarizePrompt ? '自定义 override' : '系统默认',
-              placeholder: '留空则使用系统默认的 summarize prompt。',
+              placeholder: '清空后保存会回退系统默认的 summarize prompt。',
               rows: 7,
             },
             {
@@ -901,9 +839,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               label: 'Context → STM Prompt',
               helper: 'daemon 从旧上下文整理短期记忆时使用。这里控制如何从一大段消息里提炼最多 N 条短期记忆。',
               value: draftSettings.contextToShortTermPrompt,
-              defaultValue: defaultPrompts.contextToShortTermPrompt,
-              sourceLabel: savedOverrides.contextToShortTermPrompt ? '自定义 override' : '系统默认',
-              placeholder: '留空则使用系统默认的 context → short-term prompt。',
+              placeholder: '清空后保存会回退系统默认的 context → short-term prompt。',
               rows: 7,
             },
             {
@@ -911,9 +847,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               label: 'STM → LTM Prompt',
               helper: '睡眠时把短期记忆沉淀成长久记忆的 prompt。这里控制如何提炼长期记忆，而不是检索逻辑。',
               value: draftSettings.shortTermToLongTermPrompt,
-              defaultValue: defaultPrompts.shortTermToLongTermPrompt,
-              sourceLabel: savedOverrides.shortTermToLongTermPrompt ? '自定义 override' : '系统默认',
-              placeholder: '留空则使用系统默认的 short-term → long-term prompt。',
+              placeholder: '清空后保存会回退系统默认的 short-term → long-term prompt。',
               rows: 7,
             },
             {
@@ -921,9 +855,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               label: 'Short-term Fragment Prompt',
               helper: '短期记忆命中时注入主 prompt 的包装文案。未命中时系统会固定写入“短期记忆检索结果：未搜索到相关记忆”。',
               value: draftSettings.shortTermFragmentPrompt,
-              defaultValue: defaultPrompts.shortTermFragmentPrompt,
-              sourceLabel: savedOverrides.shortTermFragmentPrompt ? '自定义 override' : '系统默认',
-              placeholder: '留空则使用系统默认的 short-term fragment prompt。',
+              placeholder: '清空后保存会回退系统默认的 short-term fragment prompt。',
               rows: 7,
             },
             {
@@ -931,9 +863,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               label: 'Fixed Fragment Prompt',
               helper: '固化记忆命中时注入主 prompt 的包装文案。未命中时系统会固定写入“固化记忆检索结果：未搜索到相关记忆”。',
               value: draftSettings.fixedFragmentPrompt,
-              defaultValue: defaultPrompts.fixedFragmentPrompt,
-              sourceLabel: savedOverrides.fixedFragmentPrompt ? '自定义 override' : '系统默认',
-              placeholder: '留空则使用系统默认的 fixed fragment prompt。',
+              placeholder: '清空后保存会回退系统默认的 fixed fragment prompt。',
               rows: 7,
             },
             {
@@ -941,30 +871,11 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               label: 'Consolidate Prompt',
               helper: '控制人工 memory consolidate 时如何 rewrite / merge / keep。它仍然只会在同 layer 内整理，不做跨层合并。',
               value: draftSettings.consolidatePrompt,
-              defaultValue: defaultPrompts.consolidatePrompt,
-              sourceLabel: savedOverrides.consolidatePrompt ? '自定义 override' : '系统默认',
-              placeholder: '留空则使用系统默认的 consolidate prompt。',
+              placeholder: '清空后保存会回退系统默认的 consolidate prompt。',
               rows: 7,
             },
           ]}
           onChange={(key, value) => updateSetting(key as keyof MemorySettings, value)}
-          onReset={(key) => {
-            if (key === 'semanticAnalyzerPrompt') {
-              updateSetting('semanticAnalyzerPrompt', defaultPrompts.semanticAnalyzerPrompt)
-            } else if (key === 'summarizePrompt') {
-              updateSetting('summarizePrompt', defaultPrompts.summarizePrompt)
-            } else if (key === 'contextToShortTermPrompt') {
-              updateSetting('contextToShortTermPrompt', defaultPrompts.contextToShortTermPrompt)
-            } else if (key === 'shortTermToLongTermPrompt') {
-              updateSetting('shortTermToLongTermPrompt', defaultPrompts.shortTermToLongTermPrompt)
-            } else if (key === 'shortTermFragmentPrompt') {
-              updateSetting('shortTermFragmentPrompt', defaultPrompts.shortTermFragmentPrompt)
-            } else if (key === 'fixedFragmentPrompt') {
-              updateSetting('fixedFragmentPrompt', defaultPrompts.fixedFragmentPrompt)
-            } else if (key === 'consolidatePrompt') {
-              updateSetting('consolidatePrompt', defaultPrompts.consolidatePrompt)
-            }
-          }}
         />
         </section>
 
