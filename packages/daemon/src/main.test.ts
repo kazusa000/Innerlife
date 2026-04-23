@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { once } from 'node:events'
 import { spawn } from 'node:child_process'
 import Database from 'better-sqlite3'
+import { loadEnvFile } from './main'
 
 function readState(dbPath: string) {
   const db = new Database(dbPath, { readonly: true })
@@ -46,6 +47,52 @@ async function waitFor(assertion: () => void | Promise<void>, timeoutMs = 4000) 
 
   await assertion()
 }
+
+test('loadEnvFile loads missing values from .env without overriding existing env', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-daemon-env-'))
+  const envPath = join(dir, '.env')
+  const previousOpenRouter = process.env.OPENROUTER_API_KEY
+  const previousAnthropic = process.env.ANTHROPIC_API_KEY
+  const previousObserver = process.env.OBSERVER_ENABLED
+
+  writeFileSync(envPath, [
+    'OPENROUTER_API_KEY=from-dotenv',
+    'ANTHROPIC_API_KEY=from-dotenv-anthropic',
+    'OBSERVER_ENABLED=1',
+  ].join('\n'))
+
+  process.env.OPENROUTER_API_KEY = 'from-process'
+  delete process.env.ANTHROPIC_API_KEY
+  delete process.env.OBSERVER_ENABLED
+
+  try {
+    loadEnvFile(envPath)
+
+    assert.equal(process.env.OPENROUTER_API_KEY, 'from-process')
+    assert.equal(process.env.ANTHROPIC_API_KEY, 'from-dotenv-anthropic')
+    assert.equal(process.env.OBSERVER_ENABLED, '1')
+  } finally {
+    if (previousOpenRouter === undefined) {
+      delete process.env.OPENROUTER_API_KEY
+    } else {
+      process.env.OPENROUTER_API_KEY = previousOpenRouter
+    }
+
+    if (previousAnthropic === undefined) {
+      delete process.env.ANTHROPIC_API_KEY
+    } else {
+      process.env.ANTHROPIC_API_KEY = previousAnthropic
+    }
+
+    if (previousObserver === undefined) {
+      delete process.env.OBSERVER_ENABLED
+    } else {
+      process.env.OBSERVER_ENABLED = previousObserver
+    }
+
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 
 test('main exits cleanly on SIGTERM and releases the lock', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-daemon-main-'))
