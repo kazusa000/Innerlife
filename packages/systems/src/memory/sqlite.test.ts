@@ -13,13 +13,12 @@ import {
 } from '@mas/db'
 import {
   buildContextToShortTermPrompt,
-  buildMemoryConsolidationPrompt,
   buildSemanticAnalyzerPrompt,
   buildShortTermToLongTermPrompt,
-  buildSummaryPrompt,
   MemorySqliteSystem,
   parseMemoryBatchWriteResponse,
   resolveMemoryPipelineSettings,
+  resolveMemorySqliteConfig,
 } from './sqlite'
 import { analyzeMemoryTimeText } from './time-parser'
 import type { TurnContext } from '../types'
@@ -165,6 +164,41 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
   }
 })
 
+test('memory sqlite system keeps no-hit short-term and fixed fragments non-empty', { concurrency: false }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const system = new MemorySqliteSystem({
+      retrieveTopK: 5,
+      embeddingModel: 'qwen/qwen3-embedding-0.6b',
+      shortTermFragmentPrompt: '这些是本轮短期记忆包装文案。',
+      fixedFragmentPrompt: '这些是本轮固化记忆包装文案。',
+      embedder: createEmbedder({}),
+    })
+    const ctx = createContext('你还记得吗')
+    ctx.state.shortTermMemories = []
+    ctx.state.fixedMemories = []
+    ctx.state.memories = []
+
+    await system.beforeLLM?.(ctx)
+
+    assert.equal(ctx.promptFragments[0]?.priority, 30)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /这些是本轮短期记忆包装文案。/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /短期记忆检索结果：未搜索到相关记忆。/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /这些是本轮固化记忆包装文案。/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /固化记忆检索结果：未搜索到相关记忆。/)
+    assert.notEqual((ctx.promptFragments[0]?.content ?? '').trim(), '')
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('memory sqlite retrieval skips semantic embeddings for pure time recall and keeps newest hits first in range', { concurrency: false }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
   const dbPath = join(dir, 'data.db')
@@ -234,7 +268,6 @@ test('memory sqlite retrieval skips semantic embeddings for pure time recall and
 test('memory sqlite system no longer writes short-term memory on every turn', async () => {
   const system = new MemorySqliteSystem({
     summarizeModel: 'memory-model',
-    summarizePrompt: '请把这一轮对话整理成 display_summary、retrieval_text、tags、importance。',
     embedder: createEmbedder({}),
   })
   const ctx = createContext('我猫叫橘子')
@@ -349,6 +382,189 @@ test('memory sqlite semantic analyzer input includes a short recent dialogue win
   assert.doesNotMatch(semanticAnalyzer?.inputText ?? '', /tool-1|noop/)
 })
 
+test('memory sqlite semantic analyzer history window length is configurable per persona', async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    semanticAnalyzerHistoryMessages: 2,
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('它叫什么来着')
+  ctx.messages = [
+    { role: 'user', content: '我上周收养了一只猫。' },
+    { role: 'assistant', content: '记住了，你上周收养了一只猫。' },
+    { role: 'user', content: '它是橘白相间的。' },
+    { role: 'assistant', content: '收到，它是橘白相间的。' },
+    { role: 'user', content: '我给它起名叫年糕。' },
+    { role: 'assistant', content: '好的，我记住那只猫叫年糕。' },
+    { role: 'user', content: '它叫什么来着' },
+  ]
+
+  await system.beforeTurn?.(ctx)
+
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'llm')
+  if (!semanticAnalyzer || semanticAnalyzer.kind !== 'llm') {
+    throw new Error('expected llm semantic analyzer')
+  }
+  assert.equal(
+    semanticAnalyzer.inputText,
+    [
+      '最近对话（仅供补全当前问题）：',
+      '用户：我给它起名叫年糕。',
+      '助手：好的，我记住那只猫叫年糕。',
+      '',
+      '当前用户消息：',
+      '它叫什么来着',
+    ].join('\n'),
+  )
+})
+
+test('memory sqlite retrieval uses per-layer topK and minSimilarity settings', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const shortTermTop1 = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: '短期记忆 1',
+      displaySummary: '短期记忆 1',
+      retrievalText: '短期记忆 1',
+      retrievalEmbedding: [0.95, Math.sqrt(1 - 0.95 ** 2)],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['短期'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-17T10:00:00.000Z'),
+    })
+    const shortTermTop2 = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: '短期记忆 2',
+      displaySummary: '短期记忆 2',
+      retrievalText: '短期记忆 2',
+      retrievalEmbedding: [0.9, Math.sqrt(1 - 0.9 ** 2)],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['短期'],
+      importance: 0.8,
+      createdAt: new Date('2026-04-17T11:00:00.000Z'),
+    })
+    memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: '短期记忆 3',
+      displaySummary: '短期记忆 3',
+      retrievalText: '短期记忆 3',
+      retrievalEmbedding: [0.82, Math.sqrt(1 - 0.82 ** 2)],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['短期'],
+      importance: 0.7,
+      createdAt: new Date('2026-04-17T12:00:00.000Z'),
+    })
+    const fixedTop1 = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'fixed',
+      sourceText: '固化记忆 1',
+      displaySummary: '固化记忆 1',
+      retrievalText: '固化记忆 1',
+      retrievalEmbedding: [0.96, Math.sqrt(1 - 0.96 ** 2)],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['固化'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-17T10:00:00.000Z'),
+    })
+    const fixedTop2 = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'fixed',
+      sourceText: '固化记忆 2',
+      displaySummary: '固化记忆 2',
+      retrievalText: '固化记忆 2',
+      retrievalEmbedding: [0.9, Math.sqrt(1 - 0.9 ** 2)],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['固化'],
+      importance: 0.85,
+      createdAt: new Date('2026-04-17T11:00:00.000Z'),
+    })
+    const fixedTop3 = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'fixed',
+      sourceText: '固化记忆 3',
+      displaySummary: '固化记忆 3',
+      retrievalText: '固化记忆 3',
+      retrievalEmbedding: [0.84, Math.sqrt(1 - 0.84 ** 2)],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['固化'],
+      importance: 0.8,
+      createdAt: new Date('2026-04-17T12:00:00.000Z'),
+    })
+    memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'fixed',
+      sourceText: '固化记忆 4',
+      displaySummary: '固化记忆 4',
+      retrievalText: '固化记忆 4',
+      retrievalEmbedding: [0.8, Math.sqrt(1 - 0.8 ** 2)],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['固化'],
+      importance: 0.75,
+      createdAt: new Date('2026-04-17T13:00:00.000Z'),
+    })
+
+    const system = new MemorySqliteSystem({
+      retrieveTopK: 9,
+      shortTermRetrieveTopK: 2,
+      fixedRetrieveTopK: 4,
+      shortTermMinSimilarity: 0.7,
+      fixedMinSimilarity: 0.83,
+      embedder: createEmbedder({
+        你还记得吗: [1, 0],
+        那只猫叫什么名字: [1, 0],
+      }),
+    })
+    const ctx = createContext('你还记得吗')
+
+    await system.beforeTurn?.(ctx)
+    const retrieved = await ctx.pendingMemoryQuery?.retrieve({
+      retrievalQuery: '那只猫叫什么名字',
+      timeRange: null,
+    })
+
+    assert.deepEqual(retrieved?.shortTerm.map((memory) => memory.id), [shortTermTop1.id, shortTermTop2.id])
+    assert.deepEqual(retrieved?.fixed.map((memory) => memory.id), [fixedTop1.id, fixedTop2.id, fixedTop3.id])
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('memory sqlite can suppress no-hit short-term and fixed fragments', async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    showNoHitMemoryFragments: false,
+    shortTermFragmentPrompt: '这些是本轮短期记忆包装文案。',
+    fixedFragmentPrompt: '这些是本轮固化记忆包装文案。',
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('你还记得吗')
+  ctx.state.shortTermMemories = []
+  ctx.state.fixedMemories = []
+  ctx.state.memories = []
+
+  await system.beforeLLM?.(ctx)
+
+  assert.equal(ctx.promptFragments.length, 0)
+})
+
 test('memory sqlite time parser recognizes explicit Chinese time expressions', () => {
   const reference = new Date('2026-04-22T20:24:17+02:00')
 
@@ -405,17 +621,32 @@ test('memory sqlite structured prompt overrides replace the default prompt direc
   const semanticPrompt = buildSemanticAnalyzerPrompt('只提取主题锚点')
   assert.equal(semanticPrompt, '只提取主题锚点')
 
-  const summaryPrompt = buildSummaryPrompt('整理成记忆')
-  assert.equal(summaryPrompt, '整理成记忆')
-
   const contextPrompt = buildContextToShortTermPrompt('整理旧上下文', 2)
   assert.equal(contextPrompt, '整理旧上下文')
 
   const sleepPrompt = buildShortTermToLongTermPrompt('整理短期记忆', 2)
   assert.equal(sleepPrompt, '整理短期记忆')
+})
 
-  const consolidatePrompt = buildMemoryConsolidationPrompt('整理重复记忆')
-  assert.equal(consolidatePrompt, '整理重复记忆')
+test('memory sqlite config resolves per-layer retrieval settings and ignores legacy summarize/consolidate prompts', () => {
+  const resolved = resolveMemorySqliteConfig({
+    retrieveTopK: 7,
+    summarizePrompt: '旧的 summarize prompt',
+    consolidatePrompt: '旧的 consolidate prompt',
+    semanticAnalyzerHistoryMessages: 9,
+    longTermSearchDefaultTopK: 4,
+    showNoHitMemoryFragments: false,
+  })
+
+  assert.equal(resolved.shortTermRetrieveTopK, 7)
+  assert.equal(resolved.fixedRetrieveTopK, 7)
+  assert.equal(resolved.shortTermMinSimilarity, 0.6)
+  assert.equal(resolved.fixedMinSimilarity, 0.6)
+  assert.equal(resolved.semanticAnalyzerHistoryMessages, 9)
+  assert.equal(resolved.longTermSearchDefaultTopK, 4)
+  assert.equal(resolved.showNoHitMemoryFragments, false)
+  assert.equal('summarizePrompt' in resolved, false)
+  assert.equal('consolidatePrompt' in resolved, false)
 })
 
 test('memory sqlite batch parser returns up to configured number of short-term memories', () => {

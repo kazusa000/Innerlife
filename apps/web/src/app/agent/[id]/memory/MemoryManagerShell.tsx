@@ -144,7 +144,7 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
           padding: 56px 24px 88px;
         }
         .memory-wrap {
-          max-width: 1100px;
+          max-width: 1400px;
           margin: 0 auto;
           display: flex;
           flex-direction: column;
@@ -174,7 +174,7 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
         }
         .memory-sub {
           margin-top: 10px;
-          max-width: 60ch;
+          max-width: 74ch;
           color: var(--fg-muted);
           line-height: 1.7;
         }

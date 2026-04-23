@@ -12,6 +12,8 @@ const SEARCH_LONG_TERM_MEMORY_DESCRIPTION = [
   buildLongTermSearchToolPrompt(),
   '拿到工具结果后，继续完成本轮回复。',
 ].join(' ')
+const SEMANTIC_QUERY_WEIGHT = 0.8
+const TOOL_QUERY_WEIGHT = 0.2
 
 function formatOffset(minutesEastOfUtc: number): string {
   const sign = minutesEastOfUtc >= 0 ? '+' : '-'
@@ -40,6 +42,10 @@ function parseDate(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
+function readQueryText(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
 export const SearchLongTermMemoryTool: Tool = {
   name: 'search_long_term_memory',
   description: SEARCH_LONG_TERM_MEMORY_DESCRIPTION,
@@ -51,7 +57,6 @@ export const SearchLongTermMemoryTool: Tool = {
       time_end: { type: 'string' },
       top_k: { type: 'integer', minimum: 1, maximum: 5 },
     },
-    required: ['query'],
     additionalProperties: false,
   },
   async call(input, options) {
@@ -74,8 +79,22 @@ export const SearchLongTermMemoryTool: Tool = {
 
     const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
     const embedder = createOpenRouterMemoryEmbedder()
-    const query = typeof input.query === 'string' ? input.query.trim() : ''
-    if (!query) {
+    const semanticQuery = readQueryText(options?.memoryRetrievalQuery)
+    const toolQuery = readQueryText(input.query)
+    const effectiveQueries = [
+      semanticQuery
+        ? { source: 'semantic_analyzer', query: semanticQuery, weight: SEMANTIC_QUERY_WEIGHT }
+        : null,
+      toolQuery && toolQuery !== semanticQuery
+        ? {
+          source: 'tool_input',
+          query: toolQuery,
+          weight: semanticQuery ? TOOL_QUERY_WEIGHT : 1,
+        }
+        : null,
+    ].filter((entry): entry is { source: 'semantic_analyzer' | 'tool_input'; query: string; weight: number } => Boolean(entry))
+
+    if (effectiveQueries.length === 0) {
       return {
         output: '长期记忆检索结果：未搜索到相关记忆。',
         isError: false,
@@ -84,7 +103,7 @@ export const SearchLongTermMemoryTool: Tool = {
     }
 
     const queryEmbeddings = await embedder.embed(
-      [query],
+      effectiveQueries.map((entry) => entry.query),
       {
         model: memoryConfig.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL,
         inputType: 'search_query',
@@ -95,11 +114,12 @@ export const SearchLongTermMemoryTool: Tool = {
     const end = parseDate(input.time_end)
     const topK = typeof input.top_k === 'number' && Number.isFinite(input.top_k)
       ? Math.max(1, Math.min(5, Math.floor(input.top_k)))
-      : 3
+      : Math.max(1, Math.min(5, memoryConfig.longTermSearchDefaultTopK ?? 3))
 
     const hits = memoryRepo.findRelevantMemories({
       agentId: options.agentId,
       queryEmbeddings,
+      queryWeights: effectiveQueries.map((entry) => entry.weight),
       topK,
       layers: ['long_term'],
       timeRange: start && end ? { start, end } : null,
@@ -109,7 +129,7 @@ export const SearchLongTermMemoryTool: Tool = {
       return {
         output: '长期记忆检索结果：未搜索到相关记忆。',
         isError: false,
-        metadata: { noResults: true, hits: [] },
+        metadata: { noResults: true, hits: [], effectiveQueries },
       }
     }
 
@@ -120,6 +140,7 @@ export const SearchLongTermMemoryTool: Tool = {
       ].join('\n'),
       metadata: {
         noResults: false,
+        effectiveQueries,
         hits: hits.map((memory) => ({
           id: memory.id,
           sessionId: memory.sessionId,

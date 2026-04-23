@@ -22,6 +22,8 @@ test('resolveAgentTools enables long-term memory search by default for sqlite me
   assert.match(searchTool?.defaultDescription ?? '', /每轮最多调用一次/)
   assert.match(searchTool?.defaultDescription ?? '', /追问以前提过的事实、偏好、关系、事件或画面/)
   assert.match(searchTool?.defaultDescription ?? '', /短而完整的检索句/)
+  assert.match(searchTool?.defaultDescription ?? '', /不要只写词语、标签或关键词列表/)
+  assert.match(searchTool?.defaultDescription ?? '', /semantic analyser 产出的检索句一起用于长期记忆匹配/)
   assert.doesNotMatch(searchTool?.defaultDescription ?? '', /否认后转查长期记忆/)
 
   assert.equal(webFetchTool?.defaultEnabled, false)

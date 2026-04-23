@@ -18,46 +18,6 @@ export interface MemoryRecord {
   createdAt: Date
 }
 
-export interface MemoryConsolidationKeepAction {
-  op: 'keep'
-  id: string
-}
-
-export interface MemoryConsolidationRewriteAction {
-  op: 'rewrite'
-  id: string
-  displaySummary: string
-  retrievalText: string
-  retrievalEmbedding?: number[]
-  retrievalModel?: string | null
-  tags: string[]
-  importance: number
-}
-
-export interface MemoryConsolidationMergeAction {
-  op: 'merge'
-  sourceIds: string[]
-  displaySummary: string
-  retrievalText: string
-  retrievalEmbedding?: number[]
-  retrievalModel?: string | null
-  tags: string[]
-  importance: number
-}
-
-export type MemoryConsolidationAction =
-  | MemoryConsolidationKeepAction
-  | MemoryConsolidationRewriteAction
-  | MemoryConsolidationMergeAction
-
-export interface MemoryConsolidationReport {
-  before: number
-  after: number
-  kept: number
-  rewritten: number
-  merged: number
-}
-
 type MemoryRow = {
   id: string
   agent_id: string
@@ -342,7 +302,9 @@ export function updateSqliteMemoryLayerByAgent(agentId: string, memoryId: string
 export function findRelevantMemories(input: {
   agentId: string
   queryEmbeddings: number[][]
+  queryWeights?: number[]
   topK: number
+  minSimilarity?: number
   layers?: MemoryLayer[]
   timeRange?: {
     start: Date
@@ -351,10 +313,21 @@ export function findRelevantMemories(input: {
 }) {
   const hasTimeRange = !!input.timeRange
   const isPureTimeRecall = hasTimeRange && input.queryEmbeddings.length === 0
-  const queryEmbeddings = input.queryEmbeddings
-    .filter((embedding): embedding is number[] => Array.isArray(embedding) && embedding.length > 0)
-    .map((embedding) => embedding.filter((value): value is number => typeof value === 'number' && Number.isFinite(value)))
-    .filter((embedding) => embedding.length > 0)
+  const weightedQueries = input.queryEmbeddings
+    .map((embedding, index) => ({
+      embedding,
+      weight: input.queryWeights?.[index] ?? 1,
+    }))
+    .filter((item): item is { embedding: number[]; weight: number } =>
+      Array.isArray(item.embedding) && item.embedding.length > 0,
+    )
+    .map(({ embedding, weight }) => ({
+      embedding: embedding.filter((value): value is number => typeof value === 'number' && Number.isFinite(value)),
+      weight: typeof weight === 'number' && Number.isFinite(weight) && weight > 0 ? weight : 1,
+    }))
+    .filter(({ embedding }) => embedding.length > 0)
+  const queryEmbeddings = weightedQueries.map(({ embedding }) => embedding)
+  const queryWeights = weightedQueries.map(({ weight }) => weight)
   const conditions = ['agent_id = ?']
   const values: unknown[] = [input.agentId]
   const normalizedLayers = Array.isArray(input.layers)
@@ -378,17 +351,32 @@ export function findRelevantMemories(input: {
 
   const candidates = selectMemories(`WHERE ${conditions.join(' AND ')}`, ...values)
 
+  const minSimilarity = typeof input.minSimilarity === 'number' && Number.isFinite(input.minSimilarity)
+    ? Math.min(1, Math.max(0, input.minSimilarity))
+    : MIN_SEMANTIC_SIMILARITY
+
   return candidates
     .map((memory) => ({
       memory,
       similarity: queryEmbeddings.length > 0
-        ? Math.max(...queryEmbeddings.map((queryEmbedding) => cosineSimilarity(queryEmbedding, memory.retrievalEmbedding)))
+        ? (() => {
+          const totalWeight = queryWeights.reduce((sum, weight) => sum + weight, 0)
+          if (totalWeight <= 0) {
+            return Math.max(...queryEmbeddings.map((queryEmbedding) => cosineSimilarity(queryEmbedding, memory.retrievalEmbedding)))
+          }
+
+          let weightedSimilarity = 0
+          for (let index = 0; index < queryEmbeddings.length; index += 1) {
+            weightedSimilarity += cosineSimilarity(queryEmbeddings[index]!, memory.retrievalEmbedding) * queryWeights[index]!
+          }
+          return weightedSimilarity / totalWeight
+        })()
         : 0,
     }))
     .filter(({ similarity }) => (
       hasTimeRange
       || queryEmbeddings.length === 0
-      || similarity >= MIN_SEMANTIC_SIMILARITY
+      || similarity >= minSimilarity
     ))
     .sort((left, right) => {
       if (isPureTimeRecall) {
@@ -417,138 +405,6 @@ function normalizeImportance(value: number): number {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.5
 }
 
-function requireMemory(byId: Map<string, MemoryRecord>, id: string, agentId: string): MemoryRecord {
-  const memory = byId.get(id)
-  if (!memory) {
-    throw new Error(`Memory ${id} was not found for agent ${agentId}`)
-  }
-  return memory
-}
-
-export function applyConsolidationPlan(input: {
-  agentId: string
-  actions: MemoryConsolidationAction[]
-}): MemoryConsolidationReport {
-  const sqlite = getMemoryRawSqlite()
-
-  const transaction = sqlite.transaction((payload: typeof input): MemoryConsolidationReport => {
-    const existing = listMemoriesByAgentOldestFirst(payload.agentId)
-    const byId = new Map(existing.map((memory) => [memory.id, memory]))
-    const consumedIds = new Set<string>()
-    let kept = 0
-    let rewritten = 0
-    let merged = 0
-    let after = existing.length
-
-    for (const action of payload.actions) {
-      if (action.op === 'keep') {
-        requireMemory(byId, action.id, payload.agentId)
-        if (consumedIds.has(action.id)) {
-          throw new Error(`Memory ${action.id} was referenced more than once`)
-        }
-        consumedIds.add(action.id)
-        kept += 1
-        continue
-      }
-
-      if (action.op === 'rewrite') {
-        const existingMemory = requireMemory(byId, action.id, payload.agentId)
-        if (consumedIds.has(action.id)) {
-          throw new Error(`Memory ${action.id} was referenced more than once`)
-        }
-        consumedIds.add(action.id)
-        sqlite.prepare(`
-          UPDATE memories
-          SET display_summary = ?, retrieval_text = ?, retrieval_embedding = ?, retrieval_model = ?, tags = ?, importance = ?
-          WHERE id = ?
-        `).run(
-          action.displaySummary.trim(),
-          action.retrievalText.trim(),
-          JSON.stringify(action.retrievalEmbedding ?? existingMemory.retrievalEmbedding),
-          action.retrievalModel ?? existingMemory.retrievalModel,
-          JSON.stringify(normalizeTags(action.tags)),
-          normalizeImportance(action.importance),
-          action.id,
-        )
-        rewritten += 1
-        continue
-      }
-
-      const sourceIds = [...new Set(action.sourceIds.map((id) => id.trim()).filter(Boolean))]
-      if (sourceIds.length < 2) {
-        throw new Error('Merge actions require at least 2 source ids')
-      }
-
-      const sourceRecords = sourceIds.map((id) => requireMemory(byId, id, payload.agentId))
-      const layer = sourceRecords[0]!.layer
-      if (sourceRecords.some((memory) => memory.layer !== layer)) {
-        throw new Error('Consolidation merge actions must stay within one layer')
-      }
-      for (const id of sourceIds) {
-        if (consumedIds.has(id)) {
-          throw new Error(`Memory ${id} was referenced more than once`)
-        }
-      }
-      for (const id of sourceIds) {
-        consumedIds.add(id)
-      }
-
-      const oldest = sourceRecords.reduce((currentOldest, candidate) =>
-        candidate.createdAt.getTime() < currentOldest.createdAt.getTime() ? candidate : currentOldest,
-      )
-
-      sqlite.prepare(`
-        INSERT INTO memories (
-          id,
-          agent_id,
-          session_id,
-          layer,
-          source_text,
-          display_summary,
-          retrieval_text,
-          retrieval_embedding,
-          retrieval_model,
-          tags,
-          importance,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        randomUUID(),
-        payload.agentId,
-        oldest.sessionId,
-        oldest.layer,
-        sourceRecords.map((memory) => memory.sourceText).join('\n---\n'),
-        action.displaySummary.trim(),
-        action.retrievalText.trim(),
-        JSON.stringify(action.retrievalEmbedding ?? averageEmbeddings(sourceRecords.map((memory) => memory.retrievalEmbedding))),
-        action.retrievalModel ?? oldest.retrievalModel,
-        JSON.stringify(normalizeTags(action.tags)),
-        normalizeImportance(action.importance),
-        oldest.createdAt.getTime(),
-      )
-
-      for (const id of sourceIds) {
-        sqlite.prepare('DELETE FROM memories WHERE id = ?').run(id)
-      }
-
-      after = after - sourceIds.length + 1
-      merged += 1
-    }
-
-    kept += existing.length - consumedIds.size
-
-    return {
-      before: existing.length,
-      after,
-      kept,
-      rewritten,
-      merged,
-    }
-  })
-
-  return transaction(input)
-}
-
 function cosineSimilarity(left: number[], right: number[]): number {
   if (left.length === 0 || right.length === 0 || left.length !== right.length) {
     return 0
@@ -570,27 +426,4 @@ function cosineSimilarity(left: number[], right: number[]): number {
   }
 
   return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm))
-}
-
-function averageEmbeddings(embeddings: number[][]): number[] {
-  const valid = embeddings.filter((embedding) => embedding.length > 0)
-  if (valid.length === 0) {
-    return []
-  }
-
-  const dimension = valid[0]!.length
-  const totals = new Array<number>(dimension).fill(0)
-  let count = 0
-
-  for (const embedding of valid) {
-    if (embedding.length !== dimension) {
-      continue
-    }
-    count += 1
-    for (let index = 0; index < dimension; index += 1) {
-      totals[index] += embedding[index]!
-    }
-  }
-
-  return count === 0 ? [] : totals.map((total) => total / count)
 }

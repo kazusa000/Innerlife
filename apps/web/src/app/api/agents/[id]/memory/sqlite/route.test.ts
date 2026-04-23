@@ -59,7 +59,7 @@ function bootstrapDb(dbPath: string, memoryDbPath: string) {
   `)
   getRawSqlite().exec(`
     INSERT INTO agents (id, name, model, modules)
-    VALUES ('agent-1', 'Agent One', 'claude-sonnet-4-6', '{"memory":{"scheme":"sqlite","summarizeModel":"memory-model","embeddingModel":"memory-embed","retrievePrompt":"提炼检索查询","summarizePrompt":"生成记忆摘要","fragmentPrompt":"把这些记忆当作回忆来回答","consolidatePrompt":"整理记忆"}}');
+    VALUES ('agent-1', 'Agent One', 'claude-sonnet-4-6', '{"memory":{"scheme":"sqlite","summarizeModel":"memory-model","embeddingModel":"memory-embed","retrievePrompt":"提炼检索查询","summarizePrompt":"生成记忆摘要","fragmentPrompt":"把这些记忆当作回忆来回答","consolidatePrompt":"整理记忆","retrieveTopK":7}}');
     INSERT INTO agents (id, name, model, modules)
     VALUES ('agent-2', 'Agent Two', 'claude-sonnet-4-6', '{"memory":{"scheme":"noop"}}');
     INSERT INTO sessions (id, agent_id, created_at, updated_at) VALUES ('session-1', 'agent-1', 1, 1);
@@ -177,21 +177,30 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.equal(listData.summarizeModel, 'memory-model')
     assert.equal(listData.embeddingModel, 'memory-embed')
     assert.equal(listData.semanticAnalyzerPrompt, '提炼检索查询')
-    assert.equal(listData.summarizePrompt, '生成记忆摘要')
     assert.equal(listData.fragmentPrompt, '把这些记忆当作回忆来回答')
-    assert.equal(listData.consolidatePrompt, '整理记忆')
     assert.equal(typeof listData.semanticAnalyzerPromptDefault, 'string')
     assert.equal(listData.semanticAnalyzerPromptEffective, '提炼检索查询')
-    assert.equal(listData.summarizePromptEffective, '生成记忆摘要')
     assert.equal(listData.fragmentPromptEffective, '把这些记忆当作回忆来回答')
-    assert.equal(listData.consolidatePromptEffective, '整理记忆')
     assert.equal(listData.contextWindowMessages, 50)
     assert.equal(listData.contextOverflowBatchSize, 25)
     assert.equal(listData.contextIdleFlushMinutes, 30)
     assert.equal(listData.maxShortTermMemoriesPerFlush, 3)
+    assert.equal(listData.shortTermRetrieveTopK, 7)
+    assert.equal(listData.fixedRetrieveTopK, 7)
+    assert.equal(listData.shortTermMinSimilarity, 0.6)
+    assert.equal(listData.fixedMinSimilarity, 0.6)
+    assert.equal(listData.semanticAnalyzerHistoryMessages, 6)
+    assert.equal(listData.longTermSearchDefaultTopK, 3)
+    assert.equal(listData.showNoHitMemoryFragments, true)
     assert.equal(listData.sleepEnabled, true)
     assert.equal(listData.sleepTimeLocal, '03:00')
     assert.equal(listData.sleepIntervalDays, 1)
+    assert.equal('summarizePrompt' in listData, false)
+    assert.equal('summarizePromptDefault' in listData, false)
+    assert.equal('summarizePromptEffective' in listData, false)
+    assert.equal('consolidatePrompt' in listData, false)
+    assert.equal('consolidatePromptDefault' in listData, false)
+    assert.equal('consolidatePromptEffective' in listData, false)
     assert.equal(listData.context.activeSessionId, 'session-2')
     assert.equal(listData.context.activeMessageCount, 0)
     assert.equal(listData.context.totalSessionMessages, 0)
@@ -266,11 +275,17 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
       summarizeModel: '  qwen/qwen-2.5-7b-instruct  ',
       embeddingModel: '  qwen/qwen3-embedding-8b  ',
       semanticAnalyzerPrompt: '  生成检索锚点  ',
-      summarizePrompt: '  生成展示摘要和检索文本  ',
       contextWindowMessages: 60,
       contextOverflowBatchSize: 18,
       contextIdleFlushMinutes: 45,
       maxShortTermMemoriesPerFlush: 2,
+      shortTermRetrieveTopK: 4,
+      fixedRetrieveTopK: 6,
+      shortTermMinSimilarity: 0.72,
+      fixedMinSimilarity: 0.81,
+      semanticAnalyzerHistoryMessages: 8,
+      longTermSearchDefaultTopK: 5,
+      showNoHitMemoryFragments: false,
       sleepEnabled: false,
       sleepTimeLocal: '  04:30  ',
       sleepIntervalDays: 2,
@@ -279,7 +294,6 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
       shortTermToLongTermPrompt: '  把短期记忆沉淀成长期记忆  ',
       shortTermFragmentPrompt: '  这些是近期记忆  ',
       fixedFragmentPrompt: '  这些是稳定事实  ',
-      consolidatePrompt: '  重新整理相近记忆  ',
     })
 
     assert.equal(response.status, 200)
@@ -292,21 +306,24 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal(data.contextOverflowBatchSize, 18)
     assert.equal(data.contextIdleFlushMinutes, 45)
     assert.equal(data.maxShortTermMemoriesPerFlush, 2)
+    assert.equal(data.shortTermRetrieveTopK, 4)
+    assert.equal(data.fixedRetrieveTopK, 6)
+    assert.equal(data.shortTermMinSimilarity, 0.72)
+    assert.equal(data.fixedMinSimilarity, 0.81)
+    assert.equal(data.semanticAnalyzerHistoryMessages, 8)
+    assert.equal(data.longTermSearchDefaultTopK, 5)
+    assert.equal(data.showNoHitMemoryFragments, false)
     assert.equal(data.sleepEnabled, false)
     assert.equal(data.sleepTimeLocal, '04:30')
     assert.equal(data.sleepIntervalDays, 2)
     assert.equal(data.semanticAnalyzerPrompt, '生成检索锚点')
-    assert.equal(data.summarizePrompt, '生成展示摘要和检索文本')
     assert.equal(data.fragmentPrompt, '把这些记忆当作回忆来回答')
     assert.equal(data.contextToShortTermPrompt, '整理旧上下文为短期记忆')
     assert.equal(data.shortTermToLongTermPrompt, '把短期记忆沉淀成长期记忆')
     assert.equal(data.shortTermFragmentPrompt, '这些是近期记忆')
     assert.equal(data.fixedFragmentPrompt, '这些是稳定事实')
-    assert.equal(data.consolidatePrompt, '重新整理相近记忆')
     assert.equal(typeof data.semanticAnalyzerPromptDefault, 'string')
     assert.equal(data.semanticAnalyzerPromptEffective, '生成检索锚点')
-    assert.equal(typeof data.summarizePromptDefault, 'string')
-    assert.equal(data.summarizePromptEffective, '生成展示摘要和检索文本')
     assert.equal(typeof data.contextToShortTermPromptDefault, 'string')
     assert.equal(data.contextToShortTermPromptEffective, '整理旧上下文为短期记忆')
     assert.equal(typeof data.shortTermToLongTermPromptDefault, 'string')
@@ -317,28 +334,38 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal(data.shortTermFragmentPromptEffective, '这些是近期记忆')
     assert.equal(typeof data.fixedFragmentPromptDefault, 'string')
     assert.equal(data.fixedFragmentPromptEffective, '这些是稳定事实')
-    assert.equal(typeof data.consolidatePromptDefault, 'string')
-    assert.equal(data.consolidatePromptEffective, '重新整理相近记忆')
+    assert.equal('summarizePrompt' in data, false)
+    assert.equal('summarizePromptDefault' in data, false)
+    assert.equal('summarizePromptEffective' in data, false)
+    assert.equal('consolidatePrompt' in data, false)
+    assert.equal('consolidatePromptDefault' in data, false)
+    assert.equal('consolidatePromptEffective' in data, false)
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       memory: {
         scheme: 'sqlite',
         summarizeModel: 'qwen/qwen-2.5-7b-instruct',
         embeddingModel: 'qwen/qwen3-embedding-8b',
+        retrieveTopK: 7,
         contextWindowMessages: 60,
         contextOverflowBatchSize: 18,
         contextIdleFlushMinutes: 45,
         maxShortTermMemoriesPerFlush: 2,
+        shortTermRetrieveTopK: 4,
+        fixedRetrieveTopK: 6,
+        shortTermMinSimilarity: 0.72,
+        fixedMinSimilarity: 0.81,
+        semanticAnalyzerHistoryMessages: 8,
+        longTermSearchDefaultTopK: 5,
+        showNoHitMemoryFragments: false,
         sleepEnabled: false,
         sleepTimeLocal: '04:30',
         sleepIntervalDays: 2,
         semanticAnalyzerPrompt: '生成检索锚点',
-        summarizePrompt: '生成展示摘要和检索文本',
         fragmentPrompt: '把这些记忆当作回忆来回答',
         contextToShortTermPrompt: '整理旧上下文为短期记忆',
         shortTermToLongTermPrompt: '把短期记忆沉淀成长期记忆',
         shortTermFragmentPrompt: '这些是近期记忆',
         fixedFragmentPrompt: '这些是稳定事实',
-        consolidatePrompt: '重新整理相近记忆',
       },
     })
   } finally {
@@ -363,17 +390,22 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
       contextOverflowBatchSize: null,
       contextIdleFlushMinutes: null,
       maxShortTermMemoriesPerFlush: null,
+      shortTermRetrieveTopK: null,
+      fixedRetrieveTopK: null,
+      shortTermMinSimilarity: null,
+      fixedMinSimilarity: null,
+      semanticAnalyzerHistoryMessages: null,
+      longTermSearchDefaultTopK: null,
+      showNoHitMemoryFragments: null,
       sleepEnabled: null,
       sleepTimeLocal: '   ',
       sleepIntervalDays: null,
       semanticAnalyzerPrompt: '   ',
-      summarizePrompt: '   ',
       fragmentPrompt: '   ',
       contextToShortTermPrompt: '   ',
       shortTermToLongTermPrompt: '   ',
       shortTermFragmentPrompt: '   ',
       fixedFragmentPrompt: '   ',
-      consolidatePrompt: '   ',
     })
 
     assert.equal(response.status, 200)
@@ -386,21 +418,24 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
     assert.equal(data.contextOverflowBatchSize, 25)
     assert.equal(data.contextIdleFlushMinutes, 30)
     assert.equal(data.maxShortTermMemoriesPerFlush, 3)
+    assert.equal(data.shortTermRetrieveTopK, 7)
+    assert.equal(data.fixedRetrieveTopK, 7)
+    assert.equal(data.shortTermMinSimilarity, 0.6)
+    assert.equal(data.fixedMinSimilarity, 0.6)
+    assert.equal(data.semanticAnalyzerHistoryMessages, 6)
+    assert.equal(data.longTermSearchDefaultTopK, 3)
+    assert.equal(data.showNoHitMemoryFragments, true)
     assert.equal(data.sleepEnabled, true)
     assert.equal(data.sleepTimeLocal, '03:00')
     assert.equal(data.sleepIntervalDays, 1)
     assert.equal(data.semanticAnalyzerPrompt, null)
-    assert.equal(data.summarizePrompt, null)
     assert.equal(data.fragmentPrompt, null)
     assert.equal(data.contextToShortTermPrompt, null)
     assert.equal(data.shortTermToLongTermPrompt, null)
     assert.equal(data.shortTermFragmentPrompt, null)
     assert.equal(data.fixedFragmentPrompt, null)
-    assert.equal(data.consolidatePrompt, null)
     assert.equal(typeof data.semanticAnalyzerPromptDefault, 'string')
     assert.equal(data.semanticAnalyzerPromptEffective, data.semanticAnalyzerPromptDefault)
-    assert.equal(typeof data.summarizePromptDefault, 'string')
-    assert.equal(data.summarizePromptEffective, data.summarizePromptDefault)
     assert.equal(typeof data.contextToShortTermPromptDefault, 'string')
     assert.equal(data.contextToShortTermPromptEffective, data.contextToShortTermPromptDefault)
     assert.equal(typeof data.shortTermToLongTermPromptDefault, 'string')
@@ -409,9 +444,16 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
     assert.equal(data.shortTermFragmentPromptEffective, data.shortTermFragmentPromptDefault)
     assert.equal(typeof data.fixedFragmentPromptDefault, 'string')
     assert.equal(data.fixedFragmentPromptEffective, data.fixedFragmentPromptDefault)
+    assert.equal('summarizePrompt' in data, false)
+    assert.equal('summarizePromptDefault' in data, false)
+    assert.equal('summarizePromptEffective' in data, false)
+    assert.equal('consolidatePrompt' in data, false)
+    assert.equal('consolidatePromptDefault' in data, false)
+    assert.equal('consolidatePromptEffective' in data, false)
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       memory: {
         scheme: 'sqlite',
+        retrieveTopK: 7,
       },
     })
   } finally {

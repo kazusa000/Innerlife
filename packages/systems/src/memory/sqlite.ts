@@ -21,6 +21,7 @@ import {
 import { analyzeMemoryTimeText } from './time-parser'
 
 const DEFAULT_RETRIEVE_TOP_K = 5
+const DEFAULT_MEMORY_MIN_SIMILARITY = 0.6
 const MAX_MEMORY_CONTENT_CHARS = 500
 const DEFAULT_CONTEXT_WINDOW_MESSAGES = 50
 const DEFAULT_CONTEXT_OVERFLOW_BATCH_SIZE = 25
@@ -28,8 +29,12 @@ const DEFAULT_CONTEXT_IDLE_FLUSH_MINUTES = 30
 const DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH = 3
 const DEFAULT_SEMANTIC_ANALYZER_HISTORY_MESSAGES = 6
 const MAX_SEMANTIC_HISTORY_MESSAGE_CHARS = 180
+const DEFAULT_LONG_TERM_SEARCH_TOP_K = 3
 const DEFAULT_SLEEP_TIME_LOCAL = '03:00'
 const DEFAULT_SLEEP_INTERVAL_DAYS = 1
+const DEFAULT_SHOW_NO_HIT_MEMORY_FRAGMENTS = true
+const SHORT_TERM_MEMORY_MISS_TEXT = '短期记忆检索结果：未搜索到相关记忆。'
+const FIXED_MEMORY_MISS_TEXT = '固化记忆检索结果：未搜索到相关记忆。'
 const MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT: MemoryResponseFormat = {
   type: 'json_schema',
   jsonSchema: {
@@ -104,10 +109,17 @@ interface MemoryModuleConfig {
   summarizeModel: string | null
   embeddingModel: string
   retrieveTopK: number
+  shortTermRetrieveTopK: number
+  fixedRetrieveTopK: number
+  shortTermMinSimilarity: number
+  fixedMinSimilarity: number
   contextWindowMessages: number
   contextOverflowBatchSize: number
   contextIdleFlushMinutes: number
   maxShortTermMemoriesPerFlush: number
+  semanticAnalyzerHistoryMessages: number
+  longTermSearchDefaultTopK: number
+  showNoHitMemoryFragments: boolean
   sleepEnabled: boolean
   sleepTimeLocal: string
   sleepIntervalDays: number
@@ -115,13 +127,11 @@ interface MemoryModuleConfig {
   timeParser: (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
   retrievePrompt: string | null
   semanticAnalyzerPrompt: string | null
-  summarizePrompt: string | null
   contextToShortTermPrompt: string | null
   shortTermToLongTermPrompt: string | null
   fragmentPrompt: string | null
   shortTermFragmentPrompt: string | null
   fixedFragmentPrompt: string | null
-  consolidatePrompt: string | null
 }
 
 export interface MemoryPipelineSettings {
@@ -133,34 +143,6 @@ export interface MemoryPipelineSettings {
   sleepTimeLocal: string
   sleepIntervalDays: number
 }
-
-export interface MemoryConsolidationKeepAction {
-  op: 'keep'
-  id: string
-}
-
-export interface MemoryConsolidationRewriteAction {
-  op: 'rewrite'
-  id: string
-  displaySummary: string
-  retrievalText: string
-  tags: string[]
-  importance: number
-}
-
-export interface MemoryConsolidationMergeAction {
-  op: 'merge'
-  sourceIds: string[]
-  displaySummary: string
-  retrievalText: string
-  tags: string[]
-  importance: number
-}
-
-export type MemoryConsolidationAction =
-  | MemoryConsolidationKeepAction
-  | MemoryConsolidationRewriteAction
-  | MemoryConsolidationMergeAction
 
 const WRITE_GUIDANCE = [
   'display_summary 用简体中文，写成简洁、稳定、适合展示给模型看的记忆摘要。',
@@ -180,6 +162,13 @@ function formatMemoryLayerLabel(layer: MemoryRecord['layer']): string {
   }
 }
 
+function joinPromptLines(lines: Array<string | null | undefined>) {
+  return lines
+    .map((line) => typeof line === 'string' ? line.trim() : '')
+    .filter(Boolean)
+    .join('\n')
+}
+
 function readOptionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
@@ -195,6 +184,23 @@ function readPositiveInt(value: unknown, fallback: number) {
     }
   }
   return fallback
+}
+
+function readProbability(value: unknown, fallback: number) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.min(1, Math.max(0, value))
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) {
+      return Math.min(1, Math.max(0, parsed))
+    }
+  }
+  return fallback
+}
+
+function readPositiveIntWithMax(value: unknown, fallback: number, max: number) {
+  return Math.min(max, readPositiveInt(value, fallback))
 }
 
 function readBoolean(value: unknown, fallback: boolean) {
@@ -218,10 +224,17 @@ function readConfig(config: unknown): MemoryModuleConfig {
       summarizeModel: null,
       embeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
       retrieveTopK: DEFAULT_RETRIEVE_TOP_K,
+      shortTermRetrieveTopK: DEFAULT_RETRIEVE_TOP_K,
+      fixedRetrieveTopK: DEFAULT_RETRIEVE_TOP_K,
+      shortTermMinSimilarity: DEFAULT_MEMORY_MIN_SIMILARITY,
+      fixedMinSimilarity: DEFAULT_MEMORY_MIN_SIMILARITY,
       contextWindowMessages: DEFAULT_CONTEXT_WINDOW_MESSAGES,
       contextOverflowBatchSize: DEFAULT_CONTEXT_OVERFLOW_BATCH_SIZE,
       contextIdleFlushMinutes: DEFAULT_CONTEXT_IDLE_FLUSH_MINUTES,
       maxShortTermMemoriesPerFlush: DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH,
+      semanticAnalyzerHistoryMessages: DEFAULT_SEMANTIC_ANALYZER_HISTORY_MESSAGES,
+      longTermSearchDefaultTopK: DEFAULT_LONG_TERM_SEARCH_TOP_K,
+      showNoHitMemoryFragments: DEFAULT_SHOW_NO_HIT_MEMORY_FRAGMENTS,
       sleepEnabled: true,
       sleepTimeLocal: DEFAULT_SLEEP_TIME_LOCAL,
       sleepIntervalDays: DEFAULT_SLEEP_INTERVAL_DAYS,
@@ -229,17 +242,18 @@ function readConfig(config: unknown): MemoryModuleConfig {
       timeParser: analyzeMemoryTimeText,
       retrievePrompt: null,
       semanticAnalyzerPrompt: null,
-      summarizePrompt: null,
       contextToShortTermPrompt: null,
       shortTermToLongTermPrompt: null,
       fragmentPrompt: null,
       shortTermFragmentPrompt: null,
       fixedFragmentPrompt: null,
-      consolidatePrompt: null,
     }
   }
 
   const record = config as Record<string, unknown>
+  const legacyRetrieveTopK = typeof record.retrieveTopK === 'number' && record.retrieveTopK > 0
+    ? Math.floor(record.retrieveTopK)
+    : DEFAULT_RETRIEVE_TOP_K
 
   return {
     summarizeModel: typeof record.summarizeModel === 'string'
@@ -248,13 +262,22 @@ function readConfig(config: unknown): MemoryModuleConfig {
     embeddingModel: typeof record.embeddingModel === 'string'
       ? record.embeddingModel.trim() || DEFAULT_MEMORY_EMBEDDING_MODEL
       : DEFAULT_MEMORY_EMBEDDING_MODEL,
-    retrieveTopK: typeof record.retrieveTopK === 'number' && record.retrieveTopK > 0
-      ? Math.floor(record.retrieveTopK)
-      : DEFAULT_RETRIEVE_TOP_K,
+    retrieveTopK: legacyRetrieveTopK,
+    shortTermRetrieveTopK: readPositiveInt(record.shortTermRetrieveTopK, legacyRetrieveTopK),
+    fixedRetrieveTopK: readPositiveInt(record.fixedRetrieveTopK, legacyRetrieveTopK),
+    shortTermMinSimilarity: readProbability(record.shortTermMinSimilarity, DEFAULT_MEMORY_MIN_SIMILARITY),
+    fixedMinSimilarity: readProbability(record.fixedMinSimilarity, DEFAULT_MEMORY_MIN_SIMILARITY),
     contextWindowMessages: readPositiveInt(record.contextWindowMessages, DEFAULT_CONTEXT_WINDOW_MESSAGES),
     contextOverflowBatchSize: readPositiveInt(record.contextOverflowBatchSize, DEFAULT_CONTEXT_OVERFLOW_BATCH_SIZE),
     contextIdleFlushMinutes: readPositiveInt(record.contextIdleFlushMinutes, DEFAULT_CONTEXT_IDLE_FLUSH_MINUTES),
     maxShortTermMemoriesPerFlush: readPositiveInt(record.maxShortTermMemoriesPerFlush, DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH),
+    semanticAnalyzerHistoryMessages: readPositiveInt(record.semanticAnalyzerHistoryMessages, DEFAULT_SEMANTIC_ANALYZER_HISTORY_MESSAGES),
+    longTermSearchDefaultTopK: readPositiveIntWithMax(
+      record.longTermSearchDefaultTopK,
+      DEFAULT_LONG_TERM_SEARCH_TOP_K,
+      5,
+    ),
+    showNoHitMemoryFragments: readBoolean(record.showNoHitMemoryFragments, DEFAULT_SHOW_NO_HIT_MEMORY_FRAGMENTS),
     sleepEnabled: readBoolean(record.sleepEnabled, true),
     sleepTimeLocal: readSleepTime(record.sleepTimeLocal),
     sleepIntervalDays: readPositiveInt(record.sleepIntervalDays, DEFAULT_SLEEP_INTERVAL_DAYS),
@@ -268,13 +291,11 @@ function readConfig(config: unknown): MemoryModuleConfig {
         : analyzeMemoryTimeText,
     retrievePrompt: readOptionalText(record.retrievePrompt),
     semanticAnalyzerPrompt: readOptionalText(record.semanticAnalyzerPrompt),
-    summarizePrompt: readOptionalText(record.summarizePrompt),
     contextToShortTermPrompt: readOptionalText(record.contextToShortTermPrompt),
     shortTermToLongTermPrompt: readOptionalText(record.shortTermToLongTermPrompt),
     fragmentPrompt: readOptionalText(record.fragmentPrompt),
     shortTermFragmentPrompt: readOptionalText(record.shortTermFragmentPrompt),
     fixedFragmentPrompt: readOptionalText(record.fixedFragmentPrompt),
-    consolidatePrompt: readOptionalText(record.consolidatePrompt),
   }
 }
 
@@ -284,22 +305,27 @@ export function resolveMemorySqliteConfig(config: unknown) {
     summarizeModel: resolved.summarizeModel,
     embeddingModel: resolved.embeddingModel,
     retrieveTopK: resolved.retrieveTopK,
+    shortTermRetrieveTopK: resolved.shortTermRetrieveTopK,
+    fixedRetrieveTopK: resolved.fixedRetrieveTopK,
+    shortTermMinSimilarity: resolved.shortTermMinSimilarity,
+    fixedMinSimilarity: resolved.fixedMinSimilarity,
     contextWindowMessages: resolved.contextWindowMessages,
     contextOverflowBatchSize: resolved.contextOverflowBatchSize,
     contextIdleFlushMinutes: resolved.contextIdleFlushMinutes,
     maxShortTermMemoriesPerFlush: resolved.maxShortTermMemoriesPerFlush,
+    semanticAnalyzerHistoryMessages: resolved.semanticAnalyzerHistoryMessages,
+    longTermSearchDefaultTopK: resolved.longTermSearchDefaultTopK,
+    showNoHitMemoryFragments: resolved.showNoHitMemoryFragments,
     sleepEnabled: resolved.sleepEnabled,
     sleepTimeLocal: resolved.sleepTimeLocal,
     sleepIntervalDays: resolved.sleepIntervalDays,
     retrievePrompt: resolved.retrievePrompt,
     semanticAnalyzerPrompt: resolved.semanticAnalyzerPrompt,
-    summarizePrompt: resolved.summarizePrompt,
     contextToShortTermPrompt: resolved.contextToShortTermPrompt,
     shortTermToLongTermPrompt: resolved.shortTermToLongTermPrompt,
     fragmentPrompt: resolved.fragmentPrompt,
     shortTermFragmentPrompt: resolved.shortTermFragmentPrompt,
     fixedFragmentPrompt: resolved.fixedFragmentPrompt,
-    consolidatePrompt: resolved.consolidatePrompt,
   }
 }
 
@@ -321,24 +347,6 @@ export function isSqliteMemoryConfig(config: unknown): boolean {
     && typeof config === 'object'
     && !Array.isArray(config)
     && (config as Record<string, unknown>).scheme === 'sqlite'
-}
-
-export function buildSummaryPrompt(promptOverride?: string | null): string {
-  const override = promptOverride?.trim()
-  if (override) {
-    return override
-  }
-
-  const defaultLines = [
-    '你负责把一轮已经完成的对话整理成后续可用的长期记忆。',
-    '只允许使用提供的本轮对话文本，不要补充不存在的信息。',
-    '请严格返回只有以下键的 JSON：',
-    '{"display_summary": string, "retrieval_text": string, "tags": string[], "importance": number}',
-    WRITE_GUIDANCE,
-    'importance 必须是 0 到 1 之间的数字。',
-    '不要输出 markdown、代码块或任何额外说明。',
-  ]
-  return defaultLines.join('\n')
 }
 
 export function buildContextToShortTermPrompt(promptOverride?: string | null, maxMemories = DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH): string {
@@ -465,7 +473,8 @@ export function buildLongTermSearchToolPrompt() {
   return [
     '只在当前上下文、短期记忆和固化记忆仍不足以回答时，才搜索长期记忆；如果眼前记忆已经足够，就直接回答，不要把长期记忆搜索当成默认动作。',
     '当用户明显在追问以前提过的事实、偏好、关系、事件或画面，而当前上下文又不够时，应优先搜索长期记忆，再决定是否表示不确定。',
-    '调用前，先把当前问题改写成一句短而完整的检索句作为 query：可以补全必要指代，但不要照抄“那个、它、上次那个”这类口语外壳，不要只写一个词，也不要把时间答案直接塞进 query。',
+    '如果要调用这个工具，query 必须是一句短而完整的检索句：可以补全必要指代，但不要照抄“那个、它、上次那个”这类口语外壳，不要只写词语、标签或关键词列表，也不要把时间答案直接塞进 query。',
+    '系统会把这句 query 和本轮 semantic analyser 产出的检索句一起用于长期记忆匹配，并对两者加权；不要为了调用工具额外堆关键词或另造词汇。',
     '例如：那只猫叫什么名字、海边灯塔画面是什么样的、登录 bug 是怎么修好的。',
     '每轮最多调用一次。如果工具返回未搜索到相关记忆，就直接接受这个结果，不要继续重复搜索或编造旧事。',
   ].join(' ')
@@ -476,9 +485,12 @@ function renderMemoryLayerResult(input: {
   missText: string
   memories: MemoryRecord[]
   prompt: string
+  showNoHitMemoryFragments: boolean
 }): string {
   if (input.memories.length === 0) {
-    return [input.prompt, input.missText].join('\n')
+    return input.showNoHitMemoryFragments
+      ? joinPromptLines([input.prompt, input.missText])
+      : ''
   }
 
   const [primaryMemory, ...secondaryMemories] = input.memories
@@ -497,21 +509,24 @@ function renderLayeredMemoryFragment(input: {
   fixedMemories: MemoryRecord[]
   shortTermPrompt?: string | null
   fixedPrompt?: string | null
+  showNoHitMemoryFragments: boolean
 }): string {
-  return [
+  return joinPromptLines([
     renderMemoryLayerResult({
       title: '短期',
       memories: input.shortTermMemories,
       prompt: buildShortTermFragmentPrompt(input.shortTermPrompt),
-      missText: '短期记忆检索结果：未搜索到相关记忆。',
+      missText: SHORT_TERM_MEMORY_MISS_TEXT,
+      showNoHitMemoryFragments: input.showNoHitMemoryFragments,
     }),
     renderMemoryLayerResult({
       title: '固化',
       memories: input.fixedMemories,
       prompt: buildFixedMemoryFragmentPrompt(input.fixedPrompt),
-      missText: '固化记忆检索结果：未搜索到相关记忆。',
+      missText: FIXED_MEMORY_MISS_TEXT,
+      showNoHitMemoryFragments: input.showNoHitMemoryFragments,
     }),
-  ].join('\n\n')
+  ])
 }
 
 function extractResponseText(ctx: TurnContext): string {
@@ -612,8 +627,12 @@ function buildSemanticAnalyzerHistoryWindow(
   return history
 }
 
-function buildSemanticAnalyzerInputText(messages: ConversationMessage[], userText: string) {
-  const historyWindow = buildSemanticAnalyzerHistoryWindow(messages)
+function buildSemanticAnalyzerInputText(
+  messages: ConversationMessage[],
+  userText: string,
+  maxMessages = DEFAULT_SEMANTIC_ANALYZER_HISTORY_MESSAGES,
+) {
+  const historyWindow = buildSemanticAnalyzerHistoryWindow(messages, maxMessages)
   return [
     '最近对话（仅供补全当前问题）：',
     ...(historyWindow.length > 0 ? historyWindow : ['（无）']),
@@ -815,121 +834,6 @@ function normalizeSemanticAnalyzerResult(
   }
 }
 
-export function buildMemoryConsolidationPrompt(promptOverride?: string | null): string {
-  const override = promptOverride?.trim()
-  if (override) {
-    return override
-  }
-
-  const defaultLines = [
-    '你要为单个 agent 整理已经存储的 sqlite 记忆。',
-    '只允许使用提供的记忆列表，不要补充外部信息。',
-    '请严格返回如下 JSON 结构：',
-    '{"actions": Array<keep|rewrite|merge>}',
-    'keep 动作：{"op":"keep","id":"memory-id"}',
-    'rewrite 动作：{"op":"rewrite","id":"memory-id","display_summary":string,"retrieval_text":string,"tags":string[],"importance":number}',
-    'merge 动作：{"op":"merge","sourceIds":string[],"display_summary":string,"retrieval_text":string,"tags":string[],"importance":number}',
-    '除非内容重复，或者可以改写得更清晰，否则尽量保留事实。',
-    '同一个 memory id 最多只能出现在一个动作里。',
-    'merge 时 sourceIds 至少要包含 2 个 id。',
-    WRITE_GUIDANCE,
-    'importance 必须是 0 到 1 之间的数字。',
-    '不要输出 markdown、代码块或任何额外说明。',
-  ]
-  return defaultLines.join('\n')
-}
-
-export function buildMemoryConsolidationSourceText(memories: MemoryRecord[]): string {
-  return [
-    '待整理的记忆（按时间从旧到新）：',
-    JSON.stringify(
-      memories.map((memory) => ({
-        id: memory.id,
-        layer: memory.layer,
-        display_summary: memory.displaySummary,
-        retrieval_text: memory.retrievalText,
-        tags: memory.tags,
-        importance: memory.importance,
-        createdAt: memory.createdAt.toISOString(),
-      })),
-      null,
-      2,
-    ),
-  ].join('\n')
-}
-
-export function parseMemoryConsolidationResponse(responseText: string): MemoryConsolidationAction[] {
-  const parsed = extractJson(responseText)
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Memory consolidate call did not return a JSON object')
-  }
-
-  const actions = (parsed as { actions?: unknown }).actions
-  if (!Array.isArray(actions)) {
-    throw new Error('Memory consolidate call did not return an actions array')
-  }
-
-  return actions.map((action, index) => {
-    if (!action || typeof action !== 'object' || Array.isArray(action)) {
-      throw new Error(`Memory consolidate action ${index} is not an object`)
-    }
-
-    const record = action as Record<string, unknown>
-    const op = record.op
-
-    if (op === 'keep') {
-      const id = typeof record.id === 'string' ? record.id.trim() : ''
-      if (!id) {
-        throw new Error(`Memory consolidate keep action ${index} is missing id`)
-      }
-      return { op, id }
-    }
-
-    if (op === 'rewrite') {
-      const id = typeof record.id === 'string' ? record.id.trim() : ''
-      const displaySummary = typeof record.display_summary === 'string' ? record.display_summary.trim() : ''
-      const retrievalText = typeof record.retrieval_text === 'string' ? record.retrieval_text.trim() : ''
-      if (!id || !displaySummary || !retrievalText) {
-        throw new Error(`Memory consolidate rewrite action ${index} is missing fields`)
-      }
-      return {
-        op,
-        id,
-        displaySummary,
-        retrievalText,
-        tags: normalizeTags(record.tags),
-        importance: normalizeImportance(record.importance),
-      }
-    }
-
-    if (op === 'merge') {
-      const sourceIds = Array.isArray(record.sourceIds)
-        ? [...new Set(
-            record.sourceIds
-              .filter((id): id is string => typeof id === 'string')
-              .map((id) => id.trim())
-              .filter(Boolean),
-          )]
-        : []
-      const displaySummary = typeof record.display_summary === 'string' ? record.display_summary.trim() : ''
-      const retrievalText = typeof record.retrieval_text === 'string' ? record.retrieval_text.trim() : ''
-      if (sourceIds.length < 2 || !displaySummary || !retrievalText) {
-        throw new Error(`Memory consolidate merge action ${index} is missing fields`)
-      }
-      return {
-        op,
-        sourceIds,
-        displaySummary,
-        retrievalText,
-        tags: normalizeTags(record.tags),
-        importance: normalizeImportance(record.importance),
-      }
-    }
-
-    throw new Error(`Memory consolidate action ${index} has unknown op`)
-  })
-}
-
 export class MemorySqliteSystem implements AgentSystem {
   name = 'memory:sqlite'
   type = 'memory'
@@ -937,18 +841,24 @@ export class MemorySqliteSystem implements AgentSystem {
   private readonly summarizeModel: string | null
   private readonly embeddingModel: string
   private readonly retrieveTopK: number
+  private readonly shortTermRetrieveTopK: number
+  private readonly fixedRetrieveTopK: number
+  private readonly shortTermMinSimilarity: number
+  private readonly fixedMinSimilarity: number
   private readonly embedder: MemoryEmbedder
   private readonly contextWindowMessages: number
   private readonly contextOverflowBatchSize: number
   private readonly contextIdleFlushMinutes: number
   private readonly maxShortTermMemoriesPerFlush: number
+  private readonly semanticAnalyzerHistoryMessages: number
+  private readonly longTermSearchDefaultTopK: number
+  private readonly showNoHitMemoryFragments: boolean
   private readonly sleepEnabled: boolean
   private readonly sleepTimeLocal: string
   private readonly sleepIntervalDays: number
   private readonly legacyRetrievePrompt: string | null
   private readonly timeParser: (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
   private readonly semanticAnalyzerPrompt: string | null
-  private readonly summarizePrompt: string | null
   private readonly contextToShortTermPrompt: string | null
   private readonly shortTermToLongTermPrompt: string | null
   private readonly fragmentPrompt: string | null
@@ -960,18 +870,24 @@ export class MemorySqliteSystem implements AgentSystem {
     this.summarizeModel = resolved.summarizeModel
     this.embeddingModel = resolved.embeddingModel
     this.retrieveTopK = resolved.retrieveTopK
+    this.shortTermRetrieveTopK = resolved.shortTermRetrieveTopK
+    this.fixedRetrieveTopK = resolved.fixedRetrieveTopK
+    this.shortTermMinSimilarity = resolved.shortTermMinSimilarity
+    this.fixedMinSimilarity = resolved.fixedMinSimilarity
     this.embedder = resolved.embedder
     this.contextWindowMessages = resolved.contextWindowMessages
     this.contextOverflowBatchSize = resolved.contextOverflowBatchSize
     this.contextIdleFlushMinutes = resolved.contextIdleFlushMinutes
     this.maxShortTermMemoriesPerFlush = resolved.maxShortTermMemoriesPerFlush
+    this.semanticAnalyzerHistoryMessages = resolved.semanticAnalyzerHistoryMessages
+    this.longTermSearchDefaultTopK = resolved.longTermSearchDefaultTopK
+    this.showNoHitMemoryFragments = resolved.showNoHitMemoryFragments
     this.sleepEnabled = resolved.sleepEnabled
     this.sleepTimeLocal = resolved.sleepTimeLocal
     this.sleepIntervalDays = resolved.sleepIntervalDays
     this.legacyRetrievePrompt = resolved.retrievePrompt
     this.timeParser = resolved.timeParser
     this.semanticAnalyzerPrompt = resolved.semanticAnalyzerPrompt
-    this.summarizePrompt = resolved.summarizePrompt
     this.contextToShortTermPrompt = resolved.contextToShortTermPrompt
     this.shortTermToLongTermPrompt = resolved.shortTermToLongTermPrompt
     this.fragmentPrompt = resolved.fragmentPrompt
@@ -996,7 +912,11 @@ export class MemorySqliteSystem implements AgentSystem {
       semanticAnalyzer: {
         kind: 'llm',
         prompt: buildSemanticAnalyzerPrompt(semanticPromptOverride),
-        inputText: buildSemanticAnalyzerInputText(ctx.messages, ctx.input.text),
+        inputText: buildSemanticAnalyzerInputText(
+          ctx.messages,
+          ctx.input.text,
+          this.semanticAnalyzerHistoryMessages,
+        ),
         responseFormat: MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT,
         parse: (responseText) => normalizeSemanticAnalyzerResult(
           ctx.input.text,
@@ -1030,14 +950,16 @@ export class MemorySqliteSystem implements AgentSystem {
           Promise.resolve(memoryRepo.findRelevantMemories({
             agentId: ctx.agentId,
             queryEmbeddings,
-            topK: this.retrieveTopK,
+            topK: this.shortTermRetrieveTopK || this.retrieveTopK,
+            minSimilarity: this.shortTermMinSimilarity,
             layers: ['short_term'],
             timeRange: query.timeRange,
           })),
           Promise.resolve(memoryRepo.findRelevantMemories({
             agentId: ctx.agentId,
             queryEmbeddings,
-            topK: this.retrieveTopK,
+            topK: this.fixedRetrieveTopK || this.retrieveTopK,
+            minSimilarity: this.fixedMinSimilarity,
             layers: ['fixed'],
             timeRange: query.timeRange,
           })),
@@ -1058,13 +980,16 @@ export class MemorySqliteSystem implements AgentSystem {
       fixedMemories,
       shortTermPrompt: this.shortTermFragmentPrompt ?? this.fragmentPrompt,
       fixedPrompt: this.fixedFragmentPrompt ?? this.fragmentPrompt,
+      showNoHitMemoryFragments: this.showNoHitMemoryFragments,
     })
 
-    ctx.promptFragments.push({
-      source: this.name,
-      priority: 30,
-      content,
-    })
+    if (content) {
+      ctx.promptFragments.push({
+        source: this.name,
+        priority: 30,
+        content,
+      })
+    }
   }
 
   async afterTurn(ctx: TurnContext): Promise<void> {

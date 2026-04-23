@@ -213,6 +213,63 @@ test('runAgent continues the same turn after search_long_term_memory returns a r
   )
 })
 
+test('runAgent passes semantic memory retrieval query into tool execution options', async () => {
+  let seenToolOptions: Record<string, unknown> | undefined
+
+  const tool: Tool = {
+    name: 'search_long_term_memory',
+    description: '只在必要时搜索长期记忆。',
+    inputSchema: { type: 'object' },
+    async call(_input, options) {
+      seenToolOptions = options as Record<string, unknown>
+      return {
+        output: '长期记忆检索结果：\n[长期记忆][2026-04-01 03:00 +00:00] 用户养过一只叫南瓜的猫。',
+      }
+    },
+  }
+
+  const provider = new FakeProvider(async function* (_params) {
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tool-1',
+            name: 'search_long_term_memory',
+            input: { query: '猫 宠物 名字' },
+          },
+        ],
+        stopReason: 'tool_use',
+        usage: { inputTokens: 10, outputTokens: 5 },
+      },
+    }
+  })
+
+  const systems: AgentSystem[] = [
+    {
+      name: 'memory:probe',
+      type: 'memory',
+      async beforeTurn(ctx: TurnContext) {
+        ctx.state.memoryRetrievalQuery = '我们养的那只猫叫什么名字'
+      },
+    },
+  ]
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig([tool]),
+    [createTextMessage('user', '你还记得我们养的那只猫叫什么名字吗？')],
+    provider,
+    systems,
+  )) {
+    events.push(event)
+  }
+
+  assert.equal(events[0]?.type, 'tool_start')
+  assert.equal(seenToolOptions?.memoryRetrievalQuery, '我们养的那只猫叫什么名字')
+})
+
 test('runAgent composes sorted prompt fragments from systems before calling the provider', async () => {
   const seen: { systemPrompt?: string; reasoning?: unknown } = {}
 

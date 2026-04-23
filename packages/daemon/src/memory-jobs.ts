@@ -276,7 +276,7 @@ export async function runContextFlushForSession(input: {
   const response = await provider.sendMessage({
     model: memoryConfig.summarizeModel ?? agent.model,
     systemPrompt: buildContextToShortTermPrompt(
-      memoryConfig.contextToShortTermPrompt ?? memoryConfig.summarizePrompt,
+      memoryConfig.contextToShortTermPrompt,
       settings.maxShortTermMemoriesPerFlush,
     ),
     messages: [
@@ -429,7 +429,7 @@ export async function runSleepForAgent(input: {
   const response = await provider.sendMessage({
     model: memoryConfig.summarizeModel ?? agent.model,
     systemPrompt: buildShortTermToLongTermPrompt(
-      memoryConfig.shortTermToLongTermPrompt ?? memoryConfig.consolidatePrompt,
+      memoryConfig.shortTermToLongTermPrompt,
       settings.maxShortTermMemoriesPerFlush,
     ),
     messages: [

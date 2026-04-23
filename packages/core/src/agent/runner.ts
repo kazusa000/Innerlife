@@ -291,6 +291,10 @@ export async function* runAgent(
               signal,
               agentId: config.id,
               sessionId: config.sessionId,
+              memoryRetrievalQuery:
+                typeof ctx.state.memoryRetrievalQuery === 'string'
+                  ? ctx.state.memoryRetrievalQuery
+                  : null,
             })
           }
         } else {
@@ -298,6 +302,10 @@ export async function* runAgent(
             signal,
             agentId: config.id,
             sessionId: config.sessionId,
+            memoryRetrievalQuery:
+              typeof ctx.state.memoryRetrievalQuery === 'string'
+                ? ctx.state.memoryRetrievalQuery
+                : null,
           })
         }
       } catch (err) {

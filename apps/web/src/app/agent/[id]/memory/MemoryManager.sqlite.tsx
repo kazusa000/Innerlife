@@ -4,7 +4,6 @@ import { Fragment, useDeferredValue, useEffect, useRef, useState, useTransition 
 import PromptLab from '../PromptLab'
 import styles from '../manager-ui.module.css'
 import { getSqliteMemoryToolbarState } from './MemoryManager.sqlite.state'
-import { getMemoryManagerSections, type MemoryManagerSectionId } from './MemoryManager.sqlite.sections'
 
 interface AgentMemoryMeta {
   agentId: string
@@ -32,6 +31,13 @@ interface SqliteMemory {
 interface MemorySettings {
   summarizeModel: string
   embeddingModel: string
+  shortTermRetrieveTopK: number
+  fixedRetrieveTopK: number
+  shortTermMinSimilarity: number
+  fixedMinSimilarity: number
+  semanticAnalyzerHistoryMessages: number
+  longTermSearchDefaultTopK: number
+  showNoHitMemoryFragments: boolean
   contextWindowMessages: number
   contextOverflowBatchSize: number
   contextIdleFlushMinutes: number
@@ -40,20 +46,10 @@ interface MemorySettings {
   sleepTimeLocal: string
   sleepIntervalDays: number
   semanticAnalyzerPrompt: string
-  summarizePrompt: string
   contextToShortTermPrompt: string
   shortTermToLongTermPrompt: string
   shortTermFragmentPrompt: string
   fixedFragmentPrompt: string
-  consolidatePrompt: string
-}
-
-interface ConsolidationReport {
-  before: number
-  after: number
-  kept: number
-  rewritten: number
-  merged: number
 }
 
 interface MemoryActionResponse {
@@ -90,6 +86,13 @@ interface MemoryListResponse {
   total: number
   summarizeModel: string | null
   embeddingModel: string | null
+  shortTermRetrieveTopK: number
+  fixedRetrieveTopK: number
+  shortTermMinSimilarity: number
+  fixedMinSimilarity: number
+  semanticAnalyzerHistoryMessages: number
+  longTermSearchDefaultTopK: number
+  showNoHitMemoryFragments: boolean
   contextWindowMessages: number
   contextOverflowBatchSize: number
   contextIdleFlushMinutes: number
@@ -98,12 +101,10 @@ interface MemoryListResponse {
   sleepTimeLocal: string | null
   sleepIntervalDays: number
   semanticAnalyzerPrompt: string | null
-  summarizePrompt: string | null
   contextToShortTermPrompt: string | null
   shortTermToLongTermPrompt: string | null
   shortTermFragmentPrompt: string | null
   fixedFragmentPrompt: string | null
-  consolidatePrompt: string | null
   contextToShortTermPromptDefault: string
   contextToShortTermPromptEffective: string
   shortTermToLongTermPromptDefault: string
@@ -114,10 +115,6 @@ interface MemoryListResponse {
   fixedFragmentPromptEffective: string
   semanticAnalyzerPromptDefault: string
   semanticAnalyzerPromptEffective: string
-  summarizePromptDefault: string
-  summarizePromptEffective: string
-  consolidatePromptDefault: string
-  consolidatePromptEffective: string
   context: ContextSummary
   sleep: SleepSummary
 }
@@ -127,8 +124,6 @@ const MEMORY_LAYER_LABELS: Record<SqliteMemory['layer'], string> = {
   long_term: '长期记忆',
   fixed: '固化记忆',
 }
-
-const MEMORY_MANAGER_SECTIONS = getMemoryManagerSections()
 
 function readErrorMessage(value: unknown, fallback: string) {
   if (
@@ -157,6 +152,13 @@ function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySet
   return {
     summarizeModel: typeof data.summarizeModel === 'string' ? data.summarizeModel : '',
     embeddingModel: typeof data.embeddingModel === 'string' ? data.embeddingModel : '',
+    shortTermRetrieveTopK: typeof data.shortTermRetrieveTopK === 'number' ? data.shortTermRetrieveTopK : 5,
+    fixedRetrieveTopK: typeof data.fixedRetrieveTopK === 'number' ? data.fixedRetrieveTopK : 5,
+    shortTermMinSimilarity: typeof data.shortTermMinSimilarity === 'number' ? data.shortTermMinSimilarity : 0.6,
+    fixedMinSimilarity: typeof data.fixedMinSimilarity === 'number' ? data.fixedMinSimilarity : 0.6,
+    semanticAnalyzerHistoryMessages: typeof data.semanticAnalyzerHistoryMessages === 'number' ? data.semanticAnalyzerHistoryMessages : 6,
+    longTermSearchDefaultTopK: typeof data.longTermSearchDefaultTopK === 'number' ? data.longTermSearchDefaultTopK : 3,
+    showNoHitMemoryFragments: typeof data.showNoHitMemoryFragments === 'boolean' ? data.showNoHitMemoryFragments : true,
     contextWindowMessages: typeof data.contextWindowMessages === 'number' ? data.contextWindowMessages : 50,
     contextOverflowBatchSize: typeof data.contextOverflowBatchSize === 'number' ? data.contextOverflowBatchSize : 25,
     contextIdleFlushMinutes: typeof data.contextIdleFlushMinutes === 'number' ? data.contextIdleFlushMinutes : 30,
@@ -165,33 +167,27 @@ function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySet
     sleepTimeLocal: typeof data.sleepTimeLocal === 'string' ? data.sleepTimeLocal : '03:00',
     sleepIntervalDays: typeof data.sleepIntervalDays === 'number' ? data.sleepIntervalDays : 1,
     semanticAnalyzerPrompt: typeof data.semanticAnalyzerPrompt === 'string' ? data.semanticAnalyzerPrompt : '',
-    summarizePrompt: typeof data.summarizePrompt === 'string' ? data.summarizePrompt : '',
     contextToShortTermPrompt: typeof data.contextToShortTermPrompt === 'string' ? data.contextToShortTermPrompt : '',
     shortTermToLongTermPrompt: typeof data.shortTermToLongTermPrompt === 'string' ? data.shortTermToLongTermPrompt : '',
     shortTermFragmentPrompt: typeof data.shortTermFragmentPrompt === 'string' ? data.shortTermFragmentPrompt : '',
     fixedFragmentPrompt: typeof data.fixedFragmentPrompt === 'string' ? data.fixedFragmentPrompt : '',
-    consolidatePrompt: typeof data.consolidatePrompt === 'string' ? data.consolidatePrompt : '',
   }
 }
 
 function normalizeEffectivePrompts(data: Partial<MemoryListResponse>): Pick<
   MemorySettings,
   'semanticAnalyzerPrompt'
-  | 'summarizePrompt'
   | 'contextToShortTermPrompt'
   | 'shortTermToLongTermPrompt'
   | 'shortTermFragmentPrompt'
   | 'fixedFragmentPrompt'
-  | 'consolidatePrompt'
 > {
   return {
     semanticAnalyzerPrompt: typeof data.semanticAnalyzerPromptEffective === 'string' ? data.semanticAnalyzerPromptEffective : '',
-    summarizePrompt: typeof data.summarizePromptEffective === 'string' ? data.summarizePromptEffective : '',
     contextToShortTermPrompt: typeof data.contextToShortTermPromptEffective === 'string' ? data.contextToShortTermPromptEffective : '',
     shortTermToLongTermPrompt: typeof data.shortTermToLongTermPromptEffective === 'string' ? data.shortTermToLongTermPromptEffective : '',
     shortTermFragmentPrompt: typeof data.shortTermFragmentPromptEffective === 'string' ? data.shortTermFragmentPromptEffective : '',
     fixedFragmentPrompt: typeof data.fixedFragmentPromptEffective === 'string' ? data.fixedFragmentPromptEffective : '',
-    consolidatePrompt: typeof data.consolidatePromptEffective === 'string' ? data.consolidatePromptEffective : '',
   }
 }
 
@@ -220,21 +216,18 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [sleepSummary, setSleepSummary] = useState<SleepSummary | null>(null)
   const settingsDirtyRef = useRef(false)
   const [loading, setLoading] = useState(true)
-  const [isConsolidating, setIsConsolidating] = useState(false)
   const [isFlushingContext, setIsFlushingContext] = useState(false)
   const [isSleeping, setIsSleeping] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
-  const [activeSection, setActiveSection] = useState<MemoryManagerSectionId>('context')
 
   const settingsDirty = !areSettingsEqual(savedSettings, draftSettings)
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const toolbarState = getSqliteMemoryToolbarState({
     loading,
     pending,
-    isConsolidating,
     memoryCount: total,
   })
 
@@ -291,50 +284,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     void refresh(deferredQuery, page, layerFilter)
   }, [agentId, deferredQuery, page, layerFilter])
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') {
-      return
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visibleEntries = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((left, right) => {
-            if (right.intersectionRatio !== left.intersectionRatio) {
-              return right.intersectionRatio - left.intersectionRatio
-            }
-            return left.boundingClientRect.top - right.boundingClientRect.top
-          })
-
-        const nextSectionId = visibleEntries[0]?.target.getAttribute('data-section-id')
-        if (
-          nextSectionId === 'context'
-          || nextSectionId === 'sleep'
-          || nextSectionId === 'prompt'
-          || nextSectionId === 'memory'
-        ) {
-          setActiveSection(nextSectionId)
-        }
-      },
-      {
-        rootMargin: '-18% 0px -52% 0px',
-        threshold: [0.12, 0.36, 0.64],
-      },
-    )
-
-    const targets = MEMORY_MANAGER_SECTIONS
-      .map((section) => document.getElementById(section.anchor))
-      .filter((node): node is HTMLElement => node instanceof HTMLElement)
-
-    targets.forEach((target) => observer.observe(target))
-
-    return () => {
-      targets.forEach((target) => observer.unobserve(target))
-      observer.disconnect()
-    }
-  }, [])
-
   function updateSetting<K extends keyof MemorySettings>(key: K, value: MemorySettings[K]) {
     settingsDirtyRef.current = true
     setDraftSettings((current) => ({ ...current, [key]: value }))
@@ -384,35 +333,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : '更新记忆层失败')
-    }
-  }
-
-  async function handleConsolidate() {
-    setError(null)
-    setNotice('正在整理 sqlite 记忆，这一步可能需要几十秒。')
-    setIsConsolidating(true)
-
-    try {
-      const response = await fetch(`/api/agents/${agentId}/memory/sqlite/consolidate`, {
-        method: 'POST',
-      })
-      const data = await response.json()
-      if (!response.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : '整理 sqlite 记忆失败')
-      }
-
-      const report = data as ConsolidationReport
-      setNotice(
-        `sqlite 记忆整理完成：${report.before} -> ${report.after}，保留 ${report.kept}，重写 ${report.rewritten}，合并 ${report.merged}。`,
-      )
-      startTransition(() => {
-        void refresh()
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '整理 sqlite 记忆失败')
-      setNotice(null)
-    } finally {
-      setIsConsolidating(false)
     }
   }
 
@@ -493,6 +413,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         body: JSON.stringify({
           summarizeModel: draftSettings.summarizeModel,
           embeddingModel: draftSettings.embeddingModel,
+          shortTermRetrieveTopK: draftSettings.shortTermRetrieveTopK,
+          fixedRetrieveTopK: draftSettings.fixedRetrieveTopK,
+          shortTermMinSimilarity: draftSettings.shortTermMinSimilarity,
+          fixedMinSimilarity: draftSettings.fixedMinSimilarity,
+          semanticAnalyzerHistoryMessages: draftSettings.semanticAnalyzerHistoryMessages,
+          longTermSearchDefaultTopK: draftSettings.longTermSearchDefaultTopK,
+          showNoHitMemoryFragments: draftSettings.showNoHitMemoryFragments,
           contextWindowMessages: draftSettings.contextWindowMessages,
           contextOverflowBatchSize: draftSettings.contextOverflowBatchSize,
           contextIdleFlushMinutes: draftSettings.contextIdleFlushMinutes,
@@ -501,20 +428,16 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           sleepTimeLocal: draftSettings.sleepTimeLocal,
           sleepIntervalDays: draftSettings.sleepIntervalDays,
           semanticAnalyzerPrompt: draftSettings.semanticAnalyzerPrompt.trim() || null,
-          summarizePrompt: draftSettings.summarizePrompt.trim() || null,
           contextToShortTermPrompt: draftSettings.contextToShortTermPrompt.trim() || null,
           shortTermToLongTermPrompt: draftSettings.shortTermToLongTermPrompt.trim() || null,
           shortTermFragmentPrompt: draftSettings.shortTermFragmentPrompt.trim() || null,
           fixedFragmentPrompt: draftSettings.fixedFragmentPrompt.trim() || null,
-          consolidatePrompt: draftSettings.consolidatePrompt.trim() || null,
         }),
       })
       const data = await response.json() as Partial<MemorySettings> & {
         error?: string
         semanticAnalyzerPromptDefault?: string
         semanticAnalyzerPromptEffective?: string
-        summarizePromptDefault?: string
-        summarizePromptEffective?: string
         contextToShortTermPromptDefault?: string
         contextToShortTermPromptEffective?: string
         shortTermToLongTermPromptDefault?: string
@@ -523,8 +446,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         shortTermFragmentPromptEffective?: string
         fixedFragmentPromptDefault?: string
         fixedFragmentPromptEffective?: string
-        consolidatePromptDefault?: string
-        consolidatePromptEffective?: string
       }
       if (!response.ok) {
         throw new Error(typeof data?.error === 'string' ? data.error : '保存记忆配置失败')
@@ -538,7 +459,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       setSavedSettings(normalizedEffective)
       setDraftSettings(normalizedEffective)
       settingsDirtyRef.current = false
-      setNotice('记忆管线参数、模型和全部 prompt 已保存。')
+      setNotice('记忆检索参数、模型和 Prompt Lab 已保存。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存记忆配置失败')
     }
@@ -551,8 +472,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           <p className={styles.eyebrow}>记忆管理</p>
           <h3 className={styles.title}>sqlite Memory Console</h3>
           <p className={styles.copy}>
-            上面统一放记忆链路的模型和全部 prompt，下面是可搜索、可翻页、可展开的记忆表。
-            这页不再用卡片流，而是像真正的运营控制台一样按行浏览 memory。
+            这页优先把前置检索、语义分析和上下文沉淀参数摆到首屏，底部再放 Prompt Lab。
+            大屏上会把记忆表拉宽，让检索控制和实际 memory rows 同时更好读。
           </p>
         </div>
         <div className={styles.heroActions}>
@@ -567,17 +488,25 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </button>
           <button
             type="button"
-            className={styles.primaryButton}
-            onClick={handleConsolidate}
-            disabled={toolbarState.consolidateDisabled}
+            className={styles.secondaryButton}
+            onClick={() => void handleFlushContext()}
+            disabled={isFlushingContext || isSleeping || loading}
           >
-            {toolbarState.consolidateLabel}
+            {isFlushingContext ? '正在整理旧上下文…' : '整理上下文'}
+          </button>
+          <button
+            type="button"
+            className={styles.secondaryButton}
+            onClick={() => void handleSleep()}
+            disabled={isSleeping || isFlushingContext || loading}
+          >
+            {isSleeping ? '正在睡觉…' : '立即睡觉'}
           </button>
           <button
             type="button"
             className={styles.primaryButton}
             onClick={() => void handleSaveSettings()}
-            disabled={!settingsDirty || isConsolidating || isFlushingContext || isSleeping}
+            disabled={!settingsDirty || isFlushingContext || isSleeping}
           >
             保存配置
           </button>
@@ -587,42 +516,136 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       {notice && <p className={styles.notice}>{notice}</p>}
       {error && <p className={styles.error}>{error}</p>}
 
-      <div className={styles.sectionLayout}>
-        <aside className={styles.sideNav} aria-label="记忆工作台导航">
-          <div className={styles.sideNavHead}>
-            <p className={styles.panelLabel}>导航</p>
-            <h4 className={styles.sideNavTitle}>记忆工作台导航</h4>
-            <p className={styles.sideNavCopy}>跳到上下文、睡眠、Prompt Lab 和记忆表，不用在长页里反复拖动。</p>
-          </div>
-          <nav className={styles.sideNavList}>
-            {MEMORY_MANAGER_SECTIONS.map((section) => {
-              const isActive = section.id === activeSection
+      <div className={styles.contentStack}>
+        <div className={styles.controlGrid}>
+          <section className={`${styles.panel} ${styles.sectionPanel}`}>
+            <div className={styles.panelHead}>
+              <div>
+                <p className={styles.panelLabel}>前置检索</p>
+                <h4 className={styles.panelTitle}>Short-term Retrieval</h4>
+              </div>
+              <span className={styles.panelPill}>短期记忆</span>
+            </div>
+            <p className={styles.panelCopy}>
+              调整短期记忆在进入主 prompt 前的载入条数和匹配阈值。
+            </p>
+            <div className={styles.fieldGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Short-term TopK</span>
+                <input
+                  className={styles.input}
+                  type="number"
+                  min={1}
+                  value={draftSettings.shortTermRetrieveTopK}
+                  onChange={(event) => updateSetting('shortTermRetrieveTopK', Math.max(1, Number(event.target.value) || 1))}
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Short-term Min Similarity</span>
+                <input
+                  className={styles.input}
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={draftSettings.shortTermMinSimilarity}
+                  onChange={(event) => updateSetting('shortTermMinSimilarity', Math.min(1, Math.max(0, Number(event.target.value) || 0)))}
+                />
+              </label>
+            </div>
+          </section>
 
-              return (
-                <a
-                  key={section.id}
-                  href={`#${section.anchor}`}
-                  className={`${styles.sideNavLink} ${isActive ? styles.sideNavLinkActive : ''}`}
-                  onClick={() => setActiveSection(section.id)}
+          <section className={`${styles.panel} ${styles.sectionPanel}`}>
+            <div className={styles.panelHead}>
+              <div>
+                <p className={styles.panelLabel}>前置检索</p>
+                <h4 className={styles.panelTitle}>Fixed Retrieval</h4>
+              </div>
+              <span className={styles.panelPill}>固化记忆</span>
+            </div>
+            <p className={styles.panelCopy}>
+              固化记忆可以比短期记忆更保守或更宽松，避免稳定事实和近期印象互相打架。
+            </p>
+            <div className={styles.fieldGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Fixed TopK</span>
+                <input
+                  className={styles.input}
+                  type="number"
+                  min={1}
+                  value={draftSettings.fixedRetrieveTopK}
+                  onChange={(event) => updateSetting('fixedRetrieveTopK', Math.max(1, Number(event.target.value) || 1))}
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Fixed Min Similarity</span>
+                <input
+                  className={styles.input}
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={draftSettings.fixedMinSimilarity}
+                  onChange={(event) => updateSetting('fixedMinSimilarity', Math.min(1, Math.max(0, Number(event.target.value) || 0)))}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className={`${styles.panel} ${styles.sectionPanel}`}>
+            <div className={styles.panelHead}>
+              <div>
+                <p className={styles.panelLabel}>语义分析</p>
+                <h4 className={styles.panelTitle}>Semantic / Long-term</h4>
+              </div>
+              <span className={styles.panelPill}>补全 · 深搜默认值</span>
+            </div>
+            <p className={styles.panelCopy}>
+              这里控制 semantic analyser 看多少历史，以及长期记忆 tool 未显式传参时的默认载入条数。
+            </p>
+            <div className={styles.fieldGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Semantic History Messages</span>
+                <input
+                  className={styles.input}
+                  type="number"
+                  min={1}
+                  value={draftSettings.semanticAnalyzerHistoryMessages}
+                  onChange={(event) => updateSetting('semanticAnalyzerHistoryMessages', Math.max(1, Number(event.target.value) || 1))}
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Long-term Default TopK</span>
+                <input
+                  className={styles.input}
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={draftSettings.longTermSearchDefaultTopK}
+                  onChange={(event) => updateSetting('longTermSearchDefaultTopK', Math.min(5, Math.max(1, Number(event.target.value) || 1)))}
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>No-hit Fragments</span>
+                <select
+                  className={styles.input}
+                  value={draftSettings.showNoHitMemoryFragments ? 'on' : 'off'}
+                  onChange={(event) => updateSetting('showNoHitMemoryFragments', event.target.value === 'on')}
                 >
-                  <span className={styles.sideNavLabel}>{section.label}</span>
-                  <span className={styles.sideNavMeta}>{section.description}</span>
-                </a>
-              )
-            })}
-          </nav>
-        </aside>
+                  <option value="on">显示“未命中”提示</option>
+                  <option value="off">未命中时保持安静</option>
+                </select>
+              </label>
+            </div>
+          </section>
+        </div>
 
-        <div className={styles.contentStack}>
-        <section
-          id="memory-section-context"
-          data-section-id="context"
-          className={`${styles.panel} ${styles.sectionPanel}`}
-        >
+        <div className={styles.controlGrid}>
+          <section className={`${styles.panel} ${styles.sectionPanel}`}>
           <div className={styles.panelHead}>
             <div>
-              <p className={styles.panelLabel}>上下文控制</p>
-              <h4 className={styles.panelTitle}>Context 控制区</h4>
+              <p className={styles.panelLabel}>运行节奏</p>
+              <h4 className={styles.panelTitle}>Context</h4>
             </div>
             <span className={styles.panelPill}>缓存 · 卸载 · 短期整理</span>
           </div>
@@ -701,27 +724,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               <dd>{formatOptionalDate(contextSummary?.lastContextFlushAt)}</dd>
             </div>
           </dl>
-          <div className={styles.heroActions}>
-            <button
-              type="button"
-              className={styles.secondaryButton}
-              onClick={() => void handleFlushContext()}
-              disabled={isFlushingContext || isSleeping || isConsolidating || loading}
-            >
-              {isFlushingContext ? '正在整理旧上下文…' : '立即整理当前旧上下文'}
-            </button>
-          </div>
-        </section>
+          </section>
 
-        <section
-          id="memory-section-sleep"
-          data-section-id="sleep"
-          className={`${styles.panel} ${styles.sectionPanel}`}
-        >
+          <section className={`${styles.panel} ${styles.sectionPanel}`}>
           <div className={styles.panelHead}>
             <div>
-              <p className={styles.panelLabel}>睡眠区</p>
-              <h4 className={styles.panelTitle}>Sleep 区</h4>
+              <p className={styles.panelLabel}>运行节奏</p>
+              <h4 className={styles.panelTitle}>Sleep</h4>
             </div>
             <span className={styles.panelPill}>短期沉淀 · 长期记忆</span>
           </div>
@@ -766,23 +775,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               <dd>{formatOptionalDate(sleepSummary?.lastSleepAt)}</dd>
             </div>
           </dl>
-          <div className={styles.heroActions}>
-            <button
-              type="button"
-              className={styles.secondaryButton}
-              onClick={() => void handleSleep()}
-              disabled={isSleeping || isFlushingContext || isConsolidating || loading}
-            >
-              {isSleeping ? '正在执行睡眠沉淀…' : '立即睡觉'}
-            </button>
-          </div>
-        </section>
+          </section>
 
-        <section className={`${styles.panel} ${styles.sectionPanel}`}>
+          <section className={`${styles.panel} ${styles.sectionPanel}`}>
           <div className={styles.panelHead}>
             <div>
               <p className={styles.panelLabel}>模型设置</p>
-              <h4 className={styles.panelTitle}>LLM & Embedding</h4>
+              <h4 className={styles.panelTitle}>Memory Models</h4>
             </div>
             <span className={styles.panelPill}>前置检索 · 深搜工具 · 沉淀整理</span>
           </div>
@@ -809,81 +808,10 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               />
             </label>
           </div>
-        </section>
+          </section>
+        </div>
 
-        <section
-          id="memory-section-prompt"
-          data-section-id="prompt"
-          className={styles.sectionPanel}
-        >
-        <PromptLab
-          fields={[
-            {
-              key: 'semanticAnalyzerPrompt',
-              label: 'Semantic Analyzer Prompt',
-              helper: '只负责提炼 retrieval_query 的 prompt。这里应该只分析“是什么”，不要混入时间。',
-              value: draftSettings.semanticAnalyzerPrompt,
-              placeholder: '清空后保存会回退系统默认的 semantic analyzer prompt。',
-              rows: 7,
-            },
-            {
-              key: 'summarizePrompt',
-              label: 'Summarize Prompt',
-              helper: '保留给兼容旧路径或手动整理使用。新的分层记忆主要由 Context → STM / STM → LTM 两条 prompt 驱动。',
-              value: draftSettings.summarizePrompt,
-              placeholder: '清空后保存会回退系统默认的 summarize prompt。',
-              rows: 7,
-            },
-            {
-              key: 'contextToShortTermPrompt',
-              label: 'Context → STM Prompt',
-              helper: 'daemon 从旧上下文整理短期记忆时使用。这里控制如何从一大段消息里提炼最多 N 条短期记忆。',
-              value: draftSettings.contextToShortTermPrompt,
-              placeholder: '清空后保存会回退系统默认的 context → short-term prompt。',
-              rows: 7,
-            },
-            {
-              key: 'shortTermToLongTermPrompt',
-              label: 'STM → LTM Prompt',
-              helper: '睡眠时把短期记忆沉淀成长久记忆的 prompt。这里控制如何提炼长期记忆，而不是检索逻辑。',
-              value: draftSettings.shortTermToLongTermPrompt,
-              placeholder: '清空后保存会回退系统默认的 short-term → long-term prompt。',
-              rows: 7,
-            },
-            {
-              key: 'shortTermFragmentPrompt',
-              label: 'Short-term Fragment Prompt',
-              helper: '短期记忆命中时注入主 prompt 的包装文案。未命中时系统会固定写入“短期记忆检索结果：未搜索到相关记忆”。',
-              value: draftSettings.shortTermFragmentPrompt,
-              placeholder: '清空后保存会回退系统默认的 short-term fragment prompt。',
-              rows: 7,
-            },
-            {
-              key: 'fixedFragmentPrompt',
-              label: 'Fixed Fragment Prompt',
-              helper: '固化记忆命中时注入主 prompt 的包装文案。未命中时系统会固定写入“固化记忆检索结果：未搜索到相关记忆”。',
-              value: draftSettings.fixedFragmentPrompt,
-              placeholder: '清空后保存会回退系统默认的 fixed fragment prompt。',
-              rows: 7,
-            },
-            {
-              key: 'consolidatePrompt',
-              label: 'Consolidate Prompt',
-              helper: '控制人工 memory consolidate 时如何 rewrite / merge / keep。它仍然只会在同 layer 内整理，不做跨层合并。',
-              value: draftSettings.consolidatePrompt,
-              placeholder: '清空后保存会回退系统默认的 consolidate prompt。',
-              rows: 7,
-            },
-          ]}
-          onChange={(key, value) => updateSetting(key as keyof MemorySettings, value)}
-        />
-        </section>
-
-      <section
-        id="memory-section-memory"
-        data-section-id="memory"
-        className={`${styles.panel} ${styles.sectionPanel}`}
-      >
+        <section className={`${styles.panel} ${styles.sectionPanel}`}>
         <div className={styles.panelHead}>
           <div>
             <p className={styles.tableLabel}>记忆表</p>
@@ -1067,8 +995,55 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             </div>
           </>
         )}
-      </section>
-        </div>
+        </section>
+
+        <section className={styles.sectionPanel}>
+          <PromptLab
+            fields={[
+              {
+                key: 'semanticAnalyzerPrompt',
+                label: 'Semantic Analyzer Prompt',
+                helper: '只负责提炼 retrieval_query 的 prompt。这里应该只分析“是什么”，不要混入时间。',
+                value: draftSettings.semanticAnalyzerPrompt,
+                placeholder: '清空后保存会回退系统默认的 semantic analyzer prompt。',
+                rows: 7,
+              },
+              {
+                key: 'contextToShortTermPrompt',
+                label: 'Context → STM Prompt',
+                helper: 'daemon 从旧上下文整理短期记忆时使用。这里控制如何从一大段消息里提炼最多 N 条短期记忆。',
+                value: draftSettings.contextToShortTermPrompt,
+                placeholder: '清空后保存会回退系统默认的 context → short-term prompt。',
+                rows: 7,
+              },
+              {
+                key: 'shortTermToLongTermPrompt',
+                label: 'STM → LTM Prompt',
+                helper: '睡眠时把短期记忆沉淀成长久记忆的 prompt。这里控制如何提炼长期记忆，而不是检索逻辑。',
+                value: draftSettings.shortTermToLongTermPrompt,
+                placeholder: '清空后保存会回退系统默认的 short-term → long-term prompt。',
+                rows: 7,
+              },
+              {
+                key: 'shortTermFragmentPrompt',
+                label: 'Short-term Fragment Prompt',
+                helper: '短期记忆命中时注入主 prompt 的包装文案。是否显示未命中提示由上面的 No-hit Fragments 开关决定。',
+                value: draftSettings.shortTermFragmentPrompt,
+                placeholder: '清空后保存会回退系统默认的 short-term fragment prompt。',
+                rows: 7,
+              },
+              {
+                key: 'fixedFragmentPrompt',
+                label: 'Fixed Fragment Prompt',
+                helper: '固化记忆命中时注入主 prompt 的包装文案。是否显示未命中提示由上面的 No-hit Fragments 开关决定。',
+                value: draftSettings.fixedFragmentPrompt,
+                placeholder: '清空后保存会回退系统默认的 fixed fragment prompt。',
+                rows: 7,
+              },
+            ]}
+            onChange={(key, value) => updateSetting(key as keyof MemorySettings, value)}
+          />
+        </section>
       </div>
     </section>
   )

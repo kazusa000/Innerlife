@@ -7,7 +7,6 @@ import { getMemoryDb, getMemoryRawSqlite, resetMemoryDb } from '../memory-client
 import * as memoryRepo from './memories'
 import {
   addMemory,
-  applyConsolidationPlan,
   findRelevantMemories,
   listMemoriesByAgentOldestFirst,
 } from './memories'
@@ -95,6 +94,52 @@ test('findRelevantMemories scopes by agent and orders by similarity then importa
     assert.equal(results[0]?.displaySummary, '用户养了一只叫橘子的猫')
     assert.deepEqual(results[0]?.retrievalEmbedding, [1, 0])
     assert.equal(results[0]?.layer, 'short_term')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('findRelevantMemories supports weighted query embeddings for reranking', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapMemoryDb(dbPath)
+
+    const catMemory = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User said they raised a cat named Pumpkin.',
+      displaySummary: '用户养过一只叫南瓜的猫',
+      retrievalText: '用户养过一只名叫南瓜的猫',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
+      tags: ['猫'],
+      importance: 0.7,
+      createdAt: new Date('2026-04-18T10:00:00.000Z'),
+    })
+    const distractorMemory = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User solved a login bug.',
+      displaySummary: '用户修复过登录 bug',
+      retrievalText: '用户修复过一个登录 bug',
+      retrievalEmbedding: vector([0.6, 0.8]),
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
+      tags: ['bug'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-18T10:00:00.000Z'),
+    })
+
+    const results = findRelevantMemories({
+      agentId: 'agent-1',
+      queryEmbeddings: [vector([1, 0]), vector([0, 1])],
+      queryWeights: [0.8, 0.2],
+      topK: 5,
+    })
+
+    assert.deepEqual(results.map((memory) => memory.id), [catMemory.id, distractorMemory.id])
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
@@ -199,7 +244,7 @@ test('findRelevantMemories keeps time-range candidates even when semantic simila
   }
 })
 
-test('findRelevantMemories excludes candidates below the semantic similarity threshold', () => {
+test('findRelevantMemories supports per-call semantic similarity thresholds', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
   const dbPath = join(dir, 'memory.db')
 
@@ -218,7 +263,7 @@ test('findRelevantMemories excludes candidates below the semantic similarity thr
       importance: 0.7,
       createdAt: new Date('2026-04-20T21:00:00.000Z'),
     })
-    addMemory({
+    const belowThreshold = addMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
       sourceText: 'User had soup for dinner.',
@@ -231,13 +276,30 @@ test('findRelevantMemories excludes candidates below the semantic similarity thr
       createdAt: new Date('2026-04-20T22:00:00.000Z'),
     })
 
-    const results = findRelevantMemories({
+    const strictResults = findRelevantMemories({
       agentId: 'agent-1',
       queryEmbeddings: [vector([1, 0])],
       topK: 5,
+      minSimilarity: 0.65,
     })
 
-    assert.deepEqual(results.map((memory) => memory.id), [aboveThreshold.id])
+    const mediumResults = findRelevantMemories({
+      agentId: 'agent-1',
+      queryEmbeddings: [vector([1, 0])],
+      topK: 5,
+      minSimilarity: 0.6,
+    })
+
+    const relaxedResults = findRelevantMemories({
+      agentId: 'agent-1',
+      queryEmbeddings: [vector([1, 0])],
+      topK: 5,
+      minSimilarity: 0.55,
+    })
+
+    assert.deepEqual(strictResults.map((memory) => memory.id), [])
+    assert.deepEqual(mediumResults.map((memory) => memory.id), [aboveThreshold.id])
+    assert.deepEqual(relaxedResults.map((memory) => memory.id), [aboveThreshold.id, belowThreshold.id])
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
@@ -293,236 +355,6 @@ test('findRelevantMemories prefers newest memories for pure time-range recall wi
   }
 })
 
-test('applyConsolidationPlan keeps, rewrites, and merges memories in one transaction', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
-  const dbPath = join(dir, 'memory.db')
-
-  try {
-    bootstrapMemoryDb(dbPath)
-
-    const keepMemory = addMemory({
-      agentId: 'agent-1',
-      sessionId: 'session-1',
-      sourceText: 'User said their cat is named Orange.',
-      displaySummary: '用户养了一只叫橘子的猫',
-      retrievalText: '用户的猫名字叫橘子',
-      retrievalEmbedding: vector([1, 0]),
-      retrievalModel: 'qwen/qwen3-embedding-0.6b',
-      tags: ['猫', '橘子'],
-      importance: 0.9,
-      createdAt: new Date('2026-04-17T10:00:00.000Z'),
-    })
-    const rewriteMemory = addMemory({
-      agentId: 'agent-1',
-      sessionId: 'session-1',
-      sourceText: 'User said they prefer late-night chats.',
-      displaySummary: '用户喜欢晚上聊天',
-      retrievalText: '用户更喜欢在夜里找我聊天',
-      retrievalEmbedding: vector([0.8, 0.2]),
-      retrievalModel: 'qwen/qwen3-embedding-0.6b',
-      tags: ['晚上', '聊天'],
-      importance: 0.4,
-      createdAt: new Date('2026-04-17T11:00:00.000Z'),
-    })
-    const mergeSourceA = addMemory({
-      agentId: 'agent-1',
-      sessionId: 'session-1',
-      sourceText: 'User said they live in Brussels.',
-      displaySummary: '用户住在布鲁塞尔',
-      retrievalText: '用户居住在布鲁塞尔',
-      retrievalEmbedding: vector([0.1, 1]),
-      retrievalModel: 'qwen/qwen3-embedding-0.6b',
-      tags: ['布鲁塞尔'],
-      importance: 0.5,
-      createdAt: new Date('2026-04-17T12:00:00.000Z'),
-    })
-    const mergeSourceB = addMemory({
-      agentId: 'agent-1',
-      sessionId: 'session-2',
-      sourceText: 'User said they are based in Belgium.',
-      displaySummary: '用户住在比利时布鲁塞尔',
-      retrievalText: '用户常驻比利时布鲁塞尔',
-      retrievalEmbedding: vector([0.1, 0.95]),
-      retrievalModel: 'qwen/qwen3-embedding-0.6b',
-      tags: ['比利时', '布鲁塞尔'],
-      importance: 0.6,
-      createdAt: new Date('2026-04-17T13:00:00.000Z'),
-    })
-
-    const report = applyConsolidationPlan({
-      agentId: 'agent-1',
-      actions: [
-        { op: 'keep', id: keepMemory.id },
-        {
-          op: 'rewrite',
-          id: rewriteMemory.id,
-          displaySummary: '用户偏好夜间聊天',
-          retrievalText: '用户通常在夜间找我聊天',
-          tags: ['夜间', '聊天'],
-          importance: 0.65,
-        },
-        {
-          op: 'merge',
-          sourceIds: [mergeSourceA.id, mergeSourceB.id],
-          displaySummary: '用户住在比利时布鲁塞尔',
-          retrievalText: '用户的长期居住地是比利时布鲁塞尔',
-          tags: ['布鲁塞尔', '比利时', '住处'],
-          importance: 0.8,
-        },
-      ],
-    })
-
-    const rows = listMemoriesByAgentOldestFirst('agent-1')
-    const rewritten = rows.find((memory) => memory.id === rewriteMemory.id)
-    const merged = rows.find((memory) =>
-      ![keepMemory.id, rewriteMemory.id, mergeSourceA.id, mergeSourceB.id].includes(memory.id),
-    )
-
-    assert.deepEqual(report, {
-      before: 4,
-      after: 3,
-      kept: 1,
-      rewritten: 1,
-      merged: 1,
-    })
-    assert.equal(rows.length, 3)
-    assert.equal(rewritten?.displaySummary, '用户偏好夜间聊天')
-    assert.equal(rewritten?.retrievalText, '用户通常在夜间找我聊天')
-    assert.deepEqual(rewritten?.tags, ['夜间', '聊天'])
-    assert.equal(rewritten?.importance, 0.65)
-    assert.equal(rewritten?.layer, 'short_term')
-    assert.ok(merged)
-    assert.equal(merged?.sessionId, 'session-1')
-    assert.equal(merged?.displaySummary, '用户住在比利时布鲁塞尔')
-    assert.equal(merged?.retrievalText, '用户的长期居住地是比利时布鲁塞尔')
-    assert.deepEqual(merged?.tags, ['布鲁塞尔', '比利时', '住处'])
-    assert.equal(merged?.layer, 'short_term')
-  } finally {
-    resetMemoryDb()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('applyConsolidationPlan rolls back earlier writes when a later action is invalid', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
-  const dbPath = join(dir, 'memory.db')
-
-  try {
-    bootstrapMemoryDb(dbPath)
-
-    const first = addMemory({
-      agentId: 'agent-1',
-      sessionId: 'session-1',
-      sourceText: 'User likes tea.',
-      displaySummary: '用户喜欢喝茶',
-      retrievalText: '用户平时喜欢喝热茶',
-      retrievalEmbedding: vector([1, 0]),
-      retrievalModel: 'qwen/qwen3-embedding-0.6b',
-      tags: ['茶'],
-      importance: 0.3,
-      createdAt: new Date('2026-04-17T10:00:00.000Z'),
-    })
-    const second = addMemory({
-      agentId: 'agent-1',
-      sessionId: 'session-1',
-      sourceText: 'User likes coffee.',
-      displaySummary: '用户也喜欢咖啡',
-      retrievalText: '用户也会喝咖啡',
-      retrievalEmbedding: vector([0.9, 0.1]),
-      retrievalModel: 'qwen/qwen3-embedding-0.6b',
-      tags: ['咖啡'],
-      importance: 0.4,
-      createdAt: new Date('2026-04-17T11:00:00.000Z'),
-    })
-
-    assert.throws(() => {
-      applyConsolidationPlan({
-        agentId: 'agent-1',
-        actions: [
-          {
-            op: 'rewrite',
-            id: first.id,
-            displaySummary: '用户喜欢热茶',
-            retrievalText: '用户更偏好喝热茶',
-            tags: ['热茶'],
-            importance: 0.7,
-          },
-          {
-            op: 'merge',
-            sourceIds: [second.id, 'missing-memory'],
-            displaySummary: '用户喜欢热饮',
-            retrievalText: '用户偏好各种热饮',
-            tags: ['热饮'],
-            importance: 0.8,
-          },
-        ],
-      })
-    }, /missing-memory/)
-
-    const rows = listMemoriesByAgentOldestFirst('agent-1')
-    assert.equal(rows.length, 2)
-    assert.equal(rows[0]?.displaySummary, '用户喜欢喝茶')
-    assert.equal(rows[0]?.retrievalText, '用户平时喜欢喝热茶')
-    assert.equal(rows[1]?.displaySummary, '用户也喜欢咖啡')
-  } finally {
-    resetMemoryDb()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('applyConsolidationPlan does not merge memories across layers', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
-  const dbPath = join(dir, 'memory.db')
-
-  try {
-    bootstrapMemoryDb(dbPath)
-
-    const shortTerm = addMemory({
-      agentId: 'agent-1',
-      sessionId: 'session-1',
-      sourceText: 'User said their cat is named Orange.',
-      displaySummary: '用户养了一只叫橘子的猫',
-      retrievalText: '用户的猫名字叫橘子',
-      retrievalEmbedding: vector([1, 0]),
-      retrievalModel: 'qwen/qwen3-embedding-8b',
-      tags: ['猫', '橘子'],
-      importance: 0.9,
-      createdAt: new Date('2026-04-17T10:00:00.000Z'),
-    })
-    const longTerm = memoryRepo.addMemory({
-      agentId: 'agent-1',
-      sessionId: 'session-1',
-      layer: 'long_term',
-      sourceText: 'User said their cat is named Orange.',
-      displaySummary: '用户长期记忆里有一只叫橘子的猫',
-      retrievalText: '用户长期提到自己养了一只名叫橘子的猫',
-      retrievalEmbedding: vector([1, 0]),
-      retrievalModel: 'qwen/qwen3-embedding-8b',
-      tags: ['猫', '橘子'],
-      importance: 0.95,
-      createdAt: new Date('2026-04-17T11:00:00.000Z'),
-    })
-
-    assert.throws(() => {
-      applyConsolidationPlan({
-        agentId: 'agent-1',
-        actions: [
-          {
-            op: 'merge',
-            sourceIds: [shortTerm.id, longTerm.id],
-            displaySummary: '用户养了一只叫橘子的猫',
-            retrievalText: '用户养了一只名叫橘子的猫',
-            tags: ['猫', '橘子'],
-            importance: 0.95,
-          },
-        ],
-      })
-    }, /layer/i)
-  } finally {
-    resetMemoryDb()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
 
 test('sqlite management query lists latest first and filters by display summary or tags', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))

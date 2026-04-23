@@ -17,6 +17,7 @@ export interface ToolCallOptions {
   signal?: AbortSignal
   agentId?: string
   sessionId?: string
+  memoryRetrievalQuery?: string | null
 }
 
 export interface Tool {

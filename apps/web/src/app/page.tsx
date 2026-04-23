@@ -12,6 +12,7 @@ import {
   type MemoryScheme,
   type RelationshipScheme,
 } from './persona-modules'
+import { AGENT_MANAGER_TILES, type AgentManagerSection } from './manager-tiles'
 
 interface Agent {
   id: string
@@ -189,7 +190,7 @@ export default function HomePage() {
 
   function openManager(
     agentId: string,
-    section: 'personality' | 'emotion' | 'relationships' | 'memory' | 'tools' | 'turing',
+    section: AgentManagerSection,
   ) {
     router.push(`/agent/${agentId}/${section}`)
   }
@@ -486,66 +487,19 @@ export default function HomePage() {
                   </div>
 
                   <div className="manager-grid">
-                    <button
-                      className="manager-tile"
-                      onClick={() => openManager(agent.id, 'personality')}
-                    >
-                      <span className="manager-index">01</span>
-                      <span className="manager-copy">
-                        <strong>人设</strong>
-                        <small>system prompt、persona prompt</small>
-                      </span>
-                    </button>
-                    <button
-                      className="manager-tile"
-                      onClick={() => openManager(agent.id, 'emotion')}
-                    >
-                      <span className="manager-index">02</span>
-                      <span className="manager-copy">
-                        <strong>情绪</strong>
-                        <small>状态、衰减、分析</small>
-                      </span>
-                    </button>
-                    <button
-                      className="manager-tile"
-                      onClick={() => openManager(agent.id, 'relationships')}
-                    >
-                      <span className="manager-index">03</span>
-                      <span className="manager-copy">
-                        <strong>关系</strong>
-                        <small>连结、信任、历史</small>
-                      </span>
-                    </button>
-                    <button
-                      className="manager-tile"
-                      onClick={() => openManager(agent.id, 'memory')}
-                    >
-                      <span className="manager-index">04</span>
-                      <span className="manager-copy">
-                        <strong>记忆</strong>
-                        <small>归档、搜索、整理</small>
-                      </span>
-                    </button>
-                    <button
-                      className="manager-tile"
-                      onClick={() => openManager(agent.id, 'turing')}
-                    >
-                      <span className="manager-index">05</span>
-                      <span className="manager-copy">
-                        <strong>工具</strong>
-                        <small>开关、提示、可用性</small>
-                      </span>
-                    </button>
-                    <button
-                      className="manager-tile"
-                      onClick={() => openManager(agent.id, 'turing')}
-                    >
-                      <span className="manager-index">06</span>
-                      <span className="manager-copy">
-                        <strong>图灵测试</strong>
-                        <small>自动评测、报告、回放</small>
-                      </span>
-                    </button>
+                    {AGENT_MANAGER_TILES.map((tile) => (
+                      <button
+                        key={tile.section}
+                        className="manager-tile"
+                        onClick={() => openManager(agent.id, tile.section)}
+                      >
+                        <span className="manager-index">{tile.index}</span>
+                        <span className="manager-copy">
+                          <strong>{tile.title}</strong>
+                          <small>{tile.subtitle}</small>
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               </article>
