@@ -1,15 +1,22 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import {
+  getContextResetButtonLabel,
+  getContextResetLoadingLabel,
+  type ContextResetNotice,
+} from './context-reset'
 
 interface Props {
   agentId?: string
   sessionId?: string | null
+  memoryScheme?: string | null
   relationshipScheme?: string | null
   agentName?: string
   onBack?: () => void
   onResetContext?: () => void
   isResetting?: boolean
+  resetNotice?: ContextResetNotice | null
 }
 
 function gradientFor(seed: string) {
@@ -34,11 +41,13 @@ type Counterpart = {
 export function Sidebar({
   agentId,
   sessionId,
+  memoryScheme,
   relationshipScheme,
   agentName,
   onBack,
   onResetContext,
   isResetting = false,
+  resetNotice = null,
 }: Props) {
   const [counterparts, setCounterparts] = useState<Counterpart[]>([])
   const [selectedCounterpartId, setSelectedCounterpartId] = useState('')
@@ -163,8 +172,13 @@ export function Sidebar({
             onClick={onResetContext}
             disabled={isResetting}
           >
-            {isResetting ? '正在清除上下文…' : '清除上下文'}
+            {isResetting ? getContextResetLoadingLabel(memoryScheme) : getContextResetButtonLabel(memoryScheme)}
           </button>
+        )}
+        {resetNotice && (
+          <p className={`rail-status ${resetNotice.tone === 'error' ? 'rail-status-error' : 'rail-status-success'}`}>
+            {resetNotice.text}
+          </p>
         )}
       </div>
 
@@ -206,6 +220,7 @@ export function Sidebar({
           backdrop-filter: blur(8px);
           -webkit-backdrop-filter: blur(8px);
           padding-bottom: 18px;
+          overflow-y: auto;
         }
         .agent-head {
           display: flex;
@@ -366,6 +381,12 @@ export function Sidebar({
           color: var(--fg-muted);
           font-size: 12px;
           line-height: 1.5;
+        }
+        .rail-status-success {
+          color: rgba(186, 230, 201, 0.92);
+        }
+        .rail-status-error {
+          color: rgba(255, 191, 191, 0.96);
         }
       `}</style>
     </aside>

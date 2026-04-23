@@ -8,11 +8,14 @@ export async function POST(
   initDb()
   const { id } = await params
   let reset = false
+  let flushContext = false
   try {
-    const body = await request.json() as { reset?: unknown }
+    const body = await request.json() as { reset?: unknown; flushContext?: unknown }
     reset = body.reset === true
+    flushContext = body.flushContext === true
   } catch {
     reset = false
+    flushContext = false
   }
-  return resolveActiveSession(id, { reset })
+  return resolveActiveSession(id, { reset, flushContext })
 }
