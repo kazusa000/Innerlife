@@ -80,6 +80,18 @@ test('createSystems treats noop relationship configs as disabled', () => {
   assert.deepEqual(createSystems({ relationship: {} }), [])
 })
 
+test('createSystems ignores legacy personality big-five configs', () => {
+  assert.deepEqual(createSystems({
+    personality: {
+      scheme: 'big-five',
+      big5: {
+        openness: 0.9,
+      },
+      speechStyle: '冷静',
+    },
+  }), [])
+})
+
 test('createSystems instantiates multi-dim relationship system', () => {
   const [system] = createSystems({
     relationship: {

@@ -1,20 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  buildAutoSystemPrompt,
   buildModules,
   getEmotionFormState,
   getMemoryFormState,
-  getPersonalityFormState,
   getRelationshipFormState,
-  readLegacyPersonaPrompt,
 } from './persona-modules'
 
-test('scheme-only form helpers read current schemes from modules', () => {
+test('scheme-only form helpers read current non-personality schemes from modules', () => {
   const modules = {
     personality: {
-      scheme: 'big-five',
-      big5: { openness: 0.9 },
+      systemPrompt: '保持真实',
+      personaPrompt: '像熟人',
     },
     emotion: {
       scheme: 'dimensional',
@@ -30,20 +27,17 @@ test('scheme-only form helpers read current schemes from modules', () => {
     },
   }
 
-  assert.deepEqual(getPersonalityFormState(modules, 'big-five'), { scheme: 'big-five' })
   assert.deepEqual(getEmotionFormState(modules, 'noop'), { scheme: 'dimensional' })
   assert.deepEqual(getRelationshipFormState(modules, 'noop'), { scheme: 'multi-dim' })
   assert.deepEqual(getMemoryFormState(modules), { scheme: 'sqlite' })
 })
 
-test('buildModules preserves detailed module settings when scheme stays enabled', () => {
+test('buildModules preserves existing personality prompts and detailed module settings', () => {
   const result = buildModules(
     {
       personality: {
-        scheme: 'big-five',
-        big5: { openness: 0.88 },
-        speechStyle: '冷静',
-        prompt: '旧的人格 prompt',
+        systemPrompt: '保持真实',
+        personaPrompt: '像熟人',
       },
       emotion: {
         scheme: 'dimensional',
@@ -60,7 +54,6 @@ test('buildModules preserves detailed module settings when scheme stays enabled'
         summarizeModel: 'memory-fast',
       },
     },
-    { scheme: 'big-five' },
     { scheme: 'dimensional' },
     { scheme: 'multi-dim' },
     { scheme: 'sqlite' },
@@ -68,9 +61,8 @@ test('buildModules preserves detailed module settings when scheme stays enabled'
 
   assert.deepEqual(result, {
     personality: {
-      scheme: 'big-five',
-      big5: { openness: 0.88 },
-      speechStyle: '冷静',
+      systemPrompt: '保持真实',
+      personaPrompt: '像熟人',
     },
     emotion: {
       scheme: 'dimensional',
@@ -99,49 +91,12 @@ test('buildModules removes values and writes noop markers when a scheme is disab
     { scheme: 'noop' },
     { scheme: 'noop' },
     { scheme: 'noop' },
-    { scheme: 'noop' },
   )
 
   assert.deepEqual(result, {
     debug: { scheme: 'hello-world' },
-    personality: { scheme: 'noop' },
     emotion: { scheme: 'noop' },
     relationship: { scheme: 'noop' },
     memory: { scheme: 'noop' },
   })
-})
-
-test('buildAutoSystemPrompt derives the current effective system prompt from name and description', () => {
-  assert.equal(
-    buildAutoSystemPrompt('Hazel', 'A calm late-night listener'),
-    'You are Hazel. A calm late-night listener.',
-  )
-  assert.equal(
-    buildAutoSystemPrompt('Hazel', ''),
-    'You are Hazel.',
-  )
-  assert.equal(
-    buildAutoSystemPrompt('', ''),
-    '',
-  )
-})
-
-test('readLegacyPersonaPrompt reads old personality.prompt fallback when present', () => {
-  assert.equal(
-    readLegacyPersonaPrompt({
-      personality: {
-        scheme: 'big-five',
-        prompt: '像熟人，少一点客服感。',
-      },
-    }),
-    '像熟人，少一点客服感。',
-  )
-  assert.equal(
-    readLegacyPersonaPrompt({
-      personality: {
-        scheme: 'big-five',
-      },
-    }),
-    '',
-  )
 })

@@ -1,16 +1,6 @@
-export type PersonalityScheme = 'noop' | 'big-five'
 export type EmotionScheme = 'noop' | 'dimensional'
 export type RelationshipScheme = 'noop' | 'multi-dim'
 export type MemoryScheme = 'noop' | 'sqlite'
-
-export type BigFiveKey =
-  | 'openness'
-  | 'conscientiousness'
-  | 'extraversion'
-  | 'agreeableness'
-  | 'neuroticism'
-
-export type BigFiveScores = Record<BigFiveKey, number>
 
 export type EmotionBaseline = {
   mood: number
@@ -30,10 +20,6 @@ type ManagedModuleRecord = {
   [key: string]: unknown
 }
 
-export type PersonalityFormState = {
-  scheme: PersonalityScheme
-}
-
 export type EmotionFormState = {
   scheme: EmotionScheme
 }
@@ -51,14 +37,6 @@ export const DEFAULT_MODEL_BY_PROVIDER = {
   openrouter: 'anthropic/claude-sonnet-4.6',
 } as const
 
-export const DEFAULT_BIG5: BigFiveScores = {
-  openness: 0.75,
-  conscientiousness: 0.65,
-  extraversion: 0.55,
-  agreeableness: 0.7,
-  neuroticism: 0.3,
-}
-
 export const DEFAULT_EMOTION_BASELINE: EmotionBaseline = {
   mood: 0.15,
   energy: 0.62,
@@ -70,19 +48,6 @@ export const DEFAULT_RELATIONSHIP_BASELINE: RelationshipBaseline = {
   affinity: 0.4,
   familiarity: 0.1,
   respect: 0.5,
-}
-
-export function buildAutoSystemPrompt(name: string, description: string | null | undefined) {
-  const trimmedName = name.trim()
-  const trimmedDescription = description?.trim() ?? ''
-  if (!trimmedName && !trimmedDescription) {
-    return ''
-  }
-  if (trimmedDescription) {
-    return `You are ${trimmedName || 'the assistant'}. ${trimmedDescription}.`
-  }
-
-  return `You are ${trimmedName || 'the assistant'}.`
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -101,16 +66,6 @@ function readModule(
   return isRecord(value) ? (value as ManagedModuleRecord) : null
 }
 
-export function readLegacyPersonaPrompt(
-  modules: Record<string, unknown> | null | undefined,
-) {
-  const personality = readModule(modules, 'personality')
-  const prompt = personality?.prompt
-  return typeof prompt === 'string' && prompt.trim()
-    ? prompt.trim()
-    : ''
-}
-
 function normalizeScheme<T extends string>(
   value: unknown,
   allowed: readonly T[],
@@ -121,16 +76,6 @@ function normalizeScheme<T extends string>(
   }
 
   return fallback
-}
-
-export function getPersonalityFormState(
-  modules: Record<string, unknown> | null,
-  fallback: PersonalityScheme,
-): PersonalityFormState {
-  const personality = readModule(modules, 'personality')
-  return {
-    scheme: normalizeScheme(personality?.scheme, ['noop', 'big-five'], fallback),
-  }
 }
 
 export function getEmotionFormState(
@@ -179,7 +124,6 @@ function applyScheme(
 
 export function buildModules(
   baseModules: Record<string, unknown> | null | undefined,
-  personality: PersonalityFormState,
   emotion: EmotionFormState,
   relationship: RelationshipFormState,
   memory: MemoryFormState,
@@ -188,10 +132,6 @@ export function buildModules(
 
   delete next.values
 
-  next.personality = applyScheme(next.personality, personality.scheme)
-  if (isRecord(next.personality)) {
-    delete next.personality.prompt
-  }
   next.emotion = applyScheme(next.emotion, emotion.scheme)
   next.relationship = applyScheme(next.relationship, relationship.scheme)
   next.memory = applyScheme(next.memory, memory.scheme)

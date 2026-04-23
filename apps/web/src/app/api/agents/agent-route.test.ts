@@ -161,8 +161,8 @@ test('agent GET/PATCH expose top-level systemPrompt and personaPrompt', async ()
       personaPrompt: '像熟人，少一点客服感。',
       modules: {
         personality: {
-          scheme: 'big-five',
-          prompt: 'legacy prompt',
+          systemPrompt: '旧 system',
+          personaPrompt: '旧 persona',
         },
       },
     })!
@@ -181,6 +181,12 @@ test('agent GET/PATCH expose top-level systemPrompt and personaPrompt', async ()
     const updated = agentRepo.getAgent(agent.id)
     assert.equal(updated?.systemPrompt, '不要自称 AI。')
     assert.equal(updated?.personaPrompt, '像朋友，回答短一点。')
+    assert.deepEqual(updated?.modules, {
+      personality: {
+        systemPrompt: '不要自称 AI。',
+        personaPrompt: '像朋友，回答短一点。',
+      },
+    })
   } finally {
     resetDb()
     resetMemoryDb()

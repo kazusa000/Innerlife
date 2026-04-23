@@ -4,44 +4,67 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-export type PersonalityModuleRecord = {
-  scheme?: string
-  big5?: Record<string, unknown>
-  speechStyle?: string
-  background?: string
-  prompt?: string
+function readPrompt(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
-export function readPersonalityModule(
-  modules: Record<string, unknown> | null | undefined,
-): PersonalityModuleRecord | null {
-  const personality = modules?.personality
-  if (typeof personality === 'string') {
-    return { scheme: personality }
+function readPersonalityPrompts(modules: Record<string, unknown> | null | undefined) {
+  const personality = isRecord(modules?.personality)
+    ? modules?.personality as Record<string, unknown>
+    : null
+
+  return {
+    systemPrompt: readPrompt(personality?.systemPrompt),
+    personaPrompt: readPrompt(personality?.personaPrompt),
   }
-
-  return isRecord(personality) ? (personality as PersonalityModuleRecord) : null
 }
 
-export function readPersonalityScheme(
-  modules: Record<string, unknown> | null | undefined,
-) {
-  const personality = readPersonalityModule(modules)
-  return typeof personality?.scheme === 'string' ? personality.scheme : null
-}
-
-export function getPersonalityManagerMeta(agentId: string) {
+export function getPersonalityConfig(agentId: string) {
   const agent = agentRepo.getAgent(agentId)
   if (!agent) {
     return Response.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const scheme = readPersonalityScheme(agent.modules)
+  const prompts = readPersonalityPrompts(agent.modules)
 
   return Response.json({
     agentId,
-    scheme,
-    supportedSchemes: ['big-five'],
-    configured: Boolean(scheme && scheme !== 'noop'),
+    systemPrompt: prompts.systemPrompt,
+    personaPrompt: prompts.personaPrompt,
+  })
+}
+
+export function updatePersonalityConfig(agentId: string, body: unknown) {
+  const agent = agentRepo.getAgent(agentId)
+  if (!agent) {
+    return Response.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  if (!isRecord(body)) {
+    return Response.json({ error: 'body must be an object' }, { status: 400 })
+  }
+
+  const { systemPrompt, personaPrompt } = body
+  if (systemPrompt !== undefined && typeof systemPrompt !== 'string') {
+    return Response.json({ error: 'systemPrompt must be a string' }, { status: 400 })
+  }
+  if (personaPrompt !== undefined && typeof personaPrompt !== 'string') {
+    return Response.json({ error: 'personaPrompt must be a string' }, { status: 400 })
+  }
+
+  const updated = agentRepo.updateAgent(agentId, {
+    modules: agent.modules,
+    systemPrompt,
+    personaPrompt,
+  })
+  if (!updated) {
+    return Response.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  const prompts = readPersonalityPrompts(updated.modules)
+  return Response.json({
+    agentId,
+    systemPrompt: prompts.systemPrompt,
+    personaPrompt: prompts.personaPrompt,
   })
 }

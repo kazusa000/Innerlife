@@ -14,6 +14,10 @@ import { createSystems, isSqliteMemoryConfig } from '@mas/systems'
 const INTERRUPTED_SUFFIX = ' —（中断）'
 type DbMessageRecord = ReturnType<typeof messageRepo.getSessionMessages>[number]
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 function extractAssistantText(content: ContentBlock[]): string {
   return content
     .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
@@ -45,32 +49,38 @@ function selectActiveDbMessages(
   return startIndex >= 0 ? dbMessages.slice(startIndex) : dbMessages
 }
 
-function readLegacyPersonaPrompt(modules: Record<string, unknown> | null | undefined) {
-  const personality = modules?.personality
-  if (!personality || typeof personality !== 'object' || Array.isArray(personality)) {
-    return ''
-  }
+function readPersonalityPrompts(modules: Record<string, unknown> | null | undefined) {
+  const personality = isRecord(modules?.personality)
+    ? modules?.personality as Record<string, unknown>
+    : null
 
-  const prompt = (personality as Record<string, unknown>).prompt
-  return typeof prompt === 'string' ? prompt.trim() : ''
+  return {
+    systemPrompt:
+      typeof personality?.systemPrompt === 'string' && personality.systemPrompt.trim().length > 0
+        ? personality.systemPrompt.trim()
+        : '',
+    personaPrompt:
+      typeof personality?.personaPrompt === 'string' && personality.personaPrompt.trim().length > 0
+        ? personality.personaPrompt.trim()
+        : '',
+  }
 }
 
 export function buildAgentSystemPrompt(agent: {
   name: string
   description: string | null
-  systemPrompt?: string
-  personaPrompt?: string
   modules?: Record<string, unknown> | null
 }) {
   const memoryIsSqlite = isSqliteMemoryConfig(agent.modules?.memory)
   const toolPrompt = memoryIsSqlite
     ? 'You can use the web_fetch tool to fetch web pages. If current context, short-term memory, and fixed memory are still insufficient, you may use search_long_term_memory once to look up long-term memories. Be concise.'
     : 'You can use the web_fetch tool to fetch web pages. Be concise.'
-  const basePrompt = agent.systemPrompt?.trim()
+  const persona = readPersonalityPrompts(agent.modules)
+  const basePrompt = persona.systemPrompt
     || (agent.description
       ? `You are ${agent.name}. ${agent.description}.`
       : `You are ${agent.name}.`)
-  const rolePrompt = agent.personaPrompt?.trim() || readLegacyPersonaPrompt(agent.modules)
+  const rolePrompt = persona.personaPrompt
 
   return [
     basePrompt,

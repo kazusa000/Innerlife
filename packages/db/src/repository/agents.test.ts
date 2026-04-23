@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { getDb, getRawSqlite, resetDb } from '../client'
 import { createAgent, getAgent, updateAgent } from './agents'
 
-test('createAgent and updateAgent round-trip nullable modules JSON and provider config', () => {
+test('createAgent and updateAgent migrate top-level prompts into modules.personality', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-agents-'))
   const dbPath = join(dir, 'test.db')
 
@@ -38,13 +38,17 @@ test('createAgent and updateAgent round-trip nullable modules JSON and provider 
       personaPrompt: '回答时像熟人，少一点客服感。',
     })
 
-    assert.equal(created.modules, null)
+    assert.deepEqual(created.modules, {
+      personality: {
+        systemPrompt: '你是一个真实存在的人，不要自称 AI。',
+        personaPrompt: '回答时像熟人，少一点客服感。',
+      },
+    })
     assert.equal(created.provider, 'openrouter')
     assert.equal(created.systemPrompt, '你是一个真实存在的人，不要自称 AI。')
     assert.equal(created.personaPrompt, '回答时像熟人，少一点客服感。')
 
     const modules = {
-      personality: { type: 'big-five' },
       safety: { mode: 'confirm-dangerous' },
     }
 
@@ -53,12 +57,24 @@ test('createAgent and updateAgent round-trip nullable modules JSON and provider 
       systemPrompt: '保持自然、克制，不要像助手。',
       personaPrompt: '像朋友，不要把话说太满。',
     })
-    assert.deepEqual(updated?.modules, modules)
+    assert.deepEqual(updated?.modules, {
+      personality: {
+        systemPrompt: '保持自然、克制，不要像助手。',
+        personaPrompt: '像朋友，不要把话说太满。',
+      },
+      safety: { mode: 'confirm-dangerous' },
+    })
     assert.equal(updated?.systemPrompt, '保持自然、克制，不要像助手。')
     assert.equal(updated?.personaPrompt, '像朋友，不要把话说太满。')
 
     const loaded = getAgent(created.id)
-    assert.deepEqual(loaded?.modules, modules)
+    assert.deepEqual(loaded?.modules, {
+      personality: {
+        systemPrompt: '保持自然、克制，不要像助手。',
+        personaPrompt: '像朋友，不要把话说太满。',
+      },
+      safety: { mode: 'confirm-dangerous' },
+    })
     assert.equal(loaded?.provider, 'openrouter')
     assert.equal(loaded?.systemPrompt, '保持自然、克制，不要像助手。')
     assert.equal(loaded?.personaPrompt, '像朋友，不要把话说太满。')
@@ -71,7 +87,7 @@ test('createAgent and updateAgent round-trip nullable modules JSON and provider 
   }
 })
 
-test('getAgent falls back to legacy personality prompt as personaPrompt when top-level field is absent', () => {
+test('getAgent migrates config prompts into modules.personality and ignores legacy personality.prompt fallback', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-agents-'))
   const dbPath = join(dir, 'test.db')
 
@@ -103,12 +119,22 @@ test('getAgent falls back to legacy personality prompt as personaPrompt when top
         'legacy-agent',
         'Legacy',
         'claude-sonnet-4-6',
-        '{"personality":{"scheme":"big-five","prompt":"像熟人，不要客服腔。"}}',
-        '{"provider":"anthropic"}',
+        '{"personality":{"scheme":"big-five","prompt":"像熟人，不要客服腔。"},"emotion":{"scheme":"dimensional"}}',
+        '{"provider":"anthropic","systemPrompt":"不要自称 AI。","personaPrompt":"像朋友，简短一点。"}',
       )
 
     const loaded = getAgent('legacy-agent')
-    assert.equal(loaded?.personaPrompt, '像熟人，不要客服腔。')
+    assert.equal(loaded?.systemPrompt, '不要自称 AI。')
+    assert.equal(loaded?.personaPrompt, '像朋友，简短一点。')
+    assert.deepEqual(loaded?.modules, {
+      personality: {
+        systemPrompt: '不要自称 AI。',
+        personaPrompt: '像朋友，简短一点。',
+      },
+      emotion: {
+        scheme: 'dimensional',
+      },
+    })
   } finally {
     resetDb()
     rmSync(dir, { recursive: true, force: true })

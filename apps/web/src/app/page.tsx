@@ -4,16 +4,12 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DEFAULT_MODEL_BY_PROVIDER,
-  buildAutoSystemPrompt,
   buildModules,
   getEmotionFormState,
   getMemoryFormState,
-  getPersonalityFormState,
   getRelationshipFormState,
-  readLegacyPersonaPrompt,
   type EmotionScheme,
   type MemoryScheme,
-  type PersonalityScheme,
   type RelationshipScheme,
 } from './persona-modules'
 
@@ -23,15 +19,10 @@ interface Agent {
   description: string | null
   provider: 'anthropic' | 'openrouter'
   model: string
-  systemPrompt: string
-  personaPrompt: string
-  config?: string | null
   modules: Record<string, unknown> | null
   status: string
   createdAt: string
 }
-
-type RolePromptMode = 'explicit' | 'derived' | 'legacy' | 'empty'
 
 const MODEL_LABELS: Record<string, string> = {
   'claude-sonnet-4-6': 'Sonnet 4.6',
@@ -53,9 +44,20 @@ function initials(name: string) {
   return s.toUpperCase()
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 function readAgentSchemes(modules: Record<string, unknown> | null) {
+  const personality = isRecord(modules?.personality)
+    ? modules?.personality as Record<string, unknown>
+    : null
+  const personaConfigured =
+    (typeof personality?.systemPrompt === 'string' && personality.systemPrompt.trim().length > 0)
+    || (typeof personality?.personaPrompt === 'string' && personality.personaPrompt.trim().length > 0)
+
   return {
-    personality: getPersonalityFormState(modules, 'noop').scheme,
+    personaConfigured,
     emotion: getEmotionFormState(modules, 'noop').scheme,
     relationship: getRelationshipFormState(modules, 'noop').scheme,
     memory: getMemoryFormState(modules).scheme,
@@ -64,7 +66,6 @@ function readAgentSchemes(modules: Record<string, unknown> | null) {
 
 function formatSchemeLabel(value: string) {
   if (value === 'noop') return '关闭'
-  if (value === 'big-five') return 'Big Five'
   if (value === 'dimensional') return 'Dimensional'
   if (value === 'multi-dim') return 'Multi-dim'
   if (value === 'sqlite') return 'SQLite'
@@ -79,12 +80,7 @@ export default function HomePage() {
   const [description, setDescription] = useState('')
   const [provider, setProvider] = useState<'anthropic' | 'openrouter'>('anthropic')
   const [model, setModel] = useState<string>(DEFAULT_MODEL_BY_PROVIDER.anthropic)
-  const [systemPrompt, setSystemPrompt] = useState('')
-  const [personaPrompt, setPersonaPrompt] = useState('')
-  const [systemPromptMode, setSystemPromptMode] = useState<RolePromptMode>('derived')
-  const [personaPromptMode, setPersonaPromptMode] = useState<RolePromptMode>('empty')
   const [baseModules, setBaseModules] = useState<Record<string, unknown> | null>({})
-  const [personalityScheme, setPersonalityScheme] = useState<PersonalityScheme>('big-five')
   const [emotionScheme, setEmotionScheme] = useState<EmotionScheme>('noop')
   const [relationshipScheme, setRelationshipScheme] = useState<RelationshipScheme>('noop')
   const [memoryScheme, setMemoryScheme] = useState<MemoryScheme>('noop')
@@ -100,40 +96,6 @@ export default function HomePage() {
     void loadAgents()
   }, [])
 
-  function readStoredRolePrompts(agent: Pick<Agent, 'config'>) {
-    if (!agent.config) {
-      return { systemPrompt: '', personaPrompt: '' }
-    }
-
-    try {
-      const parsed = JSON.parse(agent.config) as { systemPrompt?: unknown; personaPrompt?: unknown }
-      return {
-        systemPrompt: typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt.trim() : '',
-        personaPrompt: typeof parsed.personaPrompt === 'string' ? parsed.personaPrompt.trim() : '',
-      }
-    } catch {
-      return { systemPrompt: '', personaPrompt: '' }
-    }
-  }
-
-  function applyDerivedSystemPrompt(nextName: string, nextDescription: string) {
-    const derived = buildAutoSystemPrompt(nextName, nextDescription)
-    setSystemPromptMode('derived')
-    setSystemPrompt(derived)
-  }
-
-  function applyInheritedPersonaPrompt(modules: Record<string, unknown> | null | undefined) {
-    const legacy = readLegacyPersonaPrompt(modules)
-    if (legacy) {
-      setPersonaPromptMode('legacy')
-      setPersonaPrompt(legacy)
-      return
-    }
-
-    setPersonaPromptMode('empty')
-    setPersonaPrompt('')
-  }
-
   function resetForm() {
     setShowForm(false)
     setEditingId(null)
@@ -141,19 +103,13 @@ export default function HomePage() {
     setDescription('')
     setProvider('anthropic')
     setModel(DEFAULT_MODEL_BY_PROVIDER.anthropic)
-    setSystemPrompt(buildAutoSystemPrompt('', ''))
-    setPersonaPrompt('')
-    setSystemPromptMode('derived')
-    setPersonaPromptMode('empty')
     setBaseModules({})
-    setPersonalityScheme('big-five')
     setEmotionScheme('noop')
     setRelationshipScheme('noop')
     setMemoryScheme('noop')
   }
 
   function startEdit(agent: Agent) {
-    const personality = getPersonalityFormState(agent.modules, 'big-five')
     const emotion = getEmotionFormState(agent.modules, 'noop')
     const relationship = getRelationshipFormState(agent.modules, 'noop')
     const memory = getMemoryFormState(agent.modules)
@@ -163,21 +119,7 @@ export default function HomePage() {
     setDescription(agent.description ?? '')
     setProvider(agent.provider ?? 'anthropic')
     setModel(agent.model)
-    const stored = readStoredRolePrompts(agent)
-    if (stored.systemPrompt) {
-      setSystemPromptMode('explicit')
-      setSystemPrompt(stored.systemPrompt)
-    } else {
-      applyDerivedSystemPrompt(agent.name, agent.description ?? '')
-    }
-    if (stored.personaPrompt) {
-      setPersonaPromptMode('explicit')
-      setPersonaPrompt(stored.personaPrompt)
-    } else {
-      applyInheritedPersonaPrompt(agent.modules)
-    }
     setBaseModules(agent.modules ?? {})
-    setPersonalityScheme(personality.scheme)
     setEmotionScheme(emotion.scheme)
     setRelationshipScheme(relationship.scheme)
     setMemoryScheme(memory.scheme)
@@ -190,7 +132,6 @@ export default function HomePage() {
 
     const modules = buildModules(
       baseModules,
-      { scheme: personalityScheme },
       { scheme: emotionScheme },
       { scheme: relationshipScheme },
       { scheme: memoryScheme },
@@ -205,8 +146,6 @@ export default function HomePage() {
           description,
           provider,
           model,
-          systemPrompt: systemPromptMode === 'explicit' ? systemPrompt : '',
-          personaPrompt: personaPromptMode === 'explicit' ? personaPrompt : '',
           modules,
         }),
       })
@@ -219,8 +158,6 @@ export default function HomePage() {
           description,
           provider,
           model,
-          systemPrompt: systemPromptMode === 'explicit' ? systemPrompt : '',
-          personaPrompt: personaPromptMode === 'explicit' ? personaPrompt : '',
           modules,
         }),
       })
@@ -264,7 +201,7 @@ export default function HomePage() {
             <p className="eyebrow">你的陪伴者</p>
             <h1 className="home-title">虚拟人格</h1>
             <p className="home-sub">
-              首页现在只负责选择模型提供方、模型和各模块方案。具体参数都迁到对应管理系统里。
+              首页现在只负责模型和模块入口；真正的人设文本、情绪、关系和记忆细项都在各自管理页里维护。
             </p>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -299,13 +236,7 @@ export default function HomePage() {
                 <input
                   className="input"
                   value={name}
-                  onChange={(event) => {
-                    const nextName = event.target.value
-                    setName(nextName)
-                    if (systemPromptMode === 'derived') {
-                      setSystemPrompt(buildAutoSystemPrompt(nextName, description))
-                    }
-                  }}
+                  onChange={(event) => setName(event.target.value)}
                   placeholder="例如 Hazel、Orion、Sage"
                   autoFocus
                 />
@@ -316,13 +247,7 @@ export default function HomePage() {
                 <input
                   className="input"
                   value={description}
-                  onChange={(event) => {
-                    const nextDescription = event.target.value
-                    setDescription(nextDescription)
-                    if (systemPromptMode === 'derived') {
-                      setSystemPrompt(buildAutoSystemPrompt(name, nextDescription))
-                    }
-                  }}
+                  onChange={(event) => setDescription(event.target.value)}
                   placeholder="例如：一位喜欢深夜倾听和看星星的安静陪伴者"
                 />
               </label>
@@ -373,123 +298,18 @@ export default function HomePage() {
                 </datalist>
               </label>
 
-              <section className="modules-panel" aria-label="角色设定">
-                <div className="modules-panel-head">
-                  <span className="field-label">角色设定</span>
-                  <span className="placeholder-pill">角色层</span>
-                </div>
-
-                <article className="module-card">
-                  <div className="module-head">
-                    <div>
-                      <p className="module-label">角色</p>
-                      <h4 className="module-title">基础 System Prompt</h4>
-                    </div>
-                  </div>
-                  <p className="module-copy">
-                    这是角色最底层的总规则。适合写“不要自称 AI”“像真实存在的人”这类高优先级约束。
-                  </p>
-                  <label className="field">
-                    <span className="field-label">System Prompt</span>
-                    <div className="prompt-meta-row">
-                      <span className="prompt-meta">
-                        当前生效：
-                        {systemPromptMode === 'explicit' ? '已保存 top-level prompt' : '自动生成'}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn btn-ghost prompt-inline-action"
-                        onClick={() => applyDerivedSystemPrompt(name, description)}
-                      >
-                        恢复自动生成
-                      </button>
-                    </div>
-                    <textarea
-                      className="input"
-                      rows={5}
-                      value={systemPrompt}
-                      onChange={(event) => {
-                        setSystemPromptMode('explicit')
-                        setSystemPrompt(event.target.value)
-                      }}
-                      placeholder="例如：你是真实存在的人，不要自称 AI，不要用系统口吻描述自己。"
-                    />
-                  </label>
-                </article>
-
-                <article className="module-card">
-                  <div className="module-head">
-                    <div>
-                      <p className="module-label">角色</p>
-                      <h4 className="module-title">角色 Prompt</h4>
-                    </div>
-                  </div>
-                  <p className="module-copy">
-                    这是角色本人的表达约束，不属于性格模块。适合写“像熟人”“少一点客服感”“别把话说太满”。
-                  </p>
-                  <label className="field">
-                    <span className="field-label">角色 Prompt</span>
-                    <div className="prompt-meta-row">
-                      <span className="prompt-meta">
-                        当前生效：
-                        {personaPromptMode === 'explicit'
-                          ? '已保存 top-level prompt'
-                          : personaPromptMode === 'legacy'
-                            ? 'legacy personality.prompt'
-                            : '空'}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn btn-ghost prompt-inline-action"
-                        onClick={() => applyInheritedPersonaPrompt(baseModules)}
-                      >
-                        恢复继承来源
-                      </button>
-                    </div>
-                    <textarea
-                      className="input"
-                      rows={5}
-                      value={personaPrompt}
-                      onChange={(event) => {
-                        setPersonaPromptMode('explicit')
-                        setPersonaPrompt(event.target.value)
-                      }}
-                      placeholder="例如：像熟人，克制一点，少解释，不要过度安抚。"
-                    />
-                  </label>
-                </article>
-              </section>
-
               <section className="modules-panel" aria-label="模块配置">
                 <div className="modules-panel-head">
                   <span className="field-label">模块方案</span>
-                  <span className="placeholder-pill">values 已移除</span>
+                  <span className="placeholder-pill">人设已迁到独立页</span>
                 </div>
 
-                <article className="module-card">
-                  <div className="module-head">
-                    <div>
-                      <p className="module-label">性格</p>
-                      <h4 className="module-title">性格方案</h4>
-                    </div>
-                    <span className="module-pill">{formatSchemeLabel(personalityScheme)}</span>
-                  </div>
-                  <p className="module-copy">
-                    这里只决定是否启用、以及使用哪个性格方案。Big Five 分数、说话风格和背景故事去性格管理页维护。
-                  </p>
-                  <label className="field">
-                    <span className="field-label">方案</span>
-                    <select
-                      className="input"
-                      value={personalityScheme}
-                      onChange={(event) =>
-                        setPersonalityScheme(event.target.value as PersonalityScheme)}
-                    >
-                      <option value="noop">noop</option>
-                      <option value="big-five">big-five</option>
-                    </select>
-                  </label>
-                </article>
+                <div className="module-note">
+                  <strong>人设不在首页编辑。</strong>
+                  <span>
+                    `System Prompt / Persona Prompt` 已收口到虚拟人卡片的「人设」入口；这里仅管理情绪、关系和记忆方案。
+                  </span>
+                </div>
 
                 <article className="module-card">
                   <div className="module-head">
@@ -569,7 +389,7 @@ export default function HomePage() {
                 <div className="module-note">
                   <strong>模块参数已迁移。</strong>
                   <span>
-                    保存后请从虚拟人卡片进入性格 / 情绪 / 关系 / 记忆管理页，继续配置详细参数。
+                    保存后请从虚拟人卡片进入人设 / 情绪 / 关系 / 记忆管理页，继续配置详细参数。
                   </span>
                 </div>
               </section>
@@ -643,7 +463,7 @@ export default function HomePage() {
                 </div>
 
                 <div className="scheme-pills scheme-pills-elevated">
-                  <span className="scheme-pill">性格 · {formatSchemeLabel(schemes.personality)}</span>
+                  <span className="scheme-pill">人设 · {schemes.personaConfigured ? '已配置' : '未配置'}</span>
                   <span className="scheme-pill">情绪 · {formatSchemeLabel(schemes.emotion)}</span>
                   <span className="scheme-pill">关系 · {formatSchemeLabel(schemes.relationship)}</span>
                   <span className="scheme-pill">记忆 · {formatSchemeLabel(schemes.memory)}</span>
@@ -670,8 +490,8 @@ export default function HomePage() {
                     >
                       <span className="manager-index">01</span>
                       <span className="manager-copy">
-                        <strong>性格</strong>
-                        <small>特质、语气、背景</small>
+                        <strong>人设</strong>
+                        <small>system prompt、persona prompt</small>
                       </span>
                     </button>
                     <button

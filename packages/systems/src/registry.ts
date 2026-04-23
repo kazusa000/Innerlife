@@ -2,7 +2,6 @@ import { SummaryCompactionSystem } from './compaction'
 import { DimensionalEmotionSystem } from './emotion'
 import { MemorySqliteSystem } from './memory'
 import { HelloWorldSystem, NoopSystem } from './noop'
-import { BigFivePersonalitySystem } from './personality'
 import { MultiDimRelationshipSystem } from './relationship'
 import type { AgentModules, AgentSystem, SystemRegistry } from './types'
 
@@ -22,10 +21,6 @@ export const systemRegistry: SystemRegistry = {
   memory: {
     noop: () => new NoopSystem('memory'),
     sqlite: (config) => new MemorySqliteSystem(config),
-  },
-  personality: {
-    noop: () => new NoopSystem('personality'),
-    'big-five': (config) => new BigFivePersonalitySystem(config),
   },
   relationship: {
     noop: () => new NoopSystem('relationship'),
