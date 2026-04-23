@@ -278,15 +278,67 @@ test('memory sqlite semantic analyzer prompt keeps retrieval query focused on to
   const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
   assert.equal(semanticAnalyzer?.kind, 'llm')
   assert.match(semanticAnalyzer?.prompt ?? '', /retrieval_query/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /最短、最稳定、最能检索的主题锚点/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /时间信息绝不进入 retrieval_query/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /画面、名字、食物、bug、地点、关系或意象/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /猫名字.*bug 修复.*海边灯塔画面/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /对象、场景、画面、名字或事件类型/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /“画面”“场景”“名字”“地点”“食物”“bug”/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /“画面”“场景”“名字”“梦境”“氛围”/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /没有稳定主题锚点/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /“内容\/事情\/对话\/讨论”这类回顾外壳/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /最近对话只用于补全当前用户消息里的代词、省略、回指/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /最终只为当前用户消息生成 retrieval_query/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /如果当前用户消息本身已经自足，就忽略最近对话/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /如果历史里有多个可能指向、无法唯一补全，返回 "retrieval_query": null/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /一句短而完整的话/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /绝不能带时间信息/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /不要把答案本身直接塞进 query/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /不要把历史里的额外主题顺手带进 query/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /它叫什么来着/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /我的生日是哪天/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /登录 bug 是怎么修好的/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /拿铁还是乌龙茶/)
+})
+
+test('memory sqlite semantic analyzer input includes a short recent dialogue window and a separate current message section', async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('它叫什么来着')
+  ctx.messages = [
+    { role: 'system', content: '系统提示，不应该进入历史窗口。' },
+    { role: 'user', content: '最早那条历史，也不应该保留。' },
+    { role: 'assistant', content: '这条太早了，也不应该保留。' },
+    { role: 'user', content: '我上周收养了一只猫。' },
+    { role: 'assistant', content: '记住了，你上周收养了一只猫。' },
+    { role: 'user', content: '它是橘白相间的。' },
+    { role: 'assistant', content: [{ type: 'text', text: '收到，它是橘白相间的。' }] },
+    { role: 'user', content: '我给它起名叫年糕。' },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'tool_use', id: 'tool-1', name: 'noop', input: {} },
+        { type: 'text', text: '好的，我记住那只猫叫年糕。' },
+      ],
+    },
+    { role: 'user', content: '它叫什么来着' },
+  ]
+
+  await system.beforeTurn?.(ctx)
+
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'llm')
+  assert.equal(
+    semanticAnalyzer?.inputText,
+    [
+      '最近对话（仅供补全当前问题）：',
+      '用户：我上周收养了一只猫。',
+      '助手：记住了，你上周收养了一只猫。',
+      '用户：它是橘白相间的。',
+      '助手：收到，它是橘白相间的。',
+      '用户：我给它起名叫年糕。',
+      '助手：好的，我记住那只猫叫年糕。',
+      '',
+      '当前用户消息：',
+      '它叫什么来着',
+    ].join('\n'),
+  )
+  assert.doesNotMatch(semanticAnalyzer?.inputText ?? '', /系统提示/)
+  assert.doesNotMatch(semanticAnalyzer?.inputText ?? '', /最早那条历史/)
+  assert.doesNotMatch(semanticAnalyzer?.inputText ?? '', /tool-1|noop/)
 })
 
 test('memory sqlite time parser recognizes explicit Chinese time expressions', () => {
@@ -512,5 +564,103 @@ test('memory sqlite query parse keeps semantic retrieval query when time and top
       start: new Date('2026-04-19T00:00:00+02:00'),
       end: new Date('2026-04-19T23:59:59+02:00'),
     },
+  })
+})
+
+test('memory sqlite semantic analyzer parse keeps cat-name completion for pronoun recall', { concurrency: false }, async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('它叫什么来着')
+  ctx.messages = [
+    { role: 'user', content: '我上周收养了一只猫。' },
+    { role: 'assistant', content: '记住了。' },
+    { role: 'user', content: '我给它起名叫年糕。' },
+    { role: 'assistant', content: '好的。' },
+    { role: 'user', content: '它叫什么来着' },
+  ]
+
+  await system.beforeTurn?.(ctx)
+
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'llm')
+  assert.deepEqual(semanticAnalyzer?.parse(JSON.stringify({
+    retrieval_query: '那只猫叫什么名字',
+  })), {
+    retrievalQuery: '那只猫叫什么名字',
+  })
+})
+
+test('memory sqlite semantic analyzer parse keeps birthday completion for omitted subject recall', { concurrency: false }, async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('我的是哪天来着')
+  ctx.messages = [
+    { role: 'user', content: '记一下，我生日是 9 月 17 日。' },
+    { role: 'assistant', content: '记住了。' },
+    { role: 'user', content: '明年我想办个海边生日聚会。' },
+    { role: 'assistant', content: '好。' },
+    { role: 'user', content: '我的是哪天来着' },
+  ]
+
+  await system.beforeTurn?.(ctx)
+
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'llm')
+  assert.deepEqual(semanticAnalyzer?.parse(JSON.stringify({
+    retrieval_query: '我的生日是哪天',
+  })), {
+    retrievalQuery: '我的生日是哪天',
+  })
+})
+
+test('memory sqlite semantic analyzer parse keeps event-object completion for omitted topic recall', { concurrency: false }, async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('最后是怎么修的来着')
+  ctx.messages = [
+    { role: 'user', content: '昨天那个登录 bug 终于修好了。' },
+    { role: 'assistant', content: '太好了。' },
+    { role: 'user', content: '最后是怎么修的来着' },
+  ]
+
+  await system.beforeTurn?.(ctx)
+
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'llm')
+  assert.deepEqual(semanticAnalyzer?.parse(JSON.stringify({
+    retrieval_query: '登录 bug 是怎么修好的',
+  })), {
+    retrievalQuery: '登录 bug 是怎么修好的',
+  })
+})
+
+test('memory sqlite semantic analyzer parse returns null for ambiguous preference alternatives', { concurrency: false }, async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('你还记得我喜欢那个吗')
+  ctx.messages = [
+    { role: 'user', content: '记一下，我喜欢拿铁。' },
+    { role: 'assistant', content: '记住了。' },
+    { role: 'user', content: '也记一下，我喜欢乌龙茶。' },
+    { role: 'assistant', content: '也记住了。' },
+    { role: 'user', content: '你还记得我喜欢那个吗' },
+  ]
+
+  await system.beforeTurn?.(ctx)
+
+  const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+  assert.equal(semanticAnalyzer?.kind, 'llm')
+  assert.deepEqual(semanticAnalyzer?.parse(JSON.stringify({
+    retrieval_query: '用户喜欢拿铁还是乌龙茶',
+  })), {
+    retrievalQuery: null,
   })
 })
