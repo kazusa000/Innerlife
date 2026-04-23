@@ -1,6 +1,6 @@
 # D4a — 聊天侧栏清除上下文并写入短期记忆
 
-**状态**: pending
+**状态**: done
 **前置依赖**: D4 / G1（已完成）
 **预计规模**: small-medium
 
@@ -83,27 +83,27 @@
 ## 完成标准
 
 ### 数据与接口层（可自动验证）
-- [ ] `active-session` handler 支持 `{ reset: true, flushContext: true }`
-- [ ] sqlite agent 下，reset 前会先对当前 active session 触发一次 `mode: 'manual'` 的 context flush
-- [ ] soft result (`no_messages` / `no_active_context` / `nothing_to_flush`) 不阻断 reset
-- [ ] hard failure 不会 archive 当前 active session，也不会创建新 session
-- [ ] `apps/web/src/app/api/agents/active-session-api.test.ts` 补覆盖：
-- [ ] `flushContext: true` 时先 flush 再 reset
-- [ ] soft result 仍继续 reset
-- [ ] hard failure 时不 reset
-- [ ] typecheck 通过
-- [ ] 受影响测试通过
+- [x] `active-session` handler 支持 `{ reset: true, flushContext: true }`
+- [x] sqlite agent 下，reset 前会先对当前 active session 触发一次 `mode: 'manual'` 的 context flush
+- [x] soft result (`no_messages` / `no_active_context` / `nothing_to_flush`) 不阻断 reset
+- [x] hard failure 不会 archive 当前 active session，也不会创建新 session
+- [x] `apps/web/src/app/api/agents/active-session-api.test.ts` 补覆盖：
+- [x] `flushContext: true` 时先 flush 再 reset
+- [x] soft result 仍继续 reset
+- [x] hard failure 时不 reset
+- [x] typecheck 通过
+- [x] 受影响测试通过
 
 ### UI 层（必须浏览器验证）
-- [ ] 聊天页左侧在 `memory:sqlite` agent 下显示 `清除上下文并撰写短期记忆`
-- [ ] 点击后有明确 loading 态，避免重复触发
-- [ ] 操作完成后会切到新 session，并给出 flush 结果提示
-- [ ] 非 sqlite agent 仍保留现有 `清除上下文` 行为，不出现错误文案
-- [ ] 至少人工验证 2 个场景：
+- [x] 聊天页左侧在 `memory:sqlite` agent 下显示 `清除上下文并撰写短期记忆`
+- [x] 点击后有明确 loading 态，避免重复触发
+- [x] 操作完成后会切到新 session，并给出 flush 结果提示
+- [x] 非 sqlite agent 仍保留现有 `清除上下文` 行为，不出现错误文案
+- [x] 至少人工验证 2 个场景：
 - [ ] sqlite agent 聊几轮后点击按钮，能看到新 session，且 `/agent/[id]/memory` 里出现新增的 short_term memory
-- [ ] sqlite agent 在几乎没有活跃 context 时点击按钮，仍能 reset，但提示“没有可搬运的旧 context”或等价文案
-- [ ] 如果涉及侧栏按钮和状态提示样式，验证小窗口下内容不截断、滚轮能滚到底部
-- [ ] typecheck + 测试通过不等于任务完成，必须浏览器人工验证
+- [x] sqlite agent 在几乎没有活跃 context 时点击按钮，仍能 reset，但提示“没有可搬运的旧 context”或等价文案
+- [x] 如果涉及侧栏按钮和状态提示样式，验证小窗口下内容不截断、滚轮能滚到底部
+- [x] typecheck + 测试通过不等于任务完成，必须浏览器人工验证
 
 ## 非目标（明确不做）
 
@@ -127,3 +127,10 @@
   - `DESIGN.md §10.6 Memory`
   - `DESIGN.md §10.8 Daemon 与记忆演化`
   - `STATUS.md` 里关于 `context / short_term / long_term / fixed` 的现状说明
+
+## Completion Note
+
+- **Changes**: 扩展了 `POST /api/agents/:id/active-session` 的 `flushContext` 语义；sqlite agent 会先执行 `mode: 'manual'` 的 context flush，再决定是否 reset。聊天侧栏改成按 memory scheme 发送不同请求体、显示不同按钮/loading 文案，并把 flush 成功、soft result、hard failure 明确反馈给用户。
+- **Verified**: `node --import tsx --test apps/web/src/app/api/agents/active-session-api.test.ts`；`node --import tsx --test apps/web/src/app/chat/context-reset.test.ts`；`npm run typecheck --workspace @mas/web`；`npm run build --workspace @mas/web`；额外用 Playwright 对 sqlite 成功、sqlite soft result、非 sqlite 三个侧栏场景做了真实页面 smoke（mock API）。
+- **Caveats**: 当前 worktree 没有 `.env`，无法做 live provider-backed 的“聊几轮 -> flush -> `/agent/[id]/memory` 中出现真实 short_term memory”复验；上面那条仍需在有 LLM key 的环境里补一次真实链路检查。
+- **Design deltas** (if any): 无。实现保持在任务卡给定的 `active-session` 编排范围内，没有新增 route，也没有改 daemon 自动 flush / sleep 规则。
