@@ -4,6 +4,15 @@ export interface ToolResult {
   metadata?: Record<string, unknown>
 }
 
+export type BuiltInToolName = 'search_long_term_memory' | 'web_fetch'
+
+export interface AgentToolConfig {
+  enabled?: boolean
+  description?: string
+}
+
+export type AgentToolsConfig = Partial<Record<BuiltInToolName, AgentToolConfig>>
+
 export interface ToolCallOptions {
   signal?: AbortSignal
   agentId?: string

@@ -136,6 +136,83 @@ test('runAgent emits aborted when provider stream is cancelled mid-response', as
   ])
 })
 
+test('runAgent continues the same turn after search_long_term_memory returns a result', async () => {
+  let llmCallCount = 0
+  const llmRequests: LLMRequest[] = []
+
+  const tool: Tool = {
+    name: 'search_long_term_memory',
+    description: '只在必要时搜索长期记忆。',
+    inputSchema: { type: 'object' },
+    async call() {
+      return {
+        output: '长期记忆检索结果：\n[长期记忆][2026-04-01 03:00 +00:00] 用户最喜欢凌晨三点写代码。',
+      }
+    },
+  }
+
+  const provider = new FakeProvider(async function* (params) {
+    llmCallCount += 1
+    llmRequests.push(clone(params))
+
+    if (llmCallCount === 1) {
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tool-1',
+              name: 'search_long_term_memory',
+              input: { query: '用户喜欢在什么时间写代码' },
+            },
+          ],
+          stopReason: 'tool_use',
+          usage: { inputTokens: 10, outputTokens: 5 },
+        },
+      }
+      return
+    }
+
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [
+          {
+            type: 'text',
+            text: '你之前提到自己最喜欢凌晨三点写代码，因为那时最安静。',
+          },
+        ],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 12, outputTokens: 8 },
+      },
+    }
+  })
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig([tool]),
+    [createTextMessage('user', '你还记得我之前最喜欢在什么时间写代码吗？')],
+    provider,
+  )) {
+    events.push(event)
+  }
+
+  assert.equal(llmCallCount, 2)
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['tool_start', 'tool_result', 'complete'],
+  )
+  assert.equal(
+    (events[1] as Extract<(typeof events)[number], { type: 'tool_result' }>).result.output,
+    '长期记忆检索结果：\n[长期记忆][2026-04-01 03:00 +00:00] 用户最喜欢凌晨三点写代码。',
+  )
+  assert.match(
+    JSON.stringify(llmRequests[1]?.messages ?? []),
+    /长期记忆检索结果/,
+  )
+})
+
 test('runAgent composes sorted prompt fragments from systems before calling the provider', async () => {
   const seen: { systemPrompt?: string; reasoning?: unknown } = {}
 
