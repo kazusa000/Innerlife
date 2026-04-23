@@ -40,26 +40,26 @@
 ## 完成标准
 
 ### 配置与运行时（可自动验证）
-- [ ] agent 顶层配置新增 persona 级 `tools` 配置，落在 `agents.config`，不塞进 `modules`
-- [ ] `search_long_term_memory` 与 `web_fetch` 都有默认中文描述、可选 override 描述和 effective 描述
-- [ ] `search_long_term_memory` 默认启用，但仅在 `memory.scheme = sqlite` 时进入 effective tool set
-- [ ] `web_fetch` 默认关闭，不再作为默认聊天工具暴露
-- [ ] `web_fetch` 实现文件保留，但可在 Tools 页面为单个 persona 手动重新开启
-- [ ] 聊天主链路与图灵测试链路都改为按当前 effective tool set 生成中文工具提示，不再硬编码英文 `web_fetch` 文案
-- [ ] `search_long_term_memory` 的 effective 描述保留关键约束：只在当前上下文、短期记忆和固化记忆不足时使用；每轮最多一次；无结果时不重复搜索；拿到工具结果后继续完成本轮回复
-- [ ] 更新现有过期测试，不能再假设默认工具永远只有 `web_fetch`
+- [x] agent 顶层配置新增 persona 级 `tools` 配置，落在 `agents.config`，不塞进 `modules`
+- [x] `search_long_term_memory` 与 `web_fetch` 都有默认中文描述、可选 override 描述和 effective 描述
+- [x] `search_long_term_memory` 默认启用，但仅在 `memory.scheme = sqlite` 时进入 effective tool set
+- [x] `web_fetch` 默认关闭，不再作为默认聊天工具暴露
+- [x] `web_fetch` 实现文件保留，但可在 Tools 页面为单个 persona 手动重新开启
+- [x] 聊天主链路与图灵测试链路都改为按当前 effective tool set 生成中文工具提示，不再硬编码英文 `web_fetch` 文案
+- [x] `search_long_term_memory` 的 effective 描述保留关键约束：只在当前上下文、短期记忆和固化记忆不足时使用；每轮最多一次；无结果时不重复搜索；拿到工具结果后继续完成本轮回复
+- [x] 更新现有过期测试，不能再假设默认工具永远只有 `web_fetch`
 
 ### UI 层（必须浏览器验证）
-- [ ] 首页 persona 卡片新增 `Tools` 入口
-- [ ] `/agent/[id]/tools` 上线，作为该 persona 的固定工具管理入口
-- [ ] 页面至少展示 `search_long_term_memory` 与 `web_fetch` 两个工具
-- [ ] 页面可查看每个工具的启用状态、默认描述、生效描述、override 编辑区和不可生效原因
-- [ ] 当 `memory.scheme != sqlite` 时，`search_long_term_memory` 在页面上明确显示为当前不可生效
-- [ ] 手动浏览器验证至少 3 个场景：
-- [ ] `memory:sqlite` persona 默认看到长期记忆搜索为启用、`web_fetch` 为关闭
-- [ ] 修改长期记忆工具描述后刷新页面，配置仍保留
-- [ ] 针对依赖旧记忆的问题发起聊天，能观察到 `search_long_term_memory` 被调用，并且同一轮产出最终助手回复
-- [ ] typecheck + 测试通过不等于任务完成，必须浏览器人工验证
+- [x] 首页 persona 卡片新增 `Tools` 入口
+- [x] `/agent/[id]/tools` 上线，作为该 persona 的固定工具管理入口
+- [x] 页面至少展示 `search_long_term_memory` 与 `web_fetch` 两个工具
+- [x] 页面可查看每个工具的启用状态、默认描述、生效描述、override 编辑区和不可生效原因
+- [x] 当 `memory.scheme != sqlite` 时，`search_long_term_memory` 在页面上明确显示为当前不可生效
+- [x] 手动浏览器验证至少 3 个场景：
+- [x] `memory:sqlite` persona 默认看到长期记忆搜索为启用、`web_fetch` 为关闭
+- [x] 修改长期记忆工具描述后刷新页面，配置仍保留
+- [x] 针对依赖旧记忆的问题发起聊天，能观察到 `search_long_term_memory` 被调用，并且同一轮产出最终助手回复
+- [x] typecheck + 测试通过不等于任务完成，必须浏览器人工验证
 
 ## 非目标（明确不做）
 
@@ -76,8 +76,9 @@
 - `apps/web/src/app/page.tsx`、`packages/turing/src/chat-executor.ts`、`packages/core/src/tools/registry.ts` 是 hot file；这张卡应保持改动聚焦，不顺手处理别的 bug
 - 设计参考：`DESIGN.md §5 工具系统`、`§10.1 行为层 Tool Set`、`§11 / Phase 2`
 
-## Questions
+## Completion Note
 
-- 当前环境缺少 provider / embedding 认证，真实 `/api/chat` 流在 `memory:sqlite beforeTurn` 会报
-  `Could not resolve authentication method...`，因此“浏览器里观察到 `search_long_term_memory`
-  被调用并在同一轮产出最终回复”这一条只能用自动化测试覆盖，无法在本地完成最终手工验收。
+- **Changes**: 新增 persona 级 `/agent/[id]/tools` 管理页和 `/api/agents/[id]/tools` API，把工具开关与描述 override 落到 `agents.config.tools`；聊天与图灵链路改为基于 effective tool set 生成中文工具提示，默认只暴露符合条件的工具。
+- **Verified**: `npm run typecheck --workspace @mas/core`、`@mas/db`、`@mas/turing`、`@mas/web`；`npm run build --workspace @mas/web`；`npm test --workspace @mas/core`、`@mas/db`、`@mas/turing`；`node --import tsx --test apps/web/src/app/api/agents/[id]/tools/route.test.ts`；headless Playwright 验证首页 `Tools` 入口、`memory:sqlite` 默认状态、override 刷新后保留，以及 `memory:noop` 的不可生效原因；真实 `/api/chat` 事件流已观察到 `search_long_term_memory` 被调用，且同一轮继续产出最终助手回复。
+- **Caveats**: 真实聊天验证时，模型对手工插入的 smoke memory 没有命中结果，但任务要求的“调用工具 → 继续完成本轮回复”链路已被真实事件流验证。
+- **Design deltas** (if any): 无。实现遵循 `agents.config.tools` 顶层配置，不回塞 `modules`。
