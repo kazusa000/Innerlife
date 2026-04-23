@@ -4,11 +4,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { agentRepo, getDb, getRawSqlite, resetDb } from '@mas/db'
-import { getPersonalityManagerMeta } from './[id]/personality/handler'
 import {
-  getBigFivePersonalityConfig,
-  updateBigFivePersonalityConfig,
-} from './[id]/personality/big-five/handler'
+  getPersonalityConfig,
+  updatePersonalityConfig,
+} from './[id]/personality/handler'
 
 function bootstrapDb(dbPath: string) {
   resetDb()
@@ -33,13 +32,13 @@ function bootstrapDb(dbPath: string) {
       'agent-1',
       'Agent One',
       'claude-sonnet-4-6',
-      '{"personality":{"scheme":"big-five","big5":{"openness":0.68,"conscientiousness":0.61,"extraversion":0.44,"agreeableness":0.72,"neuroticism":0.33},"speechStyle":"冷静、直接","background":"做过多年产品设计","prompt":"回答时保持克制、像真实朋友，不要过度热情。"},"emotion":{"scheme":"dimensional","baseline":{"mood":0.2,"energy":0.5,"stress":0.1}},"memory":{"scheme":"sqlite","summarizeModel":"memory-fast"}}'
+      '{"personality":{"scheme":"big-five","prompt":"回答时保持克制、像真实朋友，不要过度热情。"},"emotion":{"scheme":"dimensional","baseline":{"mood":0.2,"energy":0.5,"stress":0.1}},"memory":{"scheme":"sqlite","summarizeModel":"memory-fast"}}'
     );
     INSERT INTO agents (id, name, model, modules) VALUES (
       'agent-2',
       'Agent Two',
       'claude-sonnet-4-6',
-      '{"personality":{"scheme":"noop"}}'
+      '{"personality":{"systemPrompt":"不要自称 AI。","personaPrompt":"像朋友一样聊天。"}}'
     );
     INSERT INTO agents (id, name, model, modules) VALUES (
       'agent-3',
@@ -47,24 +46,26 @@ function bootstrapDb(dbPath: string) {
       'claude-sonnet-4-6',
       '{"memory":{"scheme":"sqlite"}}'
     );
+    UPDATE agents
+      SET config = '{"provider":"anthropic","systemPrompt":"保持真实。","personaPrompt":"少一点客服感。"}'
+      WHERE id = 'agent-1';
   `)
 }
 
-test('getPersonalityManagerMeta returns current scheme metadata', async () => {
+test('getPersonalityConfig returns migrated persona prompts from modules.personality', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-personality-'))
   const dbPath = join(dir, 'test.db')
 
   try {
     bootstrapDb(dbPath)
 
-    const response = getPersonalityManagerMeta('agent-1')
+    const response = getPersonalityConfig('agent-1')
 
     assert.equal(response.status, 200)
     assert.deepEqual(await response.json(), {
       agentId: 'agent-1',
-      scheme: 'big-five',
-      supportedSchemes: ['big-five'],
-      configured: true,
+      systemPrompt: '保持真实。',
+      personaPrompt: '少一点客服感。',
     })
   } finally {
     resetDb()
@@ -72,27 +73,25 @@ test('getPersonalityManagerMeta returns current scheme metadata', async () => {
   }
 })
 
-test('getPersonalityManagerMeta reports noop and missing config as unconfigured', async () => {
+test('getPersonalityConfig returns empty strings when persona prompts are absent', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-personality-'))
   const dbPath = join(dir, 'test.db')
 
   try {
     bootstrapDb(dbPath)
 
-    const noopResponse = getPersonalityManagerMeta('agent-2')
-    const missingResponse = getPersonalityManagerMeta('agent-3')
+    const configuredResponse = getPersonalityConfig('agent-2')
+    const missingResponse = getPersonalityConfig('agent-3')
 
-    assert.deepEqual(await noopResponse.json(), {
+    assert.deepEqual(await configuredResponse.json(), {
       agentId: 'agent-2',
-      scheme: 'noop',
-      supportedSchemes: ['big-five'],
-      configured: false,
+      systemPrompt: '不要自称 AI。',
+      personaPrompt: '像朋友一样聊天。',
     })
     assert.deepEqual(await missingResponse.json(), {
       agentId: 'agent-3',
-      scheme: null,
-      supportedSchemes: ['big-five'],
-      configured: false,
+      systemPrompt: '',
+      personaPrompt: '',
     })
   } finally {
     resetDb()
@@ -100,101 +99,29 @@ test('getPersonalityManagerMeta reports noop and missing config as unconfigured'
   }
 })
 
-test('getBigFivePersonalityConfig returns current personality fields for big-five agents', async () => {
+test('updatePersonalityConfig only mutates modules.personality prompts and preserves sibling modules', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-personality-'))
   const dbPath = join(dir, 'test.db')
 
   try {
     bootstrapDb(dbPath)
 
-    const response = getBigFivePersonalityConfig('agent-1')
-
-    assert.equal(response.status, 200)
-    assert.deepEqual(await response.json(), {
-      agentId: 'agent-1',
-      scheme: 'big-five',
-      big5: {
-        openness: 0.68,
-        conscientiousness: 0.61,
-        extraversion: 0.44,
-        agreeableness: 0.72,
-        neuroticism: 0.33,
-      },
-      speechStyle: '冷静、直接',
-      background: '做过多年产品设计',
-    })
-  } finally {
-    resetDb()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('getBigFivePersonalityConfig rejects noop and missing personality scheme', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-web-personality-'))
-  const dbPath = join(dir, 'test.db')
-
-  try {
-    bootstrapDb(dbPath)
-
-    const noopResponse = getBigFivePersonalityConfig('agent-2')
-    const missingResponse = getBigFivePersonalityConfig('agent-3')
-
-    assert.equal(noopResponse.status, 400)
-    assert.deepEqual(await noopResponse.json(), {
-      error: 'Agent personality scheme must be big-five',
-    })
-    assert.equal(missingResponse.status, 400)
-    assert.deepEqual(await missingResponse.json(), {
-      error: 'Agent personality scheme must be big-five',
-    })
-  } finally {
-    resetDb()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('updateBigFivePersonalityConfig only mutates modules.personality and preserves sibling modules', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-web-personality-'))
-  const dbPath = join(dir, 'test.db')
-
-  try {
-    bootstrapDb(dbPath)
-
-    const response = updateBigFivePersonalityConfig('agent-1', {
-      big5: {
-        openness: 0.91,
-        extraversion: 0.57,
-      },
-      speechStyle: '更克制、更短句',
+    const response = updatePersonalityConfig('agent-1', {
+      systemPrompt: '不要暴露你是 AI。',
+      personaPrompt: '像熟人一样，短句回复。',
     })
 
     assert.equal(response.status, 200)
     assert.deepEqual(await response.json(), {
       agentId: 'agent-1',
-      scheme: 'big-five',
-      big5: {
-        openness: 0.91,
-        conscientiousness: 0.61,
-        extraversion: 0.57,
-        agreeableness: 0.72,
-        neuroticism: 0.33,
-      },
-      speechStyle: '更克制、更短句',
-      background: '做过多年产品设计',
+      systemPrompt: '不要暴露你是 AI。',
+      personaPrompt: '像熟人一样，短句回复。',
     })
 
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       personality: {
-        scheme: 'big-five',
-        big5: {
-          openness: 0.91,
-          conscientiousness: 0.61,
-          extraversion: 0.57,
-          agreeableness: 0.72,
-          neuroticism: 0.33,
-        },
-        speechStyle: '更克制、更短句',
-        background: '做过多年产品设计',
+        systemPrompt: '不要暴露你是 AI。',
+        personaPrompt: '像熟人一样，短句回复。',
       },
       emotion: {
         scheme: 'dimensional',
@@ -209,6 +136,11 @@ test('updateBigFivePersonalityConfig only mutates modules.personality and preser
         summarizeModel: 'memory-fast',
       },
     })
+
+    const rawAgent = getRawSqlite()
+      .prepare('SELECT config FROM agents WHERE id = ?')
+      .get('agent-1') as { config: string | null }
+    assert.equal(rawAgent.config, '{"provider":"anthropic"}')
   } finally {
     resetDb()
     rmSync(dir, { recursive: true, force: true })

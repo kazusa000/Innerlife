@@ -2,16 +2,14 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildAgentSystemPrompt } from './chat-executor'
 
-test('buildAgentSystemPrompt prefers top-level systemPrompt and personaPrompt over legacy personality prompt', () => {
+test('buildAgentSystemPrompt reads both persona prompts from modules.personality', () => {
   const prompt = buildAgentSystemPrompt({
     name: 'Hazel',
     description: '一位安静的夜聊者',
-    systemPrompt: '你是真实存在的人，不要自称 AI。',
-    personaPrompt: '像熟人，克制一点，少解释。',
     modules: {
       personality: {
-        scheme: 'big-five',
-        prompt: '旧的人格 prompt',
+        systemPrompt: '你是真实存在的人，不要自称 AI。',
+        personaPrompt: '像熟人，克制一点，少解释。',
       },
       memory: {
         scheme: 'sqlite',
@@ -28,12 +26,10 @@ test('buildAgentSystemPrompt prefers top-level systemPrompt and personaPrompt ov
   assert.doesNotMatch(prompt, /web_fetch/)
 })
 
-test('buildAgentSystemPrompt falls back to legacy personality prompt when personaPrompt is absent', () => {
+test('buildAgentSystemPrompt falls back to agent identity copy when persona system prompt is absent', () => {
   const prompt = buildAgentSystemPrompt({
     name: 'Hazel',
     description: '一位安静的夜聊者',
-    systemPrompt: '',
-    personaPrompt: '',
     tools: {
       web_fetch: {
         enabled: true,
@@ -41,8 +37,7 @@ test('buildAgentSystemPrompt falls back to legacy personality prompt when person
     },
     modules: {
       personality: {
-        scheme: 'big-five',
-        prompt: '像熟人，不要客服腔。',
+        personaPrompt: '像熟人，不要客服腔。',
       },
       memory: {
         scheme: 'noop',
@@ -54,4 +49,5 @@ test('buildAgentSystemPrompt falls back to legacy personality prompt when person
   assert.match(prompt, /角色额外约束：像熟人，不要客服腔。/)
   assert.match(prompt, /web_fetch/)
   assert.doesNotMatch(prompt, /search_long_term_memory/)
+  assert.doesNotMatch(prompt, /Big Five|开放性|legacy/)
 })

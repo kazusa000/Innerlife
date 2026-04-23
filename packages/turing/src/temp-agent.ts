@@ -16,12 +16,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function forceModulesOn(modules: Record<string, unknown> | null) {
   const next: Record<string, unknown> = isRecord(modules) ? { ...modules } : {}
-  const personality = isRecord(next.personality) ? { ...next.personality } : {}
   const emotion = isRecord(next.emotion) ? { ...next.emotion } : {}
   const relationship = isRecord(next.relationship) ? { ...next.relationship } : {}
   const memory = isRecord(next.memory) ? { ...next.memory } : {}
 
-  next.personality = { ...personality, scheme: 'big-five' }
   next.emotion = { ...emotion, scheme: 'dimensional' }
   next.relationship = { ...relationship, scheme: 'multi-dim' }
   next.memory = { ...memory, scheme: 'sqlite' }
@@ -45,8 +43,6 @@ export function createTemporaryTestAgent(input: {
       : `[Test clone for run ${input.runId}]`,
     provider: source.provider === 'openrouter' ? 'openrouter' : 'anthropic',
     model: source.model,
-    systemPrompt: source.systemPrompt,
-    personaPrompt: source.personaPrompt,
     modules: forceModulesOn(source.modules),
   })
 

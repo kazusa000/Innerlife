@@ -382,7 +382,7 @@ test('runAgent snapshots normalized prompt fragments into observer metadata', as
   })
 })
 
-test('runAgent includes big-five personality prompts and skips noop personality', async () => {
+test('runAgent ignores legacy big-five personality configs', async () => {
   async function captureSystemPrompt(systems: AgentSystem[]) {
     let systemPrompt = ''
     const provider = new FakeProvider(async function* (params) {
@@ -423,9 +423,7 @@ test('runAgent includes big-five personality prompts and skips noop personality'
     },
   }))
 
-  assert.match(bigFivePrompt, /开放性/)
-  assert.match(bigFivePrompt, /说话风格：简洁、口语化/)
-  assert.match(bigFivePrompt, /背景故事：一位前端工程师/)
+  assert.match(bigFivePrompt, /^test\n\n当前本地时间：.+$/)
 
   const noopPrompt = await captureSystemPrompt(createSystems({
     personality: { scheme: 'noop' },

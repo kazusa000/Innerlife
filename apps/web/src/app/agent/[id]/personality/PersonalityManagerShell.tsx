@@ -1,35 +1,50 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState, type ComponentType } from 'react'
+import { useEffect, useState } from 'react'
 import { COMMON_UI_COPY } from '@/lib/ui-copy'
-import PersonalityManagerBigFive from './PersonalityManager.big-five'
+import styles from '../manager-ui.module.css'
 
-interface AgentPersonalityMeta {
+type PersonalityConfig = {
   agentId: string
-  scheme: string | null
-  supportedSchemes: string[]
-  configured: boolean
+  systemPrompt: string
+  personaPrompt: string
 }
 
-interface PersonalityManagerProps {
-  agentId: string
-  meta: AgentPersonalityMeta
+function isPersonalityConfig(value: unknown): value is PersonalityConfig {
+  return Boolean(value)
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && 'systemPrompt' in (value as Record<string, unknown>)
+    && 'personaPrompt' in (value as Record<string, unknown>)
 }
 
-const personalityManagersByScheme = {
-  'big-five': PersonalityManagerBigFive,
-} satisfies Record<string, ComponentType<PersonalityManagerProps>>
+function readErrorMessage(value: unknown, fallback: string) {
+  if (
+    value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && 'error' in value
+    && typeof value.error === 'string'
+  ) {
+    return value.error
+  }
+
+  return fallback
+}
 
 export default function PersonalityManagerShell({ agentId }: { agentId: string }) {
-  const [meta, setMeta] = useState<AgentPersonalityMeta | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [systemPrompt, setSystemPrompt] = useState('')
+  const [personaPrompt, setPersonaPrompt] = useState('')
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
 
-    async function loadMeta() {
+    async function loadConfig() {
       setLoading(true)
       setError(null)
 
@@ -37,23 +52,21 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
         const response = await fetch(`/api/agents/${agentId}/personality`, {
           cache: 'no-store',
         })
-        const data = await response.json()
+        const data = await response.json() as unknown
         if (!response.ok) {
-          throw new Error(
-            typeof data?.error === 'string'
-              ? data.error
-              : '加载性格管理入口失败',
-          )
+          throw new Error(readErrorMessage(data, '加载人设失败'))
+        }
+        if (!isPersonalityConfig(data)) {
+          throw new Error('加载人设失败')
         }
 
         if (!cancelled) {
-          setMeta(data)
+          setSystemPrompt(data.systemPrompt)
+          setPersonaPrompt(data.personaPrompt)
         }
       } catch (err) {
         if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : '加载性格管理入口失败',
-          )
+          setError(err instanceof Error ? err.message : '加载人设失败')
         }
       } finally {
         if (!cancelled) {
@@ -62,16 +75,44 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
       }
     }
 
-    void loadMeta()
+    void loadConfig()
 
     return () => {
       cancelled = true
     }
   }, [agentId])
 
-  const Manager = meta?.scheme
-    ? personalityManagersByScheme[meta.scheme as keyof typeof personalityManagersByScheme]
-    : null
+  async function saveConfig() {
+    setSaving(true)
+    setError(null)
+    setNotice(null)
+
+    try {
+      const response = await fetch(`/api/agents/${agentId}/personality`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemPrompt,
+          personaPrompt,
+        }),
+      })
+      const data = await response.json() as unknown
+      if (!response.ok) {
+        throw new Error(readErrorMessage(data, '保存人设失败'))
+      }
+      if (!isPersonalityConfig(data)) {
+        throw new Error('保存人设失败')
+      }
+
+      setSystemPrompt(data.systemPrompt)
+      setPersonaPrompt(data.personaPrompt)
+      setNotice('人设已保存。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存人设失败')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <main className="personality-page">
@@ -79,10 +120,9 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
         <header className="personality-head">
           <div>
             <p className="personality-eyebrow">{COMMON_UI_COPY.unifiedEntry}</p>
-            <h1 className="personality-title">性格管理</h1>
+            <h1 className="personality-title">人设管理</h1>
             <p className="personality-sub">
-              固定入口 `/agent/{agentId}/personality`。当前页面只根据
-              `personality.scheme` 分发到对应子系统。
+              固定入口 `/agent/{agentId}/personality` 现在只维护两段真正参与主聊天链路的人设文本。
             </p>
           </div>
           <div className="personality-actions">
@@ -96,51 +136,80 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
         </header>
 
         <section className="personality-card">
-          <div className="personality-card-head">
-            <div>
-              <p className="personality-label">{COMMON_UI_COPY.agent}</p>
-              <h2 className="personality-card-title">{agentId}</h2>
-            </div>
-            {meta && (
-              <span className="personality-pill">
-                {meta.scheme ?? COMMON_UI_COPY.unconfigured}
-              </span>
-            )}
-          </div>
-
-          {loading && <p className="personality-copy">正在加载性格管理入口…</p>}
+          {loading && <p className={styles.copy}>正在加载人设…</p>}
 
           {!loading && error && (
-            <div className="personality-state">
-              <h3>入口加载失败</h3>
-              <p>{error}</p>
+            <div className={styles.emptyState}>
+              <h3>人设加载失败</h3>
+              <p className={styles.emptyCopy}>{error}</p>
             </div>
           )}
 
-          {!loading && !error && meta && !meta.configured && (
-            <div className="personality-state">
-              <h3>性格模块尚未开启</h3>
-              <p>
-                这个虚拟人还没有启用性格管理。当前固定入口已经就绪，但如果你想使用
-                `big-five`，先回到首页的虚拟人编辑区启用性格方案。
-              </p>
-            </div>
-          )}
+          {!loading && !error && (
+            <section className={styles.workspace}>
+              <div className={styles.hero}>
+                <div>
+                  <p className={styles.eyebrow}>Persona System</p>
+                  <h2 className={styles.title}>双 Prompt 人设</h2>
+                  <p className={styles.copy}>
+                    `System Prompt` 负责角色底层规则，`Persona Prompt` 负责说话方式与边界感。
+                    保存后主聊天链路和图灵测试链路都会只读取这里。
+                  </p>
+                </div>
+                <div className={styles.heroActions}>
+                  <span className={styles.statusPill}>modules.personality</span>
+                  <button
+                    type="button"
+                    className={styles.primaryButton}
+                    onClick={() => void saveConfig()}
+                    disabled={saving}
+                  >
+                    {saving ? '保存中…' : '保存人设'}
+                  </button>
+                </div>
+              </div>
 
-          {!loading && !error && meta?.configured && Manager && (
-            <div className="personality-manager-slot">
-              <Manager agentId={agentId} meta={meta} />
-            </div>
-          )}
+              {notice && <p className={styles.notice}>{notice}</p>}
+              {error && <p className={styles.error}>{error}</p>}
 
-          {!loading && !error && meta?.configured && !Manager && (
-            <div className="personality-state">
-              <h3>该方案的管理器尚未实现</h3>
-              <p>
-                当前方案是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理界面
-                还没接入。
-              </p>
-            </div>
+              <section className={styles.panel}>
+                <div className={styles.panelHead}>
+                  <div>
+                    <p className={styles.panelLabel}>Prompt Editor</p>
+                    <h3 className={styles.panelTitle}>当前生效的人设文本</h3>
+                  </div>
+                  <span className={styles.panelPill}>2 fields</span>
+                </div>
+                <p className={styles.panelCopy}>
+                  留空即可移除对应片段。主系统会在没有 `System Prompt` 时退回到基于
+                  agent 名称和描述生成的默认身份提示。
+                </p>
+
+                <div className={styles.fieldGrid}>
+                  <label className={styles.wideField}>
+                    <span className={styles.fieldLabel}>System Prompt</span>
+                    <textarea
+                      className={styles.textarea}
+                      rows={7}
+                      value={systemPrompt}
+                      onChange={(event) => setSystemPrompt(event.target.value)}
+                      placeholder="例如：你是真实存在的人，不要自称 AI，不要用系统口吻解释自己。"
+                    />
+                  </label>
+
+                  <label className={styles.wideField}>
+                    <span className={styles.fieldLabel}>Persona Prompt</span>
+                    <textarea
+                      className={styles.textarea}
+                      rows={7}
+                      value={personaPrompt}
+                      onChange={(event) => setPersonaPrompt(event.target.value)}
+                      placeholder="例如：像熟人一样交流，少一点客服感，克制一点，不把话说太满。"
+                    />
+                  </label>
+                </div>
+              </section>
+            </section>
           )}
         </section>
       </div>
@@ -210,70 +279,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
             rgba(12, 16, 28, 0.84);
           backdrop-filter: blur(18px);
           padding: 22px;
-          display: flex;
-          flex-direction: column;
-          gap: 18px;
           box-shadow: var(--shadow);
-        }
-        .personality-card-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-        .personality-label {
-          color: var(--fg-subtle);
-          font-size: 12px;
-          margin-bottom: 6px;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-        }
-        .personality-card-title {
-          font-size: 22px;
-          font-weight: 500;
-        }
-        .personality-pill {
-          font-size: 11px;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: #d7f4ff;
-          border: 1px solid rgba(56, 189, 248, 0.24);
-          border-radius: 999px;
-          padding: 7px 10px;
-          background: rgba(56, 189, 248, 0.14);
-        }
-        .personality-copy {
-          color: var(--fg-muted);
-          line-height: 1.7;
-        }
-        .personality-state {
-          border: 1px dashed var(--border);
-          border-radius: 20px;
-          padding: 18px;
-          background: rgba(255, 255, 255, 0.03);
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .personality-state h3 {
-          font-size: 18px;
-          font-weight: 500;
-        }
-        .personality-state p {
-          color: var(--fg-muted);
-          line-height: 1.7;
-        }
-        .personality-manager-slot {
-          display: flex;
-        }
-        @media (max-width: 720px) {
-          .personality-page {
-            padding: 24px 16px 64px;
-          }
-          .personality-card {
-            padding: 18px;
-          }
         }
       `}</style>
     </main>

@@ -161,8 +161,8 @@ test('agent GET/PATCH expose top-level systemPrompt and personaPrompt', async ()
       personaPrompt: '像熟人，少一点客服感。',
       modules: {
         personality: {
-          scheme: 'big-five',
-          prompt: 'legacy prompt',
+          systemPrompt: '旧 system',
+          personaPrompt: '旧 persona',
         },
       },
     })!
@@ -191,6 +191,12 @@ test('agent GET/PATCH expose top-level systemPrompt and personaPrompt', async ()
       web_fetch: {
         enabled: true,
         description: '抓取网页正文，提炼关键事实。',
+      },
+    })
+    assert.deepEqual(updated?.modules, {
+      personality: {
+        systemPrompt: '不要自称 AI。',
+        personaPrompt: '像朋友，回答短一点。',
       },
     })
   } finally {
