@@ -5,6 +5,12 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { ChatArea } from './ChatArea'
 import { Sidebar } from './Sidebar'
 import type { AgentModules } from './observer-types'
+import {
+  buildContextResetNotice,
+  buildContextResetRequestBody,
+  type ContextResetNotice,
+  type ContextResetResponse,
+} from './context-reset'
 
 interface Agent {
   id: string
@@ -12,6 +18,20 @@ interface Agent {
   provider: 'anthropic' | 'openrouter'
   model: string
   modules: AgentModules | null
+}
+
+function readErrorMessage(value: unknown, fallback: string) {
+  if (
+    value !== null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && 'error' in value
+    && typeof value.error === 'string'
+  ) {
+    return value.error
+  }
+
+  return fallback
 }
 
 export default function ChatPage() {
@@ -31,6 +51,10 @@ function ChatPageInner() {
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [isResettingContext, setIsResettingContext] = useState(false)
+  const [resetNotice, setResetNotice] = useState<ContextResetNotice | null>(null)
+  const memoryScheme = typeof agent?.modules?.memory?.scheme === 'string'
+    ? agent.modules.memory.scheme
+    : null
 
   useEffect(() => {
     let cancelled = false
@@ -39,6 +63,7 @@ function ChatPageInner() {
       setLoaded(false)
       setAgent(null)
       setCurrentId(null)
+      setResetNotice(null)
 
       if (!agentId) {
         if (!cancelled) {
@@ -92,19 +117,37 @@ function ChatPageInner() {
     }
 
     setIsResettingContext(true)
+    setResetNotice(null)
     try {
       const sessionRes = await fetch(`/api/agents/${agentId}/active-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reset: true }),
+        body: JSON.stringify(buildContextResetRequestBody(memoryScheme)),
       })
+      const body = await sessionRes.json().catch(() => null)
+
       if (!sessionRes.ok) {
-        throw new Error('failed to reset context')
+        setResetNotice(buildContextResetNotice({
+          memoryScheme,
+          responseOk: false,
+          responseError: readErrorMessage(body, '清除上下文失败，请稍后再试。'),
+        }))
+        return
       }
-      const sessionData = await sessionRes.json() as { session: { id: string } }
+
+      const sessionData = body as ContextResetResponse
       setCurrentId(sessionData.session.id)
+      setResetNotice(buildContextResetNotice({
+        memoryScheme,
+        responseOk: true,
+        contextFlush: sessionData.contextFlush,
+      }))
     } catch {
-      // Keep current session if reset fails.
+      setResetNotice(buildContextResetNotice({
+        memoryScheme,
+        responseOk: false,
+        responseError: '清除上下文失败，请稍后再试。',
+      }))
     } finally {
       setIsResettingContext(false)
     }
@@ -115,11 +158,13 @@ function ChatPageInner() {
       <Sidebar
         agentId={agent?.id}
         sessionId={currentId}
+        memoryScheme={memoryScheme}
         relationshipScheme={typeof agent?.modules?.relationship?.scheme === 'string' ? agent.modules.relationship.scheme : null}
         agentName={agent?.name}
         onBack={() => router.push('/')}
         onResetContext={handleResetContext}
         isResetting={isResettingContext}
+        resetNotice={resetNotice}
       />
       {loaded && currentId ? (
         <ChatArea
