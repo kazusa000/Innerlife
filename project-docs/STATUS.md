@@ -3,13 +3,13 @@
 > 这个文件用大白话记录系统**目前能做什么**。由 Coordinator 在 TASK 归档到 `TASKS/done/` 之后统一更新。
 > 不写未来计划（路线图见 `DESIGN.md §11`）。
 
-最后更新：2026-04-22（Daemon 工作台并入）
+最后更新：2026-04-23（Tools / Persona / Named Relationship 并入）
 
 ---
 
 ## 一句话总结
 
-一个能在网页上聊天、并带**本地 daemon 常驻与分层记忆流水线**的 AI agent，支持**创建多个虚拟人**（各有独立名称、描述、模型），当前默认可抓取网页内容，对话自动存档。
+一个能在网页上聊天、并带**本地 daemon 常驻与分层记忆流水线**的 AI agent，支持**创建多个虚拟人**（各有独立名称、描述、模型）、**persona 级工具集**和**命名多对象关系**，对话自动存档。
 
 ---
 
@@ -20,19 +20,19 @@
 - 聊天页侧边栏显示当前虚拟人名称 + 返回按钮
 - 打开网页就能和 AI 对话
 - AI 能流式回复（边生成边显示，不用等完）
-- AI 当前默认可用 `web_fetch` 抓取网页内容，结果会显示在对话里
+- AI 现在按 persona 的 effective tool set 决定能用什么工具：`memory:sqlite` 默认可用 `search_long_term_memory`，`web_fetch` 默认关闭，但可在 Tools 页对单个 persona 手动开启
 - 关掉浏览器再回来，历史对话还在
 - 默认会自动创建一个虚拟人；进入聊天页时会自动解析或创建该 persona 的 active session
 - **回复可随时中断**：流式回复途中点"停止"按钮立即取消这一轮，正在跑的 `web_fetch` / LLM stream 会被一起终止；已流出来的文本保留并尾部标记 `—（中断）`
-- **当前默认只启用 `web_fetch` 工具**：30s 超时、HTML 去噪转纯文本；`bash` / `file_read` / `file_write` 实现仍在仓库里，但不再默认注册到 chat route
+- **固定 `/agent/[id]/tools` 工具管理页已上线**：当前至少可管理 `search_long_term_memory` 与 `web_fetch`；工具描述默认是中文，可做 persona 级 override；`memory:sqlite` 时长期记忆搜索默认启用，`web_fetch` 默认关闭
 - **本地 daemon v1 已可独立启动**：根目录可执行 `npm run daemon:start` 启动单进程常驻后台；daemon 会写文件锁，拒绝重复启动，并把 `pid / status / startedAt / lastHeartbeatAt / stoppedAt / lastError` 持久化到 `daemon_state`
 - **全局 `/daemon` 工作台已上线**：首页新增 `Daemon` 入口；页面采用左侧章节导航 + 右侧内容区，集中展示 daemon 概览、图灵测试、记忆 Flush、睡眠与后台事件流，并支持按行安全触发 `立即 flush` / `立即睡觉`
-- **创建/编辑虚拟人表单已收敛为 scheme 选择器**：首页只保留 provider / model 和 `personality / emotion / relationship / memory` 四个模块的 scheme 选择；Big Five、emotion baseline、relationship baseline、memory model override 都迁到了各自管理页；`values` 已从表单和 runtime 移除
-- **首页 persona 卡片现在是 Control Deck 风格**：保留主 `Chat` CTA，并提供进入 `Personality / Emotion / Relationship / Memory` 四个管理页的统一入口
+- **创建/编辑虚拟人表单已继续收口**：首页现在只保留 provider / model 与 `emotion / relationship / memory` 三个模块的 scheme 选择；人设文本、工具、情绪、关系、记忆细项都迁到了各自管理页；`values` 与 personality scheme 都已从表单和 runtime 移除
+- **首页 persona 卡片现在是 Control Deck 风格**：保留主 `Chat` CTA，并提供进入 `Personality / Emotion / Relationship / Memory / Tools / Turing` 等管理入口
 - **开启 `OBSERVER_ENABLED=1` 后可观测 AI 每轮内部**：聊天页观测抽屉现在是 4 个 tab（**主对话 / 记忆 / 情绪 / 关系**）。主对话 tab 按当前 turn 聚合主对话 llm call，并支持在同一轮多个 call 之间切换；展开后可按锚点查看性格 / 情绪 / 记忆 / 关系 fragments、messages 时间线（含 compaction 内联）、tools schema 和 final system prompt。记忆 / 情绪 / 关系 tab 会按当前 agent 的 scheme 渲染系统内部 call：当前已支持 `memory:sqlite` 的 `retrieve` / `summarize` / `consolidate`、`emotion:dimensional` 的 `delta`、`relationship:multi-dim` 与 `relationship:named-multi-dim` 的 `delta`；本轮没触发时 tab 保留但显示空状态。独立 `/observer` 页事后回放也能识别 `relationship` call；`named-multi-dim` 还会额外展示 `counterpartId / counterpartName`
 - **工具自动注册**：`packages/core/src/tools/*.ts` 里导出 `export const XxxTool: Tool = {...}`，启动前（`predev/prebuild/prestart`）扫描生成 `generated.ts`，`registry.getDefaultTools()` 统一供给 chat 路由；加新工具只需加文件，不再改注册数组
 - **模块化 AgentSystem 基座**：`@mas/systems` 包定义 `TurnContext` + `AgentSystem` 接口与四个生命周期钩子（`beforeTurn` / `beforeLLM` / `afterLLM` / `afterTurn`）；runner 按 `priority` 拼接各系统 prompt fragments；系统抛错只 yield `system_error`、不中断主流程
-- **角色与性格 prompt 已分层**：首页 persona 编辑层现在除了 `provider / model / 模块方案`，还支持直接编辑角色级 `System Prompt` 和 `角色 Prompt`；这两层会先进入主对话的基础 prompt。`personality:big-five` 模块则只负责 5 维 Big Five、说话风格和背景故事，并在 `beforeLLM` 以 `priority: 10` 注入性格 fragment；固定管理入口 `/agent/[id]/personality` 现在只维护真正属于性格模块的字段，不再承载角色级 prompt
+- **人设系统已改成双 Prompt**：固定入口 `/agent/[id]/personality` 现在只编辑 `systemPrompt + personaPrompt` 两段文本，并统一落到 `modules.personality`；旧 `agents.config.systemPrompt / personaPrompt` 会在读取时迁入，人设不再作为 `AgentSystem` 注入，也不再有 Big Five runtime / API / 管理页
 - **上下文压缩（compaction:summary）**：消息数 > 40 或粗略 token 估算超阈值时，runner 调一次 LLM 把早期消息摘要成一条 `system` message，保留最近 20 条原文；DB 不删原消息。摘要 prompt 强制包含关键事实 / 用户偏好 / 未解决任务；连续多轮压缩会保留之前的 summary 作为下一轮输入。Observer 用 `kind: 'compaction'` 标记并展示 trigger / before / after 对比
 - **情绪系统（emotion:dimensional）**：mood / energy / stress 三轴；运行时状态现在**按 agent 持续**，不再因新 session 重置。`beforeTurn` 读取该 agent 最近一条情绪状态，`beforeLLM` 注入"当前情绪"段落（priority 20），`afterLLM` 让同一 LLM 分析本轮情绪变化产 delta，`afterTurn` 衰减后写入新的 `emotion_states`。固定管理入口 `/agent/[id]/emotion` 现在主控的是 `Current emotion`，手动保存会写一条 `trigger = manual_override` 的情绪记录；`decayPerTurn / analysisModel` 仍可配置。Observer 用 `kind: 'emotion'` 标记，详情页显示最新状态 + delta + trigger
 - **关系系统（relationship:multi-dim / relationship:named-multi-dim）**：trust / affinity / familiarity / respect 四轴。旧 `multi-dim` 仍然代表 `default-user ↔ agent`：`beforeTurn` 读取默认用户的最新关系，没有就用 baseline；`beforeLLM` 注入关系 prompt fragment（priority 40）；`afterLLM` 走 pending-analysis；`afterTurn` 衰减回 baseline、clip 到 `0..1` 后写入 `relationships` 表并追加 history。新的 `named-multi-dim` 允许同一个 agent 手动维护多个命名对象，并让每条 session 绑定其中一个对象：未绑定时该 session 上的关系系统不启用；绑定后，关系读取 / fragment 注入 / history 演化都只作用于当前对象，并且不同对象彼此隔离。持久化新增 `relationship_counterparts`（对象列表）与 `session_relationship_bindings`（session 当前绑定对象）。固定入口仍是 `/agent/[id]/relationships`：`multi-dim` 继续显示单对象状态，`named-multi-dim` 切成“左侧对象列表 + 右侧详情”工作台；聊天页侧栏也能为当前 session 绑定关系对象。Observer 继续把关系分析记成 `kind: 'relationship'`，metadata 含 `before / after / delta / trigger`，`named-multi-dim` 额外包含对象 id / 名称
@@ -48,7 +48,7 @@
 agent 的"大脑"。负责和 LLM 对话、决定何时调用工具、把工具结果喂回 LLM、循环直到回答完成。
 
 - 支持流式输出
-- 当前默认只注册 `web_fetch` 工具（支持 `AbortSignal` 取消）
+- 默认有效工具集按 persona 配置解析：`search_long_term_memory` 会在 `memory:sqlite` 时默认启用，`web_fetch` 只在该 persona 手动开启后才进入 chat route；两者都支持 `AbortSignal` 取消
 - `runAgent` 贯穿 `AbortSignal`：每次 LLM 调用前 / stream 中 / 工具调用前都检查，取消时 yield 新的 `{type: 'aborted'}` 事件
 - 已对接 Anthropic 及其兼容 endpoint（默认 Claude Sonnet 4.6；通过 `ANTHROPIC_BASE_URL` 可切到 DeepSeek 等兼容服务），provider 也穿透 signal
 - 工具系统是开放的，将来加新工具不用改内核
@@ -120,6 +120,6 @@ npm run daemon:start
 
 为了避免误解，列一下"看起来该有但其实还没做"的：
 
-- ❌ **性格 / 情绪 / 关系 / 记忆已接入**；感知系统尚未实现，`relationship` 也还没有图谱 UI
+- ❌ **人设 / 情绪 / 关系 / 记忆已接入**；感知系统尚未实现，`relationship` 也还没有图谱 UI
 - ❌ daemon 目前已经能消费图灵测试 queued run，也已经接上 Context → STM → LTM 的分层记忆搬运；但 `scheduled_tasks` 与更高阶自主行为仍未实现
 - ❌ 图灵测试官规则书目前是**系统固定内置** markdown；还不支持运行时切换不同评测官版本

@@ -1,6 +1,6 @@
 # Multi-Agent Virtual Persona System — Design Spec
 
-> 最后校准：2026-04-20（单线程聊天、模块管理页、OpenRouter provider、values 移除）
+> 最后校准：2026-04-23（persona 双 Prompt、Tools 管理页、named relationship）
 >
 > `STATUS.md` 记录“当前已经实现了什么”；本文件记录长期架构与路线图。两者冲突时，以 `STATUS.md` 作为现状，以本文件作为结构原则和后续方向。
 
@@ -68,9 +68,8 @@ multi-agent-system/
 │   │   └── src/
 │   │       ├── types.ts         # AgentSystem 接口、TurnContext 类型
 │   │       ├── registry.ts      # systemRegistry（手动注册）
-│   │       ├── personality/     # 性格系统（big-five / mbti / freeform）
 │   │       ├── emotion/         # 情感系统（basic / dimensional / appraisal）
-│   │       ├── relationship/    # 关系系统（simple / multi-dim）
+│   │       ├── relationship/    # 关系系统（multi-dim / named-multi-dim）
 │   │       ├── memory/          # 记忆系统（sqlite 方案）
 │   │       ├── perception/      # 感知系统（vision / hearing）
 │   │       ├── compaction/      # 上下文压缩（summary / sliding-window）
@@ -124,10 +123,11 @@ multi-agent-system/
 │           │   ├── chat/page.tsx               # 对话界面（按 agent 进入，单线程心智）
 │           │   ├── observer/page.tsx           # Observer 历史回放
 │           │   └── agent/[id]/
-│           │       ├── personality/page.tsx    # personality 管理入口
+│           │       ├── personality/page.tsx    # persona 管理入口（systemPrompt + personaPrompt）
 │           │       ├── emotion/page.tsx        # emotion 管理入口
 │           │       ├── relationships/page.tsx  # relationship 管理入口
 │           │       ├── memory/page.tsx         # memory 管理入口
+│           │       ├── tools/page.tsx          # tools 管理入口
 │           │       └── turing/page.tsx         # 图灵测试工作台
 │           └── app/api/
 │               ├── agents/                     # CRUD + active-session + 模块管理 API
@@ -139,6 +139,8 @@ multi-agent-system/
 ├── tsconfig.json                # 基础 TypeScript 配置
 └── CLAUDE.md
 ```
+
+注：`modules.personality` 现在直接承载人设用的 `systemPrompt + personaPrompt`，不再对应 `packages/systems` 下的某个 `AgentSystem` 目录。
 
 ---
 
@@ -696,8 +698,10 @@ DELETE /api/agents/:id/memory/sqlite/:memoryId   删除 sqlite 记忆
 POST   /api/agents/:id/memory/sqlite/consolidate 手动整理 sqlite 记忆
 GET    /api/agents/:id/emotion                   情感管理入口元信息（当前 scheme / 可用能力）
 GET    /api/agents/:id/emotion/dimensional       dimensional 情绪详情 / 历史 / 参数
-GET    /api/agents/:id/personality               personality 管理入口元信息（当前 scheme / 可用能力）
-GET    /api/agents/:id/personality/big-five      big-five 性格详情 / 参数
+GET    /api/agents/:id/personality               persona 双 Prompt 详情（systemPrompt / personaPrompt）
+PATCH  /api/agents/:id/personality               更新 persona 双 Prompt
+GET    /api/agents/:id/tools                     tools 管理入口（当前配置 / effective 状态）
+PATCH  /api/agents/:id/tools                     更新 persona 级 tools 开关与描述 override
 
 # Phase 3+
 POST   /api/agents/:id/start         启动 agent
@@ -835,14 +839,13 @@ interface BusMessage {
 └─────────────────────────────────────────────┘
 ┌─ 内在系统 INNER SYSTEMS ───────────────────┐
 │  各有独立 DB 表，决定虚拟人"怎么想"          │
-│  Personality: noop / big-five / mbti / freeform │
 │  Emotion: noop / basic / dimensional / appraisal │
-│  Relationship: noop / simple / multi-dim    │
+│  Relationship: noop / multi-dim / named-multi-dim │
 │  Memory: noop / sqlite / chromadb           │
 └─────────────────────────────────────────────┘
 ┌─ 行为层 BEHAVIOR ──────────────────────────┐
 │  决定虚拟人"能做什么"                        │
-│  Tool Set: 勾选制                           │
+│  Tool Set: persona 级勾选制                 │
 │  Compaction: noop / summary / sliding-window │
 │  Safety: noop / confirm-dangerous / read-only │
 └─────────────────────────────────────────────┘
@@ -852,7 +855,9 @@ interface BusMessage {
 └─────────────────────────────────────────────┘
 ```
 
-每个系统都有 `noop`（关闭）选项。创建虚拟人时，在 `agents.modules` JSON 字段中存储方案选择。
+`emotion / relationship / memory / compaction / safety` 等系统仍以 `scheme` 形式存储在 `agents.modules`。  
+`modules.personality` 现在是固定的人设块，只保存 `systemPrompt + personaPrompt`，不再参与 system registry。  
+行为层工具开关与描述 override 单独存放在 `agents.config.tools`。
 
 ### 10.2 可扩展性设计
 
@@ -893,40 +898,24 @@ interface BusMessage {
 
 不同 scheme 的存储、查询、管理 UI、操作按钮、字段形状都允许完全不同；只要求入口层和 `modules.<type>.scheme` 配置保持稳定。
 
-### 10.3 内在系统 — 性格（Personality）
+### 10.3 人设块 — Persona Prompts
 
-#### big-five 方案
+`modules.personality` 现在不再是一个 `AgentSystem` 方案集合，而是固定的人设配置块：
 
 ```typescript
-interface BigFiveParams {
-  traits: {
-    openness: number         // 开放性 (0-1)
-    conscientiousness: number // 尽责性
-    extraversion: number     // 外向性
-    agreeableness: number    // 宜人性
-    neuroticism: number      // 神经质
-  }
-  speakingStyle: {
-    formality: number
-    verbosity: number
-    humor: number
-    emotionality: number
-    languagePatterns: string[]
-  }
-  background: string
-  quirks: string[]
+interface PersonaPrompts {
+  systemPrompt?: string
+  personaPrompt?: string
 }
 ```
 
-当前 big-five 参数直接放在 `agents.modules.personality` 里，与 scheme 一起持久化；不再单独维护 `agents.personality` 作为主入口。
+- `systemPrompt`：最高优先级的人设底座，适合放“不要自称 AI”“把自己当作真实存在的人”等稳定约束
+- `personaPrompt`：补充表达风格、互动口吻、边界感等更柔性的角色提示
+- 固定入口仍是 `/agent/[id]/personality`
+- 主聊天链路与图灵测试链路都只从 `modules.personality` 读取这两段文本
+- 历史 `agents.config.systemPrompt / personaPrompt` 只作为迁移输入读取；新写入不再把它们存回顶层配置
 
-#### mbti 方案
-
-基于 16 型人格（INTJ / ENFP 等），从 MBTI 类型推导出说话风格和决策偏好。
-
-#### freeform 方案
-
-纯文本描述，直接作为 prompt 注入，不做结构化解析。最灵活但最不可控。
+Big Five / MBTI / freeform 这类 `personality:*` 运行时方案已移除。现在的人设能力是“固定双 Prompt”，而不是一个参与 registry 的内在系统。
 
 ### 10.4 内在系统 — 情感（Emotion）
 
@@ -1211,6 +1200,10 @@ Phase 1（已完成）
 - [ ] **A4 工具自动发现** — 新工具文件放进 tools/ 即自动注册，不用手动传数组
   - 参考：hermes-agent `tools/registry.py` 自注册模式
   - 效果：以后加工具只写一个文件，不改任何其他代码
+- [x] **A5 Persona Tools 管理页** — persona 级工具开关与描述 override
+  - 固定入口 `/agent/[id]/tools`；当前支持 `search_long_term_memory` 与 `web_fetch`
+  - `search_long_term_memory` 默认随 `memory:sqlite` 启用；`web_fetch` 默认关闭，可对单个 persona 手动开启
+  - 聊天与图灵测试链路按 effective tool set 生成中文工具提示
 
 #### 模块 B：基础设施补全
 
@@ -1251,11 +1244,12 @@ Phase 1（已完成）
 
 > 依赖 B3（虚拟人管理）+ B6（模块化基座）。每个系统实现 AgentSystem 接口。
 
-- [x] **C1 Personality — big-five 方案** — Big Five 五大特质 + 说话风格 + 背景故事
-  - 实现 AgentSystem 接口，beforeLLM 阶段注入性格描述到 promptFragments
-  - 参数现存 `agents.modules.personality`
-  - 前端：性格编辑器（5 个 Big Five 滑块 + 说话风格 + 背景故事）
-  - 效果：同样的问题，不同性格的虚拟人回答风格不同
+- [x] **C1 Personality — big-five 方案** — 已作为历史阶段完成，但已被 C1b 替换
+  - 当前实现已不再保留 Big Five runtime / UI / API；这里只保留路线演化痕迹
+- [x] **C1b Persona — 双 Prompt 人设系统** — `modules.personality.systemPrompt + personaPrompt`
+  - `/agent/[id]/personality` 固定只编辑两段文本
+  - 主聊天链路与图灵测试链路只从 `modules.personality` 读取人设
+  - 旧 `agents.config.systemPrompt / personaPrompt` 读取时迁入，不再继续作为主写入位置
 - [x] **C2 Emotion — dimensional 方案** — 维度模型（mood/energy/stress）
   - 实现 AgentSystem 接口，beforeTurn 读状态 → afterLLM 分析更新 → afterTurn 持久化
   - emotion_states 表（agentId, sessionId, state JSON, delta, trigger, createdAt）
@@ -1266,6 +1260,10 @@ Phase 1（已完成）
   - relationships 表（agentId, counterpartType, counterpartId, dimensions JSON, history JSON）
   - 本 task 只做 `relationship:multi-dim` 方案本身；统一入口 `/agent/[id]/relationships` 与其他 scheme 的管理子系统后续独立落地
   - 效果：虚拟人对"老朋友"和"陌生人"说话语气不同
+- [x] **C3b Relationship — named-multi-dim 方案** — 多对象命名关系 + session 绑定
+  - 同一个 agent 可维护多个命名 counterpart，并让每条 session 显式绑定其中一个
+  - `relationship_counterparts` 持久化对象列表，`session_relationship_bindings` 持久化 session 当前绑定
+  - `/agent/[id]/relationships` 对 `named-multi-dim` 渲染对象工作台；聊天页侧栏可切换当前关系对象
 - [removed] **C4 Values — priority-list 方案**
   - values 系统已从当前产品方向移除，不再作为 active runtime 模块推进
 
