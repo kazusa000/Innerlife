@@ -6,4 +6,6 @@ export {
   DimensionalEmotionSystem,
   normalizeConfig as normalizeEmotionConfig,
   normalizeStateVector as normalizeEmotionState,
+  parseEmotionAnalysis,
+  serializeEmotionState,
 } from './dimensional'

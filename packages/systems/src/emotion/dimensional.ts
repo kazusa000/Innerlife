@@ -2,6 +2,7 @@ import { emotionStateRepo } from '@mas/db'
 import type {
   AgentSystem,
   ConversationMessage,
+  EmotionAnalysisResult,
   EmotionStateVector,
   PendingEmotionAnalysis,
   TurnContext,
@@ -286,6 +287,53 @@ export class DimensionalEmotionSystem implements AgentSystem {
       delta: ctx.emotionAnalysis?.delta ?? null,
       trigger: ctx.emotionAnalysis?.trigger ?? null,
     })
+  }
+}
+
+function clampSigned(value: unknown): number {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return 0
+  }
+
+  return Math.min(1, Math.max(-1, value))
+}
+
+export function parseEmotionAnalysis(rawResponse: string): EmotionAnalysisResult {
+  const trimmed = rawResponse.trim()
+  const withoutFence = trimmed.startsWith('```')
+    ? trimmed
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim()
+    : trimmed
+  const record = JSON.parse(withoutFence) as {
+    mood_delta?: unknown
+    energy_delta?: unknown
+    stress_delta?: unknown
+    trigger?: unknown
+  }
+
+  return {
+    delta: {
+      mood: clampSigned(record.mood_delta),
+      energy: clampSigned(record.energy_delta),
+      stress: clampSigned(record.stress_delta),
+    },
+    trigger:
+      typeof record.trigger === 'string' && record.trigger.trim()
+        ? record.trigger.trim()
+        : null,
+    rawResponse: withoutFence,
+  }
+}
+
+export function serializeEmotionState(state: EmotionStateVector) {
+  const round = (value: number) => Number(value.toFixed(3))
+
+  return {
+    mood: round(state.mood),
+    energy: round(state.energy),
+    stress: round(state.stress),
   }
 }
 

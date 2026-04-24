@@ -1091,3 +1091,13 @@ export class MemorySqliteSystem implements AgentSystem {
     ctx.pendingMemoryWrite = undefined
   }
 }
+
+export function serializeMemoryHit(memory: MemoryRecord) {
+  return {
+    id: memory.id,
+    summary: memory.displaySummary,
+    layer: memory.layer,
+    tags: [...memory.tags],
+    importance: memory.importance,
+  }
+}

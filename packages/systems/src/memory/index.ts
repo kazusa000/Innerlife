@@ -16,6 +16,7 @@ export {
   resolveMemoryActorLabels,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
+  serializeMemoryHit,
 } from './sqlite'
 export { analyzeMemoryTimeText, analyzeMemoryTimeText as parseMemoryTimeText } from './time-parser'
 export {
