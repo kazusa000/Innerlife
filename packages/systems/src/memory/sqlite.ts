@@ -254,30 +254,34 @@ export function resolveMemoryActorLabels(input: {
   sessionId: string
   agentModules?: unknown
 }): MemoryActorLabels {
-  const agentModules = input.agentModules ?? agentRepo.getAgent(input.agentId)?.modules
-  if (readRelationshipScheme(agentModules) !== 'named-multi-dim') {
-    return FALLBACK_MEMORY_ACTOR_LABELS
-  }
+  try {
+    const agentModules = input.agentModules ?? agentRepo.getAgent(input.agentId)?.modules
+    if (readRelationshipScheme(agentModules) !== 'named-multi-dim') {
+      return FALLBACK_MEMORY_ACTOR_LABELS
+    }
 
-  const binding = sessionRelationshipBindingRepo.getSessionRelationshipBinding(input.sessionId)
-  if (!binding) {
-    return FALLBACK_MEMORY_ACTOR_LABELS
-  }
+    const binding = sessionRelationshipBindingRepo.getSessionRelationshipBinding(input.sessionId)
+    if (!binding) {
+      return FALLBACK_MEMORY_ACTOR_LABELS
+    }
 
-  const counterpart = relationshipCounterpartRepo.getRelationshipCounterpart(binding.counterpartId)
-  if (!counterpart || counterpart.agentId !== input.agentId) {
-    return FALLBACK_MEMORY_ACTOR_LABELS
-  }
+    const counterpart = relationshipCounterpartRepo.getRelationshipCounterpart(binding.counterpartId)
+    if (!counterpart || counterpart.agentId !== input.agentId) {
+      return FALLBACK_MEMORY_ACTOR_LABELS
+    }
 
-  const counterpartName = counterpart.name.trim()
-  if (!counterpartName) {
-    return FALLBACK_MEMORY_ACTOR_LABELS
-  }
+    const counterpartName = counterpart.name.trim()
+    if (!counterpartName) {
+      return FALLBACK_MEMORY_ACTOR_LABELS
+    }
 
-  return {
-    selfLabel: '我',
-    counterpartLabel: counterpartName,
-    currentMessageHeader: `当前消息（来自${counterpartName}）：`,
+    return {
+      selfLabel: '我',
+      counterpartLabel: counterpartName,
+      currentMessageHeader: `当前消息（来自${counterpartName}）：`,
+    }
+  } catch {
+    return FALLBACK_MEMORY_ACTOR_LABELS
   }
 }
 
