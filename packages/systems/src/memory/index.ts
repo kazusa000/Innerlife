@@ -13,6 +13,7 @@ export {
   MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
   parseMemoryBatchWriteResponse,
   parseMemoryWriteResponse,
+  resolveMemoryActorLabels,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
 } from './sqlite'
@@ -22,3 +23,4 @@ export {
   DEFAULT_MEMORY_EMBEDDING_MODEL,
 } from './embeddings'
 export type { MemoryEmbedder } from './embeddings'
+export type { MemoryActorLabels } from './sqlite'

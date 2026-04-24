@@ -13,6 +13,7 @@ export interface ContextFlushSkippedResult {
 }
 
 export type ContextFlushResult = ContextFlushSuccessResult | ContextFlushSkippedResult
+export type ContextResetMode = 'clear' | 'flush'
 
 export interface ContextResetResponse {
   session: {
@@ -26,32 +27,42 @@ export interface ContextResetNotice {
   text: string
 }
 
-export function getContextResetButtonLabel(memoryScheme?: string | null) {
-  return memoryScheme === 'sqlite'
+export function getContextResetButtonLabel(
+  mode: ContextResetMode,
+  memoryScheme?: string | null,
+) {
+  return mode === 'flush' && memoryScheme === 'sqlite'
     ? '清除上下文并撰写短期记忆'
     : '清除上下文'
 }
 
-export function getContextResetLoadingLabel(memoryScheme?: string | null) {
-  return memoryScheme === 'sqlite'
+export function getContextResetLoadingLabel(
+  mode: ContextResetMode,
+  memoryScheme?: string | null,
+) {
+  return mode === 'flush' && memoryScheme === 'sqlite'
     ? '正在清除上下文并撰写短期记忆…'
     : '正在清除上下文…'
 }
 
-export function buildContextResetRequestBody(memoryScheme?: string | null) {
-  return memoryScheme === 'sqlite'
+export function buildContextResetRequestBody(
+  mode: ContextResetMode,
+  memoryScheme?: string | null,
+) {
+  return mode === 'flush' && memoryScheme === 'sqlite'
     ? { reset: true, flushContext: true }
     : { reset: true }
 }
 
 export function buildContextResetNotice(input: {
+  mode: ContextResetMode
   memoryScheme?: string | null
   responseOk: boolean
   responseError?: string | null
   contextFlush?: ContextFlushResult
 }): ContextResetNotice {
   if (!input.responseOk) {
-    if (input.memoryScheme === 'sqlite') {
+    if (input.mode === 'flush' && input.memoryScheme === 'sqlite') {
       return {
         tone: 'error',
         text: `整理旧上下文失败，因此没有执行清除。${input.responseError ?? '请稍后再试。'}`,
@@ -65,6 +76,13 @@ export function buildContextResetNotice(input: {
   }
 
   if (input.memoryScheme !== 'sqlite') {
+    return {
+      tone: 'success',
+      text: '已清除上下文，并切到新的对话章节。',
+    }
+  }
+
+  if (input.mode !== 'flush') {
     return {
       tone: 'success',
       text: '已清除上下文，并切到新的对话章节。',

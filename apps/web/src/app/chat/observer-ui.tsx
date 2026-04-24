@@ -163,7 +163,11 @@ export function DetailList({
           >
             {row.label}
           </span>
-          <div style={{ color: 'var(--fg)', fontSize: 13 }}>{row.value}</div>
+          <div style={{ color: 'var(--fg)', fontSize: 13 }}>
+            {typeof row.value === 'string'
+              ? <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{row.value}</div>
+              : row.value}
+          </div>
         </div>
       ))}
     </div>

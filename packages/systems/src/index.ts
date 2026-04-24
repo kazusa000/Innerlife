@@ -58,10 +58,11 @@ export {
   MemorySqliteSystem,
   parseMemoryBatchWriteResponse,
   parseMemoryWriteResponse,
+  resolveMemoryActorLabels,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
 } from './memory'
-export type { MemoryEmbedder } from './memory'
+export type { MemoryActorLabels, MemoryEmbedder } from './memory'
 export { NoopSystem, HelloWorldSystem } from './noop'
 export {
   DEFAULT_BASELINE as DEFAULT_RELATIONSHIP_BASELINE,

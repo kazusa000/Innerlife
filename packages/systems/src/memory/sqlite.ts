@@ -1,4 +1,9 @@
-import { memoryRepo } from '@mas/db'
+import {
+  agentRepo,
+  memoryRepo,
+  relationshipCounterpartRepo,
+  sessionRelationshipBindingRepo,
+} from '@mas/db'
 import type {
   AgentSystem,
   ConversationMessage,
@@ -144,9 +149,23 @@ export interface MemoryPipelineSettings {
   sleepIntervalDays: number
 }
 
+export interface MemoryActorLabels {
+  selfLabel: string
+  counterpartLabel: string
+  currentMessageHeader: string
+}
+
+const FALLBACK_MEMORY_ACTOR_LABELS: MemoryActorLabels = {
+  selfLabel: '我',
+  counterpartLabel: '用户',
+  currentMessageHeader: '当前用户消息：',
+}
+
 const WRITE_GUIDANCE = [
   'display_summary 用简体中文，写成简洁、稳定、适合展示给模型看的记忆摘要。',
   'retrieval_text 用自然语言完整描述可检索的事实、场景或事件，不要写成标签列表。',
+  '如果 source_text 或上文里已经明确出现当前对话对象的名字，display_summary 和 retrieval_text 优先直接使用这个名字，不要退回成泛化的“用户”。',
+  '描述助手自身时默认使用第一人称“我”，不要把“AI”或“助手”当成记忆主体，除非是在直接引用原话。',
   'tags 默认使用简体中文；除非是专有名词、代码标识符或固定英文术语，否则不要输出英文标签。',
   'tags 至少提供 4 个简短、可复用的中文标签。',
 ].join('\n')
@@ -214,6 +233,52 @@ function readSleepTime(value: unknown) {
 
   const trimmed = value.trim()
   return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : DEFAULT_SLEEP_TIME_LOCAL
+}
+
+function readRelationshipScheme(modules: unknown) {
+  if (!modules || typeof modules !== 'object' || Array.isArray(modules)) {
+    return null
+  }
+
+  const relationship = (modules as Record<string, unknown>).relationship
+  if (!relationship || typeof relationship !== 'object' || Array.isArray(relationship)) {
+    return null
+  }
+
+  const scheme = (relationship as Record<string, unknown>).scheme
+  return typeof scheme === 'string' && scheme.trim() ? scheme.trim() : null
+}
+
+export function resolveMemoryActorLabels(input: {
+  agentId: string
+  sessionId: string
+  agentModules?: unknown
+}): MemoryActorLabels {
+  const agentModules = input.agentModules ?? agentRepo.getAgent(input.agentId)?.modules
+  if (readRelationshipScheme(agentModules) !== 'named-multi-dim') {
+    return FALLBACK_MEMORY_ACTOR_LABELS
+  }
+
+  const binding = sessionRelationshipBindingRepo.getSessionRelationshipBinding(input.sessionId)
+  if (!binding) {
+    return FALLBACK_MEMORY_ACTOR_LABELS
+  }
+
+  const counterpart = relationshipCounterpartRepo.getRelationshipCounterpart(binding.counterpartId)
+  if (!counterpart || counterpart.agentId !== input.agentId) {
+    return FALLBACK_MEMORY_ACTOR_LABELS
+  }
+
+  const counterpartName = counterpart.name.trim()
+  if (!counterpartName) {
+    return FALLBACK_MEMORY_ACTOR_LABELS
+  }
+
+  return {
+    selfLabel: '我',
+    counterpartLabel: counterpartName,
+    currentMessageHeader: `当前消息（来自${counterpartName}）：`,
+  }
 }
 
 function readConfig(config: unknown): MemoryModuleConfig {
@@ -411,6 +476,8 @@ export function buildSemanticAnalyzerPrompt(promptOverride?: string | null): str
     'retrieval_query 绝不能带时间信息；时间交给 time analyzer。',
     '不要把答案本身直接塞进 query。',
     '不要把历史里的额外主题顺手带进 query。',
+    '如果最近对话里已经明确出现对话对象名字，例如张三、李四，retrieval_query 优先保留这个名字，不要泛化成“用户”。',
+    '涉及你自己时默认写“我”，不要把“AI”或“助手”当成检索主体，除非那就是原话中的称呼。',
     'retrieval_query 不要包含说话者、提问动作、讨论动作，也不要包含“内容/事情/对话/讨论”这类回顾外壳，也不要复述整个时间回顾问句。',
     '去掉时间和回顾外壳后，如果还剩下具体对象、主题、画面、名字、食物、bug、地点、关系或意象，就保留它，不要误判成 null。',
     '如果原句是在回顾某个时间段里聊过的对象、场景、画面、名字或事件类型，去掉时间后剩下的那部分仍然是主题锚点。',
@@ -595,8 +662,22 @@ function extractSemanticHistoryMessageText(message: ConversationMessage): string
   return text ? shorten(text) : null
 }
 
+function getConversationSpeakerLabel(
+  role: ConversationMessage['role'],
+  labels: MemoryActorLabels,
+) {
+  if (role === 'user') {
+    return labels.counterpartLabel
+  }
+  if (role === 'assistant') {
+    return labels.selfLabel
+  }
+  return '系统'
+}
+
 function buildSemanticAnalyzerHistoryWindow(
   messages: ConversationMessage[],
+  labels: MemoryActorLabels = FALLBACK_MEMORY_ACTOR_LABELS,
   maxMessages = DEFAULT_SEMANTIC_ANALYZER_HISTORY_MESSAGES,
 ) {
   const history: string[] = []
@@ -618,7 +699,7 @@ function buildSemanticAnalyzerHistoryWindow(
       continue
     }
 
-    history.unshift(`${message.role === 'user' ? '用户' : '助手'}：${text}`)
+    history.unshift(`${getConversationSpeakerLabel(message.role, labels)}：${text}`)
     if (history.length >= maxMessages) {
       break
     }
@@ -630,19 +711,20 @@ function buildSemanticAnalyzerHistoryWindow(
 function buildSemanticAnalyzerInputText(
   messages: ConversationMessage[],
   userText: string,
+  labels: MemoryActorLabels = FALLBACK_MEMORY_ACTOR_LABELS,
   maxMessages = DEFAULT_SEMANTIC_ANALYZER_HISTORY_MESSAGES,
 ) {
-  const historyWindow = buildSemanticAnalyzerHistoryWindow(messages, maxMessages)
+  const historyWindow = buildSemanticAnalyzerHistoryWindow(messages, labels, maxMessages)
   return [
     '最近对话（仅供补全当前问题）：',
     ...(historyWindow.length > 0 ? historyWindow : ['（无）']),
     '',
-    '当前用户消息：',
+    labels.currentMessageHeader,
     userText.trim() || '（空）',
   ].join('\n')
 }
 
-function buildSourceText(ctx: TurnContext): string {
+function buildSourceText(ctx: TurnContext, labels: MemoryActorLabels = FALLBACK_MEMORY_ACTOR_LABELS): string {
   const userText = ctx.input.text.trim()
   const assistantText = extractResponseText(ctx)
 
@@ -651,15 +733,18 @@ function buildSourceText(ctx: TurnContext): string {
   }
 
   return truncate([
-    `用户：${userText || '（空）'}`,
-    `助手：${assistantText || '（空）'}`,
+    `${labels.counterpartLabel}：${userText || '（空）'}`,
+    `${labels.selfLabel}：${assistantText || '（空）'}`,
   ].join('\n'), MAX_MEMORY_CONTENT_CHARS)
 }
 
-export function buildContextToShortTermSourceText(messages: ConversationMessage[]): string {
+export function buildContextToShortTermSourceText(
+  messages: ConversationMessage[],
+  labels: MemoryActorLabels = FALLBACK_MEMORY_ACTOR_LABELS,
+): string {
   const lines: string[] = ['待整理的旧上下文：']
   for (const message of messages) {
-    lines.push(`${message.role === 'user' ? '用户' : message.role === 'assistant' ? '助手' : '系统'}：${extractConversationMessageText(message)}`)
+    lines.push(`${getConversationSpeakerLabel(message.role, labels)}：${extractConversationMessageText(message)}`)
   }
   return truncate(lines.join('\n'), MAX_MEMORY_CONTENT_CHARS * 4)
 }
@@ -896,6 +981,11 @@ export class MemorySqliteSystem implements AgentSystem {
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
+    const actorLabels = resolveMemoryActorLabels({
+      agentId: ctx.agentId,
+      sessionId: ctx.sessionId,
+    })
+    ctx.state.memoryActorLabels = actorLabels
     const semanticPromptOverride = resolveSemanticAnalyzerPromptOverride({
       semanticAnalyzerPrompt: this.semanticAnalyzerPrompt,
       retrievePrompt: this.legacyRetrievePrompt,
@@ -915,6 +1005,7 @@ export class MemorySqliteSystem implements AgentSystem {
         inputText: buildSemanticAnalyzerInputText(
           ctx.messages,
           ctx.input.text,
+          actorLabels,
           this.semanticAnalyzerHistoryMessages,
         ),
         responseFormat: MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT,

@@ -1,9 +1,11 @@
 'use client'
 
+import React from 'react'
 import { useEffect, useState } from 'react'
 import {
   getContextResetButtonLabel,
   getContextResetLoadingLabel,
+  type ContextResetMode,
   type ContextResetNotice,
 } from './context-reset'
 
@@ -14,8 +16,9 @@ interface Props {
   relationshipScheme?: string | null
   agentName?: string
   onBack?: () => void
-  onResetContext?: () => void
+  onResetContext?: (mode: ContextResetMode) => void
   isResetting?: boolean
+  resettingMode?: ContextResetMode | null
   resetNotice?: ContextResetNotice | null
 }
 
@@ -47,6 +50,7 @@ export function Sidebar({
   onBack,
   onResetContext,
   isResetting = false,
+  resettingMode = null,
   resetNotice = null,
 }: Props) {
   const [counterparts, setCounterparts] = useState<Counterpart[]>([])
@@ -166,14 +170,30 @@ export function Sidebar({
           进入聊天时会自动解析当前 active session。网页端不再提供新建、切换或删除 session。
         </p>
         {onResetContext && (
-          <button
-            type="button"
-            className="context-reset-btn"
-            onClick={onResetContext}
-            disabled={isResetting}
-          >
-            {isResetting ? getContextResetLoadingLabel(memoryScheme) : getContextResetButtonLabel(memoryScheme)}
-          </button>
+          <div className="context-reset-actions">
+            <button
+              type="button"
+              className="context-reset-btn"
+              onClick={() => onResetContext('clear')}
+              disabled={isResetting}
+            >
+              {isResetting && resettingMode === 'clear'
+                ? getContextResetLoadingLabel('clear', memoryScheme)
+                : getContextResetButtonLabel('clear', memoryScheme)}
+            </button>
+            {memoryScheme === 'sqlite' && (
+              <button
+                type="button"
+                className="context-reset-btn context-reset-btn-secondary"
+                onClick={() => onResetContext('flush')}
+                disabled={isResetting}
+              >
+                {isResetting && resettingMode === 'flush'
+                  ? getContextResetLoadingLabel('flush', memoryScheme)
+                  : getContextResetButtonLabel('flush', memoryScheme)}
+              </button>
+            )}
+          </div>
         )}
         {resetNotice && (
           <p className={`rail-status ${resetNotice.tone === 'error' ? 'rail-status-error' : 'rail-status-success'}`}>
@@ -344,7 +364,6 @@ export function Sidebar({
         }
         .context-reset-btn {
           width: 100%;
-          margin-top: 14px;
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(255, 255, 255, 0.06);
           color: var(--fg);
@@ -358,9 +377,23 @@ export function Sidebar({
             border-color var(--dur) var(--ease),
             opacity var(--dur) var(--ease);
         }
+        .context-reset-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin-top: 14px;
+        }
         .context-reset-btn:hover:not(:disabled) {
           background: rgba(255, 255, 255, 0.1);
           border-color: rgba(255, 255, 255, 0.18);
+        }
+        .context-reset-btn-secondary {
+          background: rgba(46, 204, 113, 0.12);
+          border-color: rgba(46, 204, 113, 0.22);
+        }
+        .context-reset-btn-secondary:hover:not(:disabled) {
+          background: rgba(46, 204, 113, 0.18);
+          border-color: rgba(46, 204, 113, 0.32);
         }
         .context-reset-btn:disabled {
           opacity: 0.6;

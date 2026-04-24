@@ -8,6 +8,7 @@ import type { AgentModules } from './observer-types'
 import {
   buildContextResetNotice,
   buildContextResetRequestBody,
+  type ContextResetMode,
   type ContextResetNotice,
   type ContextResetResponse,
 } from './context-reset'
@@ -51,6 +52,7 @@ function ChatPageInner() {
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [isResettingContext, setIsResettingContext] = useState(false)
+  const [resettingMode, setResettingMode] = useState<ContextResetMode | null>(null)
   const [resetNotice, setResetNotice] = useState<ContextResetNotice | null>(null)
   const memoryScheme = typeof agent?.modules?.memory?.scheme === 'string'
     ? agent.modules.memory.scheme
@@ -111,23 +113,25 @@ function ChatPageInner() {
     }
   }, [agentId])
 
-  async function handleResetContext() {
+  async function handleResetContext(mode: ContextResetMode) {
     if (!agentId || isResettingContext) {
       return
     }
 
     setIsResettingContext(true)
+    setResettingMode(mode)
     setResetNotice(null)
     try {
       const sessionRes = await fetch(`/api/agents/${agentId}/active-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildContextResetRequestBody(memoryScheme)),
+        body: JSON.stringify(buildContextResetRequestBody(mode, memoryScheme)),
       })
       const body = await sessionRes.json().catch(() => null)
 
       if (!sessionRes.ok) {
         setResetNotice(buildContextResetNotice({
+          mode,
           memoryScheme,
           responseOk: false,
           responseError: readErrorMessage(body, '清除上下文失败，请稍后再试。'),
@@ -138,18 +142,21 @@ function ChatPageInner() {
       const sessionData = body as ContextResetResponse
       setCurrentId(sessionData.session.id)
       setResetNotice(buildContextResetNotice({
+        mode,
         memoryScheme,
         responseOk: true,
         contextFlush: sessionData.contextFlush,
       }))
     } catch {
       setResetNotice(buildContextResetNotice({
+        mode,
         memoryScheme,
         responseOk: false,
         responseError: '清除上下文失败，请稍后再试。',
       }))
     } finally {
       setIsResettingContext(false)
+      setResettingMode(null)
     }
   }
 
@@ -164,6 +171,7 @@ function ChatPageInner() {
         onBack={() => router.push('/')}
         onResetContext={handleResetContext}
         isResetting={isResettingContext}
+        resettingMode={resettingMode}
         resetNotice={resetNotice}
       />
       {loaded && currentId ? (

@@ -1,4 +1,4 @@
-import { createProvider, type Message } from '@mas/core'
+import { createProvider, type LLMProvider, type Message } from '@mas/core'
 import {
   agentMemorySleepStateRepo,
   agentRepo,
@@ -14,11 +14,13 @@ import {
   buildShortTermToLongTermPrompt,
   buildShortTermToLongTermSourceText,
   type ConversationMessage,
+  type MemoryEmbedder,
   createOpenRouterMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   isSqliteMemoryConfig,
   MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
   parseMemoryBatchWriteResponse,
+  resolveMemoryActorLabels,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
 } from '@mas/systems'
@@ -120,8 +122,9 @@ async function persistMemories(input: {
   sourceText: string
   memoryWrites: ReturnType<typeof parseMemoryBatchWriteResponse>
   embeddingModel: string
+  embedder?: MemoryEmbedder
 }) {
-  const embedder = createOpenRouterMemoryEmbedder()
+  const embedder = input.embedder ?? createOpenRouterMemoryEmbedder()
   const embeddings = await embedder.embed(
     input.memoryWrites.map((memory) => memory.retrievalText),
     {
@@ -149,6 +152,8 @@ export async function runContextFlushForSession(input: {
   mode?: 'idle' | 'overflow' | 'manual'
   now?: Date
   signal?: AbortSignal
+  provider?: Pick<LLMProvider, 'sendMessage'>
+  embedder?: MemoryEmbedder
 }) {
   const session = sessionRepo.getSession(input.sessionId)
   if (!session) {
@@ -271,8 +276,16 @@ export async function runContextFlushForSession(input: {
     return { ok: false as const, reason: 'nothing_to_flush' as const }
   }
 
-  const provider = createProvider(agent.provider)
-  const sourceText = buildContextToShortTermSourceText(candidateMessages.map(toConversationMessage))
+  const provider = input.provider ?? createProvider(agent.provider)
+  const actorLabels = resolveMemoryActorLabels({
+    agentId: agent.id,
+    sessionId: input.sessionId,
+    agentModules: agent.modules,
+  })
+  const sourceText = buildContextToShortTermSourceText(
+    candidateMessages.map(toConversationMessage),
+    actorLabels,
+  )
   const response = await provider.sendMessage({
     model: memoryConfig.summarizeModel ?? agent.model,
     systemPrompt: buildContextToShortTermPrompt(
@@ -304,6 +317,7 @@ export async function runContextFlushForSession(input: {
     sourceText,
     memoryWrites,
     embeddingModel: memoryConfig.embeddingModel,
+    embedder: input.embedder,
   })
 
   const nextActiveStartMessageId = candidateMessages.length === activeMessages.length

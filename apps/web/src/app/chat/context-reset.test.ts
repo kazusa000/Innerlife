@@ -7,29 +7,36 @@ import {
   getContextResetLoadingLabel,
 } from './context-reset'
 
-test('getContextResetButtonLabel upgrades the sqlite copy', () => {
-  assert.equal(getContextResetButtonLabel('sqlite'), '清除上下文并撰写短期记忆')
-  assert.equal(getContextResetButtonLabel('noop'), '清除上下文')
-  assert.equal(getContextResetButtonLabel(null), '清除上下文')
+test('getContextResetButtonLabel supports clear and flush modes', () => {
+  assert.equal(getContextResetButtonLabel('clear', 'sqlite'), '清除上下文')
+  assert.equal(getContextResetButtonLabel('flush', 'sqlite'), '清除上下文并撰写短期记忆')
+  assert.equal(getContextResetButtonLabel('clear', 'noop'), '清除上下文')
+  assert.equal(getContextResetButtonLabel('flush', 'noop'), '清除上下文')
+  assert.equal(getContextResetButtonLabel('clear', null), '清除上下文')
 })
 
-test('getContextResetLoadingLabel stays scheme-specific', () => {
-  assert.equal(getContextResetLoadingLabel('sqlite'), '正在清除上下文并撰写短期记忆…')
-  assert.equal(getContextResetLoadingLabel('noop'), '正在清除上下文…')
+test('getContextResetLoadingLabel supports clear and flush modes', () => {
+  assert.equal(getContextResetLoadingLabel('clear', 'sqlite'), '正在清除上下文…')
+  assert.equal(getContextResetLoadingLabel('flush', 'sqlite'), '正在清除上下文并撰写短期记忆…')
+  assert.equal(getContextResetLoadingLabel('clear', 'noop'), '正在清除上下文…')
 })
 
-test('buildContextResetRequestBody only enables flushContext for sqlite agents', () => {
-  assert.deepEqual(buildContextResetRequestBody('sqlite'), {
+test('buildContextResetRequestBody only enables flushContext for sqlite flush mode', () => {
+  assert.deepEqual(buildContextResetRequestBody('clear', 'sqlite'), {
+    reset: true,
+  })
+  assert.deepEqual(buildContextResetRequestBody('flush', 'sqlite'), {
     reset: true,
     flushContext: true,
   })
-  assert.deepEqual(buildContextResetRequestBody('noop'), {
+  assert.deepEqual(buildContextResetRequestBody('flush', 'noop'), {
     reset: true,
   })
 })
 
 test('buildContextResetNotice reports successful sqlite flushes with STM count', () => {
   assert.deepEqual(buildContextResetNotice({
+    mode: 'flush',
     memoryScheme: 'sqlite',
     responseOk: true,
     contextFlush: {
@@ -48,6 +55,7 @@ test('buildContextResetNotice reports successful sqlite flushes with STM count',
 
 test('buildContextResetNotice reports soft sqlite flush results without failing reset', () => {
   assert.deepEqual(buildContextResetNotice({
+    mode: 'flush',
     memoryScheme: 'sqlite',
     responseOk: true,
     contextFlush: {
@@ -62,6 +70,7 @@ test('buildContextResetNotice reports soft sqlite flush results without failing 
 
 test('buildContextResetNotice reports sqlite hard failures without claiming reset happened', () => {
   assert.deepEqual(buildContextResetNotice({
+    mode: 'flush',
     memoryScheme: 'sqlite',
     responseOk: false,
     responseError: 'Failed to flush active context',
@@ -71,12 +80,33 @@ test('buildContextResetNotice reports sqlite hard failures without claiming rese
   })
 })
 
-test('buildContextResetNotice reports non-sqlite reset success with the old copy', () => {
+test('buildContextResetNotice reports plain reset success for sqlite and non-sqlite', () => {
   assert.deepEqual(buildContextResetNotice({
+    mode: 'clear',
+    memoryScheme: 'sqlite',
+    responseOk: true,
+  }), {
+    tone: 'success',
+    text: '已清除上下文，并切到新的对话章节。',
+  })
+  assert.deepEqual(buildContextResetNotice({
+    mode: 'clear',
     memoryScheme: 'noop',
     responseOk: true,
   }), {
     tone: 'success',
     text: '已清除上下文，并切到新的对话章节。',
+  })
+})
+
+test('buildContextResetNotice reports plain reset failures without flush wording', () => {
+  assert.deepEqual(buildContextResetNotice({
+    mode: 'clear',
+    memoryScheme: 'sqlite',
+    responseOk: false,
+    responseError: '清除上下文失败，请稍后再试。',
+  }), {
+    tone: 'error',
+    text: '清除上下文失败，请稍后再试。',
   })
 })

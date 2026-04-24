@@ -51,6 +51,18 @@ function bootstrapDb(dbPath: string, memoryDbPath: string) {
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
+    CREATE TABLE relationship_counterparts (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id),
+      name TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE TABLE session_relationship_bindings (
+      session_id TEXT PRIMARY KEY REFERENCES sessions(id),
+      counterpart_id TEXT NOT NULL REFERENCES relationship_counterparts(id),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
   `)
   getRawSqlite().exec(`
     INSERT INTO agents (id, name, model) VALUES ('agent-1', 'Agent One', 'claude-sonnet-4-6');
@@ -362,19 +374,19 @@ test('memory sqlite semantic analyzer input includes a short recent dialogue win
 
   const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
   assert.equal(semanticAnalyzer?.kind, 'llm')
-  assert.equal(
-    semanticAnalyzer?.inputText,
-    [
-      '最近对话（仅供补全当前问题）：',
-      '用户：我上周收养了一只猫。',
-      '助手：记住了，你上周收养了一只猫。',
-      '用户：它是橘白相间的。',
-      '助手：收到，它是橘白相间的。',
-      '用户：我给它起名叫年糕。',
-      '助手：好的，我记住那只猫叫年糕。',
-      '',
-      '当前用户消息：',
-      '它叫什么来着',
+    assert.equal(
+      semanticAnalyzer?.inputText,
+      [
+        '最近对话（仅供补全当前问题）：',
+        '用户：我上周收养了一只猫。',
+        '我：记住了，你上周收养了一只猫。',
+        '用户：它是橘白相间的。',
+        '我：收到，它是橘白相间的。',
+        '用户：我给它起名叫年糕。',
+        '我：好的，我记住那只猫叫年糕。',
+        '',
+        '当前用户消息：',
+        '它叫什么来着',
     ].join('\n'),
   )
   assert.doesNotMatch(semanticAnalyzer?.inputText ?? '', /系统提示/)
@@ -411,12 +423,68 @@ test('memory sqlite semantic analyzer history window length is configurable per 
     [
       '最近对话（仅供补全当前问题）：',
       '用户：我给它起名叫年糕。',
-      '助手：好的，我记住那只猫叫年糕。',
+      '我：好的，我记住那只猫叫年糕。',
       '',
       '当前用户消息：',
       '它叫什么来着',
     ].join('\n'),
   )
+})
+
+test('memory sqlite semantic analyzer uses named counterpart labels when the session is bound', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+    getRawSqlite().exec(`
+      UPDATE agents
+      SET modules = '{"relationship":{"scheme":"named-multi-dim"}}'
+      WHERE id = 'agent-1';
+      INSERT INTO relationship_counterparts (id, agent_id, name) VALUES ('cp-zhangsan', 'agent-1', '张三');
+      INSERT INTO session_relationship_bindings (session_id, counterpart_id) VALUES ('session-2', 'cp-zhangsan');
+    `)
+
+    const system = new MemorySqliteSystem({
+      retrieveTopK: 5,
+      semanticAnalyzerHistoryMessages: 4,
+      embedder: createEmbedder({}),
+    })
+    const ctx = createContext('它叫什么来着')
+    ctx.messages = [
+      { role: 'user', content: '我上周收养了一只猫。' },
+      { role: 'assistant', content: '记住了，你上周收养了一只猫。' },
+      { role: 'user', content: '它是橘白相间的。' },
+      { role: 'assistant', content: '收到，它是橘白相间的。' },
+      { role: 'user', content: '它叫什么来着' },
+    ]
+
+    await system.beforeTurn?.(ctx)
+
+    const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
+    assert.equal(semanticAnalyzer?.kind, 'llm')
+    if (!semanticAnalyzer || semanticAnalyzer.kind !== 'llm') {
+      throw new Error('expected llm semantic analyzer')
+    }
+    assert.equal(
+      semanticAnalyzer.inputText,
+      [
+        '最近对话（仅供补全当前问题）：',
+        '张三：我上周收养了一只猫。',
+        '我：记住了，你上周收养了一只猫。',
+        '张三：它是橘白相间的。',
+        '我：收到，它是橘白相间的。',
+        '',
+        '当前消息（来自张三）：',
+        '它叫什么来着',
+      ].join('\n'),
+    )
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('memory sqlite retrieval uses per-layer topK and minSimilarity settings', async () => {

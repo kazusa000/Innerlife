@@ -70,6 +70,18 @@ function bootstrapDb(dbPath: string, memoryDbPath: string) {
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
+    CREATE TABLE relationship_counterparts (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id),
+      name TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE TABLE session_relationship_bindings (
+      session_id TEXT PRIMARY KEY REFERENCES sessions(id),
+      counterpart_id TEXT NOT NULL REFERENCES relationship_counterparts(id),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
     CREATE TABLE messages (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -148,6 +160,101 @@ function createTimeParser(map: Record<string, { start: string; end: string } | n
   }
 }
 
+test('runAgent uses bound named counterpart labels in the memory semantic analyzer input', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+    getRawSqlite().exec(`
+      UPDATE agents
+      SET modules = '{"relationship":{"scheme":"named-multi-dim"}}'
+      WHERE id = 'agent-1';
+      INSERT INTO relationship_counterparts (id, agent_id, name) VALUES ('cp-zhangsan', 'agent-1', '张三');
+      INSERT INTO session_relationship_bindings (session_id, counterpart_id) VALUES ('session-1', 'cp-zhangsan');
+    `)
+
+    let sawSemanticCall = false
+    const provider = new FakeProvider(async function* (params) {
+      if (isMemorySemanticPrompt(params.systemPrompt)) {
+        sawSemanticCall = true
+        assert.deepEqual(params.messages, [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: [
+                  '最近对话（仅供补全当前问题）：',
+                  '张三：我上周收养了一只猫。',
+                  '我：记住了，你上周收养了一只猫。',
+                  '张三：我给它起名叫橘子。',
+                  '我：好的，我记住那只猫叫橘子。',
+                  '',
+                  '当前消息（来自张三）：',
+                  '我猫叫什么',
+                ].join('\n'),
+              },
+            ],
+          },
+        ])
+        yield {
+          type: 'message_complete',
+          response: {
+            content: [{ type: 'text', text: JSON.stringify({ retrieval_query: '张三那只猫叫什么名字' }) }],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 5, outputTokens: 4 },
+          },
+        }
+        return
+      }
+
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: 'answer' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 5, outputTokens: 4 },
+        },
+      }
+    })
+
+    const systems = createSystems({
+      memory: {
+        scheme: 'sqlite',
+        embedder: createEmbedder({
+          我猫叫什么: [1, 0],
+          张三那只猫叫什么名字: [1, 0],
+        }),
+      },
+    })
+
+    const events: string[] = []
+    for await (const event of runAgent(
+      createConfig(),
+      [
+        createTextMessage('user', '我上周收养了一只猫。'),
+        createTextMessage('assistant', '记住了，你上周收养了一只猫。'),
+        createTextMessage('user', '我给它起名叫橘子。'),
+        createTextMessage('assistant', '好的，我记住那只猫叫橘子。'),
+        createTextMessage('user', '我猫叫什么'),
+      ],
+      provider,
+      systems,
+    )) {
+      events.push(event.type)
+    }
+
+    assert.equal(sawSemanticCall, true)
+    assert.ok(events.includes('complete'))
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('runAgent records embedding retrieval metadata and writes a memory row after turn', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
   const dbPath = join(dir, 'data.db')
@@ -206,9 +313,9 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
                 text: [
                   '最近对话（仅供补全当前问题）：',
                   '用户：我上周收养了一只猫。',
-                  '助手：记住了，你上周收养了一只猫。',
+                  '我：记住了，你上周收养了一只猫。',
                   '用户：我给它起名叫橘子。',
-                  '助手：好的，我记住那只猫叫橘子。',
+                  '我：好的，我记住那只猫叫橘子。',
                   '',
                   '当前用户消息：',
                   '我猫叫什么',
@@ -354,9 +461,9 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
         inputPreview: [
           '最近对话（仅供补全当前问题）：',
           '用户：我上周收养了一只猫。',
-          '助手：记住了，你上周收养了一只猫。',
+          '我：记住了，你上周收养了一只猫。',
           '用户：我给它起名叫橘子。',
-          '助手：好的，我记住那只猫叫橘子。',
+          '我：好的，我记住那只猫叫橘子。',
           '',
           '当前用户消息：',
           '我猫叫什么',
