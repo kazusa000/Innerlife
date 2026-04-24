@@ -1062,6 +1062,9 @@ test('runAgent executes pending relationship analysis as a separate observer cal
       respect: 0.03,
     },
     trigger: '用户分享了新的上下文并认可了当前方案',
+    counterpartId: null,
+    counterpartName: null,
+    counterpartType: null,
   })
 })
 
