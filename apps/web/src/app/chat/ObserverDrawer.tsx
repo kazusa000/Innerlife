@@ -138,6 +138,12 @@ function MainTurnCallCard({
   const fragmentsCount = getPromptFragments(call).length
   const duration = formatDurationLabel(call.startedAt, call.finishedAt)
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const thinkingText = typeof call.metadata?.thinking === 'object'
+    && call.metadata.thinking !== null
+    && 'text' in call.metadata.thinking
+    && typeof call.metadata.thinking.text === 'string'
+      ? call.metadata.thinking.text
+      : ''
 
   const fragmentSections = [
     { key: 'personality', label: '性格', accent: CALL_ACCENTS.personality },
@@ -163,6 +169,7 @@ function MainTurnCallCard({
 
   const anchors = [
     ...fragmentSections.map((section) => ({ id: section.id, label: section.label, visible: true })),
+    { id: 'thinking', label: '思考', visible: thinkingText.length > 0 },
     {
       id: 'messages',
       label: OBSERVER_UI_COPY.messages,
@@ -283,6 +290,19 @@ function MainTurnCallCard({
               {section.node}
             </div>
           ))}
+
+          {thinkingText && (
+            <div
+              ref={(node) => {
+                sectionRefs.current.thinking = node
+              }}
+              style={{ scrollMarginTop: 12 }}
+            >
+              <DimensionPanel title="思考内容" accent={CALL_ACCENTS.turn} defaultOpen>
+                <CodeBlock value={thinkingText} />
+              </DimensionPanel>
+            </div>
+          )}
 
           <div
             ref={(node) => {

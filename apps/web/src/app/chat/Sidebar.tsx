@@ -15,6 +15,7 @@ interface Props {
   memoryScheme?: string | null
   relationshipScheme?: string | null
   agentName?: string
+  agentAvatarUrl?: string
   onBack?: () => void
   onResetContext?: (mode: ContextResetMode) => void
   isResetting?: boolean
@@ -47,6 +48,7 @@ export function Sidebar({
   memoryScheme,
   relationshipScheme,
   agentName,
+  agentAvatarUrl,
   onBack,
   onResetContext,
   isResetting = false,
@@ -145,9 +147,13 @@ export function Sidebar({
           )}
           <div
             className="agent-avatar"
-            style={{ backgroundImage: gradientFor(agentName) }}
+            style={agentAvatarUrl ? undefined : { backgroundImage: gradientFor(agentName) }}
           >
-            {initials(agentName)}
+            {agentAvatarUrl ? (
+              <img src={agentAvatarUrl} alt="" />
+            ) : (
+              initials(agentName)
+            )}
           </div>
           <div className="agent-meta">
             <span className="agent-eyebrow">当前对话对象</span>
@@ -287,6 +293,13 @@ export function Sidebar({
           box-shadow:
             inset 0 1px 0 rgba(255, 255, 255, 0.2),
             0 4px 12px -4px rgba(0, 0, 0, 0.5);
+          overflow: hidden;
+        }
+        .agent-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
         }
         .agent-meta {
           display: flex;

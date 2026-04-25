@@ -2,6 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { ObserverDrawer } from './ObserverDrawer'
+import {
+  formatDayLabel,
+  formatMessageTime,
+  getInitialVisibleDayKeys,
+  getNextHiddenDayKey,
+  getVisibleMessages,
+  localDayKey,
+} from './chat-history'
 import type {
   AgentModules,
   LiveCall,
@@ -15,6 +23,8 @@ const INTERRUPTED_SUFFIX = ' —（中断）'
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  thinking?: string
+  createdAt: string
 }
 
 interface ToolExecution {
@@ -27,9 +37,19 @@ interface ToolExecution {
 interface DbMessage {
   role: string
   content: string
+  createdAt?: string | number | Date | null
+}
+
+function normalizeCreatedAt(value: DbMessage['createdAt']): string {
+  const date = value ? new Date(value) : new Date()
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString()
+  }
+  return date.toISOString()
 }
 
 function renderDbMessage(m: DbMessage): ChatMessage | null {
+  const createdAt = normalizeCreatedAt(m.createdAt)
   if (m.role !== 'user' && m.role !== 'assistant') return null
   try {
     const blocks = JSON.parse(m.content) as Array<{ type: string; text?: string }>
@@ -37,15 +57,17 @@ function renderDbMessage(m: DbMessage): ChatMessage | null {
       .filter((b) => b.type === 'text' && b.text)
       .map((b) => b.text)
       .join('')
-    return { role: m.role, content: text }
+    return { role: m.role, content: text, createdAt }
   } catch {
-    return { role: m.role as 'user' | 'assistant', content: m.content }
+    return { role: m.role as 'user' | 'assistant', content: m.content, createdAt }
   }
 }
 
 interface Props {
   sessionId: string
   agentModules: AgentModules | null
+  agentName?: string
+  agentAvatarUrl?: string
 }
 
 function isAbortError(error: unknown): boolean {
@@ -152,11 +174,29 @@ async function loadLatestObserverTurn(sessionId: string): Promise<LiveCall[]> {
     .map((item) => item.call)
 }
 
-export function ChatArea({ sessionId, agentModules }: Props) {
+function gradientFor(seed: string) {
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  const a = h % 360
+  const b = (a + 40 + (h % 80)) % 360
+  return `linear-gradient(135deg, hsl(${a} 70% 58%) 0%, hsl(${b} 75% 52%) 100%)`
+}
+
+function initials(name: string | undefined) {
+  const trimmed = name?.trim()
+  if (!trimmed) return 'TA'
+  const parts = trimmed.split(/\s+/)
+  const s = parts.length >= 2 ? parts[0][0] + parts[1][0] : trimmed.slice(0, 2)
+  return s.toUpperCase()
+}
+
+export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [visibleDayKeys, setVisibleDayKeys] = useState<string[]>([])
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentTools, setCurrentTools] = useState<ToolExecution[]>([])
+  const [reasoningEnabled, setReasoningEnabled] = useState(false)
   const [observerOpen, setObserverOpen] = useState(false)
   const [observerTurn, setObserverTurn] = useState<ObserverTurnState>({ calls: [], status: 'loading' })
   const [activeObserverTab, setActiveObserverTab] = useState<ObserverTab>('main')
@@ -169,6 +209,7 @@ export function ChatArea({ sessionId, agentModules }: Props) {
     abortControllerRef.current = null
     setIsStreaming(false)
     setMessages([])
+    setVisibleDayKeys([])
     setCurrentTools([])
     setObserverTurn({ calls: [], status: 'loading' })
 
@@ -180,6 +221,7 @@ export function ChatArea({ sessionId, agentModules }: Props) {
           .map(renderDbMessage)
           .filter((m): m is ChatMessage => m !== null)
         setMessages(rendered)
+        setVisibleDayKeys(getInitialVisibleDayKeys(rendered))
       })
       .catch(() => {})
 
@@ -202,6 +244,15 @@ export function ChatArea({ sessionId, agentModules }: Props) {
   }, [sessionId])
 
   useEffect(() => {
+    const stored = window.localStorage.getItem('mas.chat.reasoningEnabled')
+    setReasoningEnabled(stored === '1')
+  }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem('mas.chat.reasoningEnabled', reasoningEnabled ? '1' : '0')
+  }, [reasoningEnabled])
+
+  useEffect(() => {
     return () => {
       abortControllerRef.current?.abort()
     }
@@ -211,17 +262,45 @@ export function ChatArea({ sessionId, agentModules }: Props) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, currentTools])
 
+  function ensureVisibleDay(createdAt: string) {
+    const dayKey = localDayKey(createdAt)
+    setVisibleDayKeys((current) => current.includes(dayKey) ? current : [...current, dayKey])
+  }
+
   function setAssistantText(text: string) {
+    const createdAt = new Date().toISOString()
+    ensureVisibleDay(createdAt)
     setMessages((prev) => {
       const updated = [...prev]
       const last = updated[updated.length - 1]
       if (last?.role === 'assistant') {
         updated[updated.length - 1] = { ...last, content: text }
       } else {
-        updated.push({ role: 'assistant', content: text })
+        updated.push({ role: 'assistant', content: text, createdAt })
       }
       return updated
     })
+  }
+
+  function setAssistantThinking(text: string) {
+    const createdAt = new Date().toISOString()
+    ensureVisibleDay(createdAt)
+    setMessages((prev) => {
+      const updated = [...prev]
+      const last = updated[updated.length - 1]
+      if (last?.role === 'assistant') {
+        updated[updated.length - 1] = { ...last, thinking: text }
+      } else {
+        updated.push({ role: 'assistant', content: '', thinking: text, createdAt })
+      }
+      return updated
+    })
+  }
+
+  function loadPreviousDay() {
+    const nextDay = getNextHiddenDayKey(messages, visibleDayKeys)
+    if (!nextDay) return
+    setVisibleDayKeys((current) => [...current, nextDay])
   }
 
   function markInterrupted(currentText: string) {
@@ -241,12 +320,19 @@ export function ChatArea({ sessionId, agentModules }: Props) {
     if (!input.trim() || isStreaming) return
 
     const userMessage = input.trim()
+    const now = new Date()
+    const todayKey = localDayKey(now)
     setInput('')
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }])
+    setVisibleDayKeys((current) => current.includes(todayKey) ? current : [...current, todayKey])
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: userMessage, createdAt: now.toISOString() },
+    ])
     setIsStreaming(true)
     setCurrentTools([])
 
     let assistantText = ''
+    let thinkingText = ''
     let abortedHandled = false
     const abortController = new AbortController()
     abortControllerRef.current = abortController
@@ -255,7 +341,12 @@ export function ChatArea({ sessionId, agentModules }: Props) {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage, sessionId }),
+        body: JSON.stringify({
+          message: userMessage,
+          sessionId,
+          reasoningEnabled,
+          reasoningEffort: 'medium',
+        }),
         signal: abortController.signal,
       })
 
@@ -302,6 +393,11 @@ export function ChatArea({ sessionId, agentModules }: Props) {
               case 'text_delta':
                 assistantText += event.text
                 setAssistantText(assistantText)
+                break
+
+              case 'thinking_delta':
+                thinkingText += event.text
+                setAssistantThinking(thinkingText)
                 break
 
               case 'tool_start':
@@ -376,12 +472,15 @@ export function ChatArea({ sessionId, agentModules }: Props) {
                 assistantText = ''
                 break
 
-              case 'error':
+              case 'error': {
+                const createdAt = new Date().toISOString()
+                ensureVisibleDay(createdAt)
                 setMessages((prev) => [
                   ...prev,
-                  { role: 'assistant', content: `Error: ${event.error}` },
+                  { role: 'assistant', content: `Error: ${event.error}`, createdAt },
                 ])
                 break
+              }
             }
           } catch {
             // skip malformed JSON
@@ -395,9 +494,11 @@ export function ChatArea({ sessionId, agentModules }: Props) {
         }
       } else {
         setObserverTurn((prev) => ({ ...prev, status: 'error' }))
+        const createdAt = new Date().toISOString()
+        ensureVisibleDay(createdAt)
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: `连接错误：${err}` },
+          { role: 'assistant', content: `连接错误：${err}`, createdAt },
         ])
       }
     } finally {
@@ -406,6 +507,9 @@ export function ChatArea({ sessionId, agentModules }: Props) {
       setCurrentTools([])
     }
   }
+
+  const visibleMessages = getVisibleMessages(messages, visibleDayKeys)
+  const nextHiddenDayKey = getNextHiddenDayKey(messages, visibleDayKeys)
 
   return (
     <div className="chat-area-root">
@@ -422,24 +526,79 @@ export function ChatArea({ sessionId, agentModules }: Props) {
           >
             观测器
           </button>
+          <label className="reasoning-toggle" title="切换主对话思考模式">
+            <span>思考</span>
+            <input
+              type="checkbox"
+              checked={reasoningEnabled}
+              onChange={(event) => setReasoningEnabled(event.target.checked)}
+              disabled={isStreaming}
+            />
+            <span className="toggle-track" aria-hidden>
+              <span className="toggle-thumb" />
+            </span>
+          </label>
         </header>
 
         <div className="thread">
-          {messages.length === 0 && (
+          {nextHiddenDayKey && (
+            <button type="button" className="history-more" onClick={loadPreviousDay}>
+              查看更多历史消息 · {formatDayLabel(nextHiddenDayKey)}
+            </button>
+          )}
+
+          {visibleMessages.length === 0 && (
             <div className="thread-empty">
               <div className="thread-empty-glyph" aria-hidden />
-              <p className="thread-empty-title">打个招呼</p>
+              <p className="thread-empty-title">今天还没有消息</p>
               <p className="thread-empty-sub">
                 从任何一句话开始都行，可以是想法、问题，或者一句轻轻的问候。
               </p>
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <div key={i} className={`msg msg-${msg.role}`}>
-              <div className="bubble">{msg.content}</div>
-            </div>
-          ))}
+          {visibleMessages.map((msg, i) => {
+            const dayKey = localDayKey(msg.createdAt)
+            const previousDayKey = i > 0 ? localDayKey(visibleMessages[i - 1]?.createdAt) : null
+            const showDayDivider = dayKey !== previousDayKey
+
+            return (
+              <div key={`${msg.createdAt}-${i}`}>
+                {showDayDivider && <div className="day-divider">{formatDayLabel(dayKey)}</div>}
+                <div className={`msg msg-${msg.role}`}>
+                  {msg.role === 'assistant' && (
+                    <div
+                      className="assistant-avatar"
+                      style={agentAvatarUrl ? undefined : { backgroundImage: gradientFor(agentName ?? 'assistant') }}
+                      aria-hidden
+                    >
+                      {agentAvatarUrl ? (
+                        <img src={agentAvatarUrl} alt="" />
+                      ) : (
+                        initials(agentName)
+                      )}
+                    </div>
+                  )}
+                  <div className="msg-stack">
+                    {msg.thinking && (
+                      <details className="thinking-panel" open={isStreaming && i === visibleMessages.length - 1}>
+                        <summary>思考内容</summary>
+                        <pre>{msg.thinking}</pre>
+                      </details>
+                    )}
+                    {msg.content && (
+                      <div className="bubble">
+                        <span className="bubble-text">{msg.content}</span>
+                        <time className="bubble-time" dateTime={msg.createdAt}>
+                          {formatMessageTime(msg.createdAt)}
+                        </time>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
 
           {currentTools.map((tool, i) => (
             <div key={i} className="tool-call">
@@ -526,6 +685,7 @@ export function ChatArea({ sessionId, agentModules }: Props) {
           display: flex;
           align-items: center;
           justify-content: space-between;
+          gap: 12px;
           backdrop-filter: blur(18px) saturate(140%);
           -webkit-backdrop-filter: blur(18px) saturate(140%);
           background: rgba(10, 10, 15, 0.6);
@@ -534,6 +694,8 @@ export function ChatArea({ sessionId, agentModules }: Props) {
           display: flex;
           align-items: center;
           gap: 10px;
+          flex: 1;
+          min-width: 0;
         }
         .chat-header-title h1 {
           font-family: var(--font-display);
@@ -554,6 +716,53 @@ export function ChatArea({ sessionId, agentModules }: Props) {
           background: var(--indigo-soft);
           color: var(--indigo);
         }
+        .reasoning-toggle {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 8px;
+          border: 1px solid var(--border-subtle);
+          border-radius: 999px;
+          color: var(--fg-muted);
+          font-size: 12px;
+          cursor: pointer;
+          user-select: none;
+          background: rgba(255, 255, 255, 0.03);
+        }
+        .reasoning-toggle input {
+          position: absolute;
+          opacity: 0;
+          pointer-events: none;
+        }
+        .toggle-track {
+          width: 34px;
+          height: 18px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.12);
+          border: 1px solid var(--border-subtle);
+          padding: 2px;
+          transition: background 160ms ease, border-color 160ms ease;
+        }
+        .toggle-thumb {
+          display: block;
+          width: 12px;
+          height: 12px;
+          border-radius: 999px;
+          background: var(--fg-muted);
+          transition: transform 160ms ease, background 160ms ease;
+        }
+        .reasoning-toggle input:checked + .toggle-track {
+          background: var(--indigo-soft);
+          border-color: rgba(129, 140, 248, 0.6);
+        }
+        .reasoning-toggle input:checked + .toggle-track .toggle-thumb {
+          transform: translateX(16px);
+          background: var(--indigo);
+        }
+        .reasoning-toggle:has(input:disabled) {
+          cursor: not-allowed;
+          opacity: 0.55;
+        }
 
         .thread {
           flex: 1;
@@ -562,6 +771,59 @@ export function ChatArea({ sessionId, agentModules }: Props) {
           display: flex;
           flex-direction: column;
           gap: 14px;
+        }
+        .history-more {
+          align-self: center;
+          padding: 7px 12px;
+          border: 1px solid var(--border-subtle);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.04);
+          color: var(--fg-muted);
+          cursor: pointer;
+          font-size: 12px;
+          transition: border-color var(--dur) var(--ease),
+            color var(--dur) var(--ease),
+            background var(--dur) var(--ease);
+        }
+        .history-more:hover {
+          border-color: var(--border);
+          background: rgba(255, 255, 255, 0.07);
+          color: var(--fg);
+        }
+        .day-divider {
+          align-self: center;
+          padding: 2px 9px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.04);
+          color: var(--fg-subtle);
+          font-size: 11px;
+          line-height: 1.6;
+        }
+        .thinking-panel {
+          width: 100%;
+          border: 1px solid rgba(129, 140, 248, 0.28);
+          border-radius: 8px;
+          background: rgba(79, 70, 229, 0.08);
+          color: var(--fg-muted);
+          overflow: hidden;
+        }
+        .msg-assistant .thinking-panel {
+          align-self: stretch;
+        }
+        .thinking-panel summary {
+          cursor: pointer;
+          padding: 8px 12px;
+          font-size: 12px;
+          color: var(--indigo);
+        }
+        .thinking-panel pre {
+          margin: 0;
+          padding: 0 12px 12px;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+          font-family: var(--font-sans);
+          font-size: 12px;
+          line-height: 1.6;
         }
         .thread-empty {
           margin: auto;
@@ -596,17 +858,60 @@ export function ChatArea({ sessionId, agentModules }: Props) {
         .msg {
           display: flex;
           width: 100%;
+          gap: 10px;
+          align-items: flex-end;
         }
         .msg-user {
           justify-content: flex-end;
         }
         .msg-assistant {
           justify-content: flex-start;
+          align-items: flex-start;
+        }
+        .msg-stack {
+          max-width: min(680px, 75%);
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .msg-user .msg-stack {
+          align-items: flex-end;
+        }
+        .msg-assistant .msg-stack {
+          align-items: flex-start;
+        }
+        .assistant-avatar {
+          width: 32px;
+          height: 32px;
+          margin-top: 4px;
+          border-radius: 11px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          overflow: hidden;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          color: rgba(255, 255, 255, 0.95);
+          font-family: var(--font-display);
+          font-size: 11px;
+          font-weight: 600;
+          box-shadow: 0 8px 18px -12px rgba(0, 0, 0, 0.8);
+        }
+        .assistant-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
         }
         .bubble {
-          max-width: min(680px, 75%);
+          max-width: 100%;
+          min-width: 64px;
           padding: 10px 14px;
           border-radius: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
           font-size: 14.5px;
           line-height: 1.55;
           white-space: pre-wrap;
@@ -627,6 +932,24 @@ export function ChatArea({ sessionId, agentModules }: Props) {
           border-bottom-left-radius: 6px;
           backdrop-filter: blur(12px) saturate(140%);
           -webkit-backdrop-filter: blur(12px) saturate(140%);
+        }
+        .bubble-text {
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+        }
+        .bubble-time {
+          align-self: flex-end;
+          flex-shrink: 0;
+          margin-top: 1px;
+          font-size: 10.5px;
+          line-height: 1;
+          font-variant-numeric: tabular-nums;
+        }
+        .msg-user .bubble-time {
+          color: rgba(11, 11, 22, 0.58);
+        }
+        .msg-assistant .bubble-time {
+          color: var(--fg-subtle);
         }
         @keyframes bubble-in {
           from {

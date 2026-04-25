@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ChatArea } from './ChatArea'
 import { Sidebar } from './Sidebar'
+import { getPersonalityAvatarUrl } from '../persona-modules'
 import type { AgentModules } from './observer-types'
 import {
   buildContextResetNotice,
@@ -173,12 +174,15 @@ function ChatPageInner() {
         isResetting={isResettingContext}
         resettingMode={resettingMode}
         resetNotice={resetNotice}
+        agentAvatarUrl={getPersonalityAvatarUrl(agent?.modules)}
       />
       {loaded && currentId ? (
         <ChatArea
           key={currentId}
           sessionId={currentId}
           agentModules={agent?.modules ?? null}
+          agentName={agent?.name}
+          agentAvatarUrl={getPersonalityAvatarUrl(agent?.modules)}
         />
       ) : (
         <div style={{ flex: 1 }} />

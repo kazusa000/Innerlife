@@ -16,7 +16,7 @@ import {
   formatImportance,
   formatJson,
 } from './observer-utils'
-import { CALL_ACCENTS, CodeBlock, CollapsibleSection, DetailList, Pill, TagPills } from './observer-ui'
+import { CALL_ACCENTS, CodeBlock, CollapsibleSection, DetailList, Pill } from './observer-ui'
 
 function formatMemoryLayerLabel(layer: string | null | undefined) {
   switch (layer) {
@@ -164,7 +164,6 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                             { label: '层级', value: formatMemoryLayerLabel(typeof hit.layer === 'string' ? hit.layer : null) },
                             { label: '摘要', value: hit.summary },
                             { label: '重要性', value: formatImportance(hit.importance) },
-                            { label: '标签', value: <TagPills values={hit.tags} accent={CALL_ACCENTS.memory.color} /> },
                           ]}
                         />
                       </div>
@@ -184,7 +183,6 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                   { label: '摘要', value: written?.summary ?? '无' },
                   { label: '检索文本', value: written?.retrievalText ?? '无' },
                   { label: '重要性', value: written ? formatImportance(written.importance) : '无' },
-                  { label: '标签', value: <TagPills values={written?.tags ?? []} accent={CALL_ACCENTS.memory.color} /> },
                 ]}
               />
             </CollapsibleSection>
