@@ -57,7 +57,6 @@ export function updateSqliteMemory(agentId: string, memoryId: string, input: unk
           layer: memory.layer,
           summary: memory.displaySummary,
           retrievalText: memory.retrievalText,
-          tags: memory.tags,
           importance: memory.importance,
           observedStartAt: memory.observedStartAt?.toISOString() ?? null,
           observedEndAt: memory.observedEndAt?.toISOString() ?? null,

@@ -130,7 +130,7 @@ test('named-multi-dim relationship stays inactive without a bound counterpart an
     await system.beforeTurn?.(zhangsanCtx)
     await system.beforeLLM?.(zhangsanCtx)
     await system.afterLLM?.(zhangsanCtx)
-    assert.match(zhangsanCtx.promptFragments[0]?.content ?? '', /张三/)
+    assert.match(zhangsanCtx.promptFragments[0]?.content ?? '', /当前谈话对象：张三/)
     zhangsanCtx.relationshipAnalysis = {
       delta: { trust: 0.15, affinity: 0.1, familiarity: 0.06, respect: 0.05 },
       trigger: '张三主动道谢',
@@ -145,7 +145,7 @@ test('named-multi-dim relationship stays inactive without a bound counterpart an
     const lisiCtx = createContext('session-b', '我有点不开心，李四')
     await system.beforeTurn?.(lisiCtx)
     await system.beforeLLM?.(lisiCtx)
-    assert.match(lisiCtx.promptFragments[0]?.content ?? '', /李四/)
+    assert.match(lisiCtx.promptFragments[0]?.content ?? '', /当前谈话对象：李四/)
     lisiCtx.relationshipAnalysis = {
       delta: { trust: -0.1, affinity: -0.05, familiarity: 0.02, respect: -0.03 },
       trigger: '李四有些抱怨',

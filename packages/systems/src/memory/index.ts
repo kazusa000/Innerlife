@@ -13,10 +13,12 @@ export {
   MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
   parseMemoryBatchWriteResponse,
   parseMemoryWriteResponse,
+  parseShortTermToLongTermResponse,
   resolveMemoryActorLabels,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
   serializeMemoryHit,
+  SHORT_TERM_TO_LONG_TERM_RESPONSE_FORMAT,
 } from './sqlite'
 export { analyzeMemoryTimeText, analyzeMemoryTimeText as parseMemoryTimeText } from './time-parser'
 export {

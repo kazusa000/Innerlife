@@ -529,7 +529,7 @@ test('findRelevantMemories prefers newest memories for pure time-range recall wi
 })
 
 
-test('sqlite management query lists latest first and filters by display summary or tags', () => {
+test('sqlite management query lists latest first and filters by display summary or retrieval text', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
   const dbPath = join(dir, 'memory.db')
 
@@ -541,7 +541,7 @@ test('sqlite management query lists latest first and filters by display summary 
       sessionId: 'session-2',
       sourceText: 'User schedules deep work after midnight.',
       displaySummary: '用户习惯午夜后进入深度工作',
-      retrievalText: '用户会在午夜后开始深度工作',
+      retrievalText: '用户会在午夜后开始 deep work',
       retrievalEmbedding: vector([1, 0]),
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
       tags: ['midnight', 'coding'],
@@ -563,11 +563,11 @@ test('sqlite management query lists latest first and filters by display summary 
 
     const listed = memoryRepo.listSqliteMemoriesByAgent?.('agent-1') ?? []
     const summaryHits = memoryRepo.listSqliteMemoriesByAgent?.('agent-1', 'WJJ') ?? []
-    const tagHits = memoryRepo.listSqliteMemoriesByAgent?.('agent-1', 'midnight') ?? []
+    const retrievalHits = memoryRepo.listSqliteMemoriesByAgent?.('agent-1', 'deep work') ?? []
 
     assert.deepEqual(listed.map((memory) => memory.id), [latest.id, older.id])
     assert.deepEqual(summaryHits.map((memory) => memory.id), [older.id])
-    assert.deepEqual(tagHits.map((memory) => memory.id), [latest.id])
+    assert.deepEqual(retrievalHits.map((memory) => memory.id), [latest.id])
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })

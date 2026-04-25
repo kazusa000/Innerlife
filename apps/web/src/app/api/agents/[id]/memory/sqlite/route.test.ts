@@ -72,6 +72,7 @@ function addMemory(input: {
   agentId: string
   sessionId: string
   summary: string
+  retrievalText?: string
   tags: string[]
   createdAt: string
   observedStartAt?: string | null
@@ -84,7 +85,7 @@ function addMemory(input: {
     layer: input.layer,
     sourceText: input.summary,
     displaySummary: input.summary,
-    retrievalText: input.summary,
+    retrievalText: input.retrievalText ?? input.summary,
     retrievalEmbedding: [1, 0],
     retrievalModel: 'qwen/qwen3-embedding-0.6b',
     tags: input.tags,
@@ -133,7 +134,7 @@ test('listSqliteMemories returns 400 when the agent memory scheme is not sqlite'
   }
 })
 
-test('listSqliteMemories returns paginated latest-first rows and filters by summary or tags', async () => {
+test('listSqliteMemories returns paginated latest-first rows and filters by summary or retrieval text', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
   const dbPath = join(dir, 'test.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -145,6 +146,7 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
       agentId: 'agent-1',
       sessionId: 'session-2',
       summary: '用户偏好午夜后编码',
+      retrievalText: '用户喜欢在 night coding 时段写代码',
       tags: ['night', 'coding'],
       createdAt: '2026-04-18T02:00:00.000Z',
       layer: 'long_term',
@@ -176,7 +178,7 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     const listResponse = listSqliteMemories('agent-1', undefined, { page: 1, pageSize: 2 })
     const secondPageResponse = listSqliteMemories('agent-1', undefined, { page: 2, pageSize: 2 })
     const summaryResponse = listSqliteMemories('agent-1', 'WJJ')
-    const tagResponse = listSqliteMemories('agent-1', 'night')
+    const retrievalResponse = listSqliteMemories('agent-1', 'night coding')
 
     assert.equal(listResponse.status, 200)
     const listData = await listResponse.clone().json()
@@ -221,7 +223,7 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.equal(listData.memories[1]?.observedEndAt, '2026-04-17T09:05:00.000Z')
     assert.deepEqual((await secondPageResponse.json()).memories.map((memory: { id: string }) => memory.id), [oldest.id])
     assert.deepEqual((await summaryResponse.json()).memories.map((memory: { id: string }) => memory.id), [older.id])
-    assert.deepEqual((await tagResponse.json()).memories.map((memory: { id: string }) => memory.id), [latest.id])
+    assert.deepEqual((await retrievalResponse.json()).memories.map((memory: { id: string }) => memory.id), [latest.id])
   } finally {
     resetDb()
     resetMemoryDb()

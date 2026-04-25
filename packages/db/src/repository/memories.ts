@@ -196,11 +196,9 @@ export function listSqliteMemoriesByAgent(agentId: string, query?: string) {
        AND (
          lower(display_summary) LIKE ?
          OR lower(retrieval_text) LIKE ?
-         OR lower(tags) LIKE ?
        )
      ORDER BY created_at DESC`,
     agentId,
-    wildcard,
     wildcard,
     wildcard,
   )
@@ -256,9 +254,8 @@ export function listSqliteMemoriesPageByAgent(input: {
   conditions.push(`(
     lower(display_summary) LIKE ?
     OR lower(retrieval_text) LIKE ?
-    OR lower(tags) LIKE ?
   )`)
-  values.push(wildcard, wildcard, wildcard)
+  values.push(wildcard, wildcard)
   const totalRow = sqlite.prepare(`
     SELECT COUNT(*) as total
     FROM memories

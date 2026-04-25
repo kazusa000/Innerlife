@@ -148,7 +148,6 @@ export const SearchLongTermMemoryTool: Tool = {
           displaySummary: memory.displaySummary,
           createdAt: memory.createdAt.toISOString(),
           importance: memory.importance,
-          tags: memory.tags,
         })),
       },
     }

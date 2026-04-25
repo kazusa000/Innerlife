@@ -13,7 +13,7 @@ import {
   resetMemoryDb,
   sessionContextStateRepo,
 } from '@mas/db'
-import { runContextFlushForSession } from './memory-jobs'
+import { runContextFlushForSession, runSleepForAgent } from './memory-jobs'
 
 function bootstrapDb(dbPath: string, memoryDbPath: string) {
   process.env.MAS_MEMORY_DB_PATH = memoryDbPath
@@ -78,6 +78,11 @@ function bootstrapDb(dbPath: string, memoryDbPath: string) {
       message TEXT NOT NULL,
       payload_json TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+    );
+    CREATE TABLE agent_memory_sleep_state (
+      agent_id TEXT PRIMARY KEY REFERENCES agents(id),
+      last_sleep_at INTEGER,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
   `)
   getMemoryRawSqlite().exec(`
@@ -151,7 +156,6 @@ test('runContextFlushForSession uses bound counterpart labels in source text and
                     {
                       display_summary: '张三小时候养过一只橘猫',
                       retrieval_text: '张三曾告诉我他小时候养过一只橘猫，我答应过他下次继续聊这件事。',
-                      tags: ['张三', '橘猫', '童年', '约定'],
                       importance: 0.82,
                     },
                   ],
@@ -211,12 +215,12 @@ test('runContextFlushForSession idle mode flushes only overflow batch and keeps 
       );
       INSERT INTO sessions (id, agent_id, title) VALUES ('session-1', 'agent-1', 'Idle');
       INSERT INTO messages (id, session_id, role, content, created_at) VALUES
-        ('m-1', 'session-1', 'user', '[{"type":"text","text":"第一轮用户。"}]', unixepoch('2026-04-23T10:00:00Z') * 1000),
-        ('m-2', 'session-1', 'assistant', '[{"type":"text","text":"第一轮助手。"}]', unixepoch('2026-04-23T10:01:00Z') * 1000),
-        ('m-3', 'session-1', 'user', '[{"type":"text","text":"第二轮用户。"}]', unixepoch('2026-04-23T10:02:00Z') * 1000),
-        ('m-4', 'session-1', 'assistant', '[{"type":"text","text":"第二轮助手。"}]', unixepoch('2026-04-23T10:03:00Z') * 1000),
-        ('m-5', 'session-1', 'user', '[{"type":"text","text":"第三轮用户。"}]', unixepoch('2026-04-23T10:04:00Z') * 1000),
-        ('m-6', 'session-1', 'assistant', '[{"type":"text","text":"第三轮助手。"}]', unixepoch('2026-04-23T10:05:00Z') * 1000);
+        ('m-1', 'session-1', 'user', '[{\"type\":\"text\",\"text\":\"第一轮用户。\"}]', unixepoch('2026-04-23T10:00:00Z') * 1000),
+        ('m-2', 'session-1', 'assistant', '[{\"type\":\"text\",\"text\":\"第一轮助手。\"}]', unixepoch('2026-04-23T10:01:00Z') * 1000),
+        ('m-3', 'session-1', 'user', '[{\"type\":\"text\",\"text\":\"第二轮用户。\"}]', unixepoch('2026-04-23T10:02:00Z') * 1000),
+        ('m-4', 'session-1', 'assistant', '[{\"type\":\"text\",\"text\":\"第二轮助手。\"}]', unixepoch('2026-04-23T10:03:00Z') * 1000),
+        ('m-5', 'session-1', 'user', '[{\"type\":\"text\",\"text\":\"第三轮用户。\"}]', unixepoch('2026-04-23T10:04:00Z') * 1000),
+        ('m-6', 'session-1', 'assistant', '[{\"type\":\"text\",\"text\":\"第三轮助手。\"}]', unixepoch('2026-04-23T10:05:00Z') * 1000);
     `)
 
     let sourceText = ''
@@ -269,6 +273,138 @@ test('runContextFlushForSession idle mode flushes only overflow batch and keeps 
       sessionContextStateRepo.getSessionContextState('session-1')?.activeStartMessageId,
       'm-3',
     )
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('runSleepForAgent creates long-term memories from referenced short-term ids only', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-daemon-memory-sleep-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+    getRawSqlite().exec(`
+      INSERT INTO agents (id, name, model, modules, config)
+      VALUES (
+        'agent-1',
+        'Hazel',
+        'claude-sonnet-4-6',
+        '{"memory":{"scheme":"sqlite","summarizeModel":"memory-model","embeddingModel":"memory-embed"}}',
+        '{"provider":"anthropic"}'
+      );
+      INSERT INTO sessions (id, agent_id, title) VALUES ('session-1', 'agent-1', 'Sleep');
+    `)
+
+    const catMorning = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'source cat morning',
+      displaySummary: '张三提到小时候养过橘猫',
+      retrievalText: '张三小时候养过一只橘猫。',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'memory-embed',
+      tags: ['猫'],
+      importance: 0.7,
+      observedStartAt: new Date('2026-04-23T10:07:00.000Z'),
+      observedEndAt: new Date('2026-04-23T10:10:00.000Z'),
+      createdAt: new Date('2026-04-23T10:15:00.000Z'),
+    })
+    const coffee = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'source coffee',
+      displaySummary: '张三提到喜欢浅烘咖啡',
+      retrievalText: '张三喜欢浅烘咖啡。',
+      retrievalEmbedding: [0, 1],
+      retrievalModel: 'memory-embed',
+      tags: ['咖啡'],
+      importance: 0.6,
+      observedStartAt: new Date('2026-04-23T11:00:00.000Z'),
+      observedEndAt: new Date('2026-04-23T11:05:00.000Z'),
+      createdAt: new Date('2026-04-23T11:10:00.000Z'),
+    })
+    const catNoon = memoryRepo.addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'source cat noon',
+      displaySummary: '张三纠正猫的名字叫年糕',
+      retrievalText: '张三纠正那只猫叫年糕。',
+      retrievalEmbedding: [1, 1],
+      retrievalModel: 'memory-embed',
+      tags: ['猫'],
+      importance: 0.8,
+      observedStartAt: new Date('2026-04-23T12:03:00.000Z'),
+      observedEndAt: new Date('2026-04-23T12:05:00.000Z'),
+      createdAt: new Date('2026-04-23T12:10:00.000Z'),
+    })
+
+    const result = await runSleepForAgent({
+      agentId: 'agent-1',
+      mode: 'manual',
+      now: new Date('2026-04-24T03:00:00.000Z'),
+      provider: {
+        async sendMessage() {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  memories: [
+                    {
+                      display_summary: '张三小时候养过一只橘猫',
+                      retrieval_text: '张三告诉过我他小时候养过一只橘猫。',
+                      importance: 0.78,
+                      source_stm_ids: [catMorning.id],
+                    },
+                    {
+                      display_summary: '张三纠正那只猫叫年糕',
+                      retrieval_text: '张三后来纠正那只猫的名字叫年糕。',
+                      importance: 0.86,
+                      source_stm_ids: [catNoon.id],
+                    },
+                  ],
+                }),
+              },
+            ],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 10, outputTokens: 10 },
+          }
+        },
+      },
+      embedder: {
+        async embed(input: string[]) {
+          return input.map(() => [1, 0])
+        },
+      },
+    })
+
+    assert.equal(result.ok, true)
+    assert.equal(result.createdCount, 2)
+    assert.equal(result.deletedShortTermCount, 2)
+    assert.equal(result.retainedShortTermCount, 1)
+
+    const rows = memoryRepo.listMemoriesByAgentOldestFirst('agent-1')
+    const remainingShortTerm = rows.filter((memory) => memory.layer === 'short_term')
+    const longTerm = rows.filter((memory) => memory.layer === 'long_term')
+
+    assert.deepEqual(remainingShortTerm.map((memory) => memory.id), [coffee.id])
+    assert.equal(longTerm.length, 2)
+    assert.deepEqual(longTerm.map((memory) => memory.tags), [[], []])
+    assert.equal(longTerm[0]?.observedStartAt?.toISOString(), '2026-04-23T10:00:00.000Z')
+    assert.equal(longTerm[0]?.observedEndAt?.toISOString(), '2026-04-23T10:59:59.999Z')
+    assert.equal(longTerm[1]?.observedStartAt?.toISOString(), '2026-04-23T12:00:00.000Z')
+    assert.equal(longTerm[1]?.observedEndAt?.toISOString(), '2026-04-23T12:59:59.999Z')
+    assert.match(longTerm[0]?.sourceText ?? '', new RegExp(catMorning.id))
+    assert.doesNotMatch(longTerm[0]?.sourceText ?? '', new RegExp(coffee.id))
+    assert.match(longTerm[1]?.sourceText ?? '', new RegExp(catNoon.id))
+    assert.doesNotMatch(longTerm[1]?.sourceText ?? '', new RegExp(coffee.id))
   } finally {
     resetDb()
     resetMemoryDb()

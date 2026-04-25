@@ -138,6 +138,7 @@ export function buildRelationshipFragment(
   if (promptOverride?.trim()) {
     return [
       `当前你与${counterpartName}的关系状态参考：`,
+      `当前谈话对象：${counterpartName}`,
       `- trust：${renderTrust(state.trust)}（${state.trust.toFixed(2)}）`,
       `- affinity：${renderAffinity(state.affinity)}（${state.affinity.toFixed(2)}）`,
       `- familiarity：${renderFamiliarity(state.familiarity)}（${state.familiarity.toFixed(2)}）`,
@@ -148,6 +149,7 @@ export function buildRelationshipFragment(
 
   return [
     `当前你与${counterpartName}的关系状态（会随互动缓慢变化）：`,
+    `当前谈话对象：${counterpartName}`,
     `- trust：${renderTrust(state.trust)}（${state.trust.toFixed(2)}）`,
     `- affinity：${renderAffinity(state.affinity)}（${state.affinity.toFixed(2)}）`,
     `- familiarity：${renderFamiliarity(state.familiarity)}（${state.familiarity.toFixed(2)}）`,

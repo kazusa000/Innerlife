@@ -11,6 +11,7 @@ export type {
   MemoryResponseFormat,
   PendingMemoryQuery,
   MemoryWriteResult,
+  ShortTermToLongTermMemoryWriteResult,
   PendingCompaction,
   PendingEmotionAnalysis,
   PendingRelationshipAnalysis,
@@ -60,10 +61,12 @@ export {
   MemorySqliteSystem,
   parseMemoryBatchWriteResponse,
   parseMemoryWriteResponse,
+  parseShortTermToLongTermResponse,
   resolveMemoryActorLabels,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
   serializeMemoryHit,
+  SHORT_TERM_TO_LONG_TERM_RESPONSE_FORMAT,
 } from './memory'
 export type { MemoryActorLabels, MemoryEmbedder } from './memory'
 export { NoopSystem, HelloWorldSystem } from './noop'

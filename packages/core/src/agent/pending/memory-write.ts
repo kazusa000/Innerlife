@@ -56,14 +56,12 @@ export async function runPendingMemoryWrite(
                 summary: written.displaySummary,
                 layer: written.layer,
                 retrievalText: written.retrievalText,
-                tags: [...written.tags],
                 importance: written.importance,
               }
             : {
                 summary: result.displaySummary,
                 layer: 'short_term',
                 retrievalText: result.retrievalText,
-                tags: [...result.tags],
                 importance: result.importance,
               },
         },

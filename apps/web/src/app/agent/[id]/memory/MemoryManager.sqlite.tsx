@@ -23,7 +23,6 @@ interface SqliteMemory {
   layer: 'short_term' | 'long_term' | 'fixed'
   summary: string
   retrievalText: string
-  tags: string[]
   importance: number
   observedStartAt: string | null
   observedEndAt: string | null
@@ -889,7 +888,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 setQuery(event.target.value)
                 setPage(1)
               }}
-              placeholder="按摘要、检索文本或 tags 搜索"
+              placeholder="按摘要或检索文本搜索"
             />
           </label>
 
@@ -947,7 +946,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                     <th>时间</th>
                     <th>会话</th>
                     <th>重要性</th>
-                    <th>标签</th>
                     <th>操作</th>
                   </tr>
                 </thead>
@@ -972,16 +970,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                           <td className={styles.mono}>{memory.sessionId}</td>
                           <td className={styles.mono}>{memory.importance.toFixed(2)}</td>
                           <td>
-                            <div className={styles.chips}>
-                              {memory.tags.slice(0, 3).map((tag) => (
-                                <span key={`${memory.id}-${tag}`} className={styles.chip}>{tag}</span>
-                              ))}
-                              {memory.tags.length > 3 && (
-                                <span className={styles.chip}>+{memory.tags.length - 3}</span>
-                              )}
-                            </div>
-                          </td>
-                          <td>
                             <button
                               type="button"
                               className={styles.dangerButton}
@@ -994,7 +982,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                         </tr>
                         {expanded && (
                           <tr className={styles.expandedRow}>
-                            <td colSpan={7}>
+                            <td colSpan={6}>
                               <div className={styles.expandedGrid}>
                                 <div>
                                   <p className={styles.fieldLabel}>retrieval_text</p>
@@ -1004,10 +992,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                                   <div>
                                     <dt>ID</dt>
                                     <dd className={styles.mono}>{memory.id}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>全部标签</dt>
-                                    <dd>{memory.tags.join(' / ') || '无'}</dd>
                                   </div>
                                   <div>
                                     <dt>生成时间</dt>

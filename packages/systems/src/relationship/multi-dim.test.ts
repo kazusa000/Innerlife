@@ -99,6 +99,7 @@ test('multi-dim relationship loads baseline, injects a fragment, and persists th
 
     await system.beforeLLM?.(ctx)
     assert.equal(ctx.promptFragments[0]?.priority, 40)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /当前谈话对象：用户/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /亲疏感和分寸/)
 
     await system.afterLLM?.(ctx)

@@ -188,7 +188,6 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
       layer: memory.layer,
       summary: memory.displaySummary,
       retrievalText: memory.retrievalText,
-      tags: memory.tags,
       importance: memory.importance,
       observedStartAt: memory.observedStartAt?.toISOString() ?? null,
       observedEndAt: memory.observedEndAt?.toISOString() ?? null,

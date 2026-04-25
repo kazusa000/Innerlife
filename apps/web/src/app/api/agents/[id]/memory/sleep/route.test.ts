@@ -90,6 +90,7 @@ test('sleepAgentMemory returns the sleep job result', async () => {
           createdCount: 1,
           memoryIds: ['memory-9'],
           deletedShortTermCount: 3,
+          retainedShortTermCount: 2,
         }
       },
     })
@@ -102,6 +103,7 @@ test('sleepAgentMemory returns the sleep job result', async () => {
         createdCount: 1,
         memoryIds: ['memory-9'],
         deletedShortTermCount: 3,
+        retainedShortTermCount: 2,
       },
     })
   } finally {

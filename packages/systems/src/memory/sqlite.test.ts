@@ -19,6 +19,7 @@ import {
   buildShortTermToLongTermPrompt,
   MemorySqliteSystem,
   parseMemoryBatchWriteResponse,
+  parseShortTermToLongTermResponse,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
 } from './sqlite'
@@ -836,19 +837,17 @@ test('memory sqlite config resolves per-layer retrieval settings and ignores leg
   assert.equal('consolidatePrompt' in resolved, false)
 })
 
-test('memory sqlite batch parser returns up to configured number of short-term memories', () => {
+test('memory sqlite batch parser no longer requires tags', () => {
   const parsed = parseMemoryBatchWriteResponse(JSON.stringify({
     memories: [
       {
         display_summary: '用户叫王家骏',
         retrieval_text: '用户告诉过我他的名字是王家骏',
-        tags: ['名字', '称呼', '身份', '王家骏'],
         importance: 0.9,
       },
       {
         display_summary: '用户喜欢番茄鸡蛋面',
         retrieval_text: '用户最喜欢的食物是番茄鸡蛋面',
-        tags: ['食物', '偏好'],
         importance: 0.8,
       },
     ],
@@ -858,14 +857,40 @@ test('memory sqlite batch parser returns up to configured number of short-term m
     {
       displaySummary: '用户叫王家骏',
       retrievalText: '用户告诉过我他的名字是王家骏',
-      tags: ['名字', '称呼', '身份', '王家骏'],
       importance: 0.9,
     },
     {
       displaySummary: '用户喜欢番茄鸡蛋面',
       retrievalText: '用户最喜欢的食物是番茄鸡蛋面',
-      tags: ['食物', '偏好'],
       importance: 0.8,
+    },
+  ])
+})
+
+test('short-term to long-term parser keeps only candidates with valid source stm ids', () => {
+  const parsed = parseShortTermToLongTermResponse(JSON.stringify({
+    memories: [
+      {
+        display_summary: '用户养过一只橘猫',
+        retrieval_text: '用户告诉过我他小时候养过一只橘猫。',
+        importance: 0.8,
+        source_stm_ids: ['stm-cat', 'stm-cat', 'missing'],
+      },
+      {
+        display_summary: '缺少来源',
+        retrieval_text: '这条没有合法来源。',
+        importance: 0.5,
+        source_stm_ids: ['missing'],
+      },
+    ],
+  }), 5, new Set(['stm-cat']))
+
+  assert.deepEqual(parsed, [
+    {
+      displaySummary: '用户养过一只橘猫',
+      retrievalText: '用户告诉过我他小时候养过一只橘猫。',
+      importance: 0.8,
+      sourceStmIds: ['stm-cat'],
     },
   ])
 })

@@ -20,10 +20,13 @@ import {
   isSqliteMemoryConfig,
   MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
   parseMemoryBatchWriteResponse,
+  parseShortTermToLongTermResponse,
   resolveMemoryActorLabels,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
+  SHORT_TERM_TO_LONG_TERM_RESPONSE_FORMAT,
 } from '@mas/systems'
+import type { MemoryRecord, ShortTermToLongTermMemoryWriteResult } from '@mas/systems'
 
 type DbMessage = ReturnType<typeof messageRepo.getSessionMessages>[number]
 
@@ -127,6 +130,10 @@ async function persistMemories(input: {
   observedStartAt?: Date | null
   observedEndAt?: Date | null
 }) {
+  if (input.memoryWrites.length === 0) {
+    return []
+  }
+
   const embedder = input.embedder ?? createOpenRouterMemoryEmbedder()
   const embeddings = await embedder.embed(
     input.memoryWrites.map((memory) => memory.retrievalText),
@@ -145,11 +152,94 @@ async function persistMemories(input: {
     retrievalText: memory.retrievalText,
     retrievalEmbedding: embeddings[index] ?? [],
     retrievalModel: input.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL,
-    tags: memory.tags,
+    tags: [],
     importance: memory.importance,
     observedStartAt: input.observedStartAt ?? null,
     observedEndAt: input.observedEndAt ?? null,
   }))
+}
+
+function getObservedRangeFromMemories(memories: MemoryRecord[]) {
+  const starts = memories
+    .map((memory) => memory.observedStartAt)
+    .filter((date): date is Date => date instanceof Date && Number.isFinite(date.getTime()))
+  const ends = memories
+    .map((memory) => memory.observedEndAt)
+    .filter((date): date is Date => date instanceof Date && Number.isFinite(date.getTime()))
+
+  return {
+    observedStartAt: starts.length > 0
+      ? new Date(Math.min(...starts.map((date) => date.getTime())))
+      : null,
+    observedEndAt: ends.length > 0
+      ? new Date(Math.max(...ends.map((date) => date.getTime())))
+      : null,
+  }
+}
+
+function toLongTermObservedHourRange(range: {
+  observedStartAt: Date | null
+  observedEndAt: Date | null
+}) {
+  if (!range.observedStartAt || !range.observedEndAt) {
+    return range
+  }
+
+  const observedStartAt = new Date(range.observedStartAt)
+  observedStartAt.setMinutes(0, 0, 0)
+  const observedEndAt = new Date(range.observedEndAt)
+  observedEndAt.setMinutes(59, 59, 999)
+
+  return { observedStartAt, observedEndAt }
+}
+
+async function persistLongTermMemoriesFromShortTerm(input: {
+  agentId: string
+  fallbackSessionId: string
+  memoryWrites: ShortTermToLongTermMemoryWriteResult[]
+  shortTermMemoriesById: Map<string, MemoryRecord>
+  embeddingModel: string
+  embedder?: MemoryEmbedder
+}) {
+  if (input.memoryWrites.length === 0) {
+    return []
+  }
+
+  const embedder = input.embedder ?? createOpenRouterMemoryEmbedder()
+  const embeddings = await embedder.embed(
+    input.memoryWrites.map((memory) => memory.retrievalText),
+    {
+      model: input.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL,
+      inputType: 'search_document',
+    },
+  )
+
+  return input.memoryWrites.map((memory, index) => {
+    const sourceMemories = memory.sourceStmIds
+      .map((id) => input.shortTermMemoriesById.get(id))
+      .filter((source): source is MemoryRecord => Boolean(source))
+    const { observedStartAt, observedEndAt } = toLongTermObservedHourRange(
+      getObservedRangeFromMemories(sourceMemories),
+    )
+
+    return {
+      memory: memoryRepo.addMemory({
+        agentId: input.agentId,
+        sessionId: sourceMemories[0]?.sessionId ?? input.fallbackSessionId,
+        layer: 'long_term',
+        sourceText: buildShortTermToLongTermSourceText(sourceMemories),
+        displaySummary: memory.displaySummary,
+        retrievalText: memory.retrievalText,
+        retrievalEmbedding: embeddings[index] ?? [],
+        retrievalModel: input.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL,
+        tags: [],
+        importance: memory.importance,
+        observedStartAt,
+        observedEndAt,
+      }),
+      sourceStmIds: memory.sourceStmIds,
+    }
+  })
 }
 
 export async function runContextFlushForSession(input: {
@@ -380,6 +470,8 @@ export async function runSleepForAgent(input: {
   mode?: 'scheduled' | 'manual'
   now?: Date
   signal?: AbortSignal
+  provider?: Pick<LLMProvider, 'sendMessage'>
+  embedder?: MemoryEmbedder
 }) {
   const agent = agentRepo.getAgent(input.agentId)
   if (!agent || !isSqliteMemoryConfig(agent.modules?.memory)) {
@@ -453,12 +545,13 @@ export async function runSleepForAgent(input: {
         mode,
         createdCount: 0,
         deletedShortTermCount: 0,
+        retainedShortTermCount: 0,
       },
     })
-    return { ok: true as const, createdCount: 0, deletedShortTermCount: 0 }
+    return { ok: true as const, createdCount: 0, deletedShortTermCount: 0, retainedShortTermCount: 0 }
   }
 
-  const provider = createProvider(agent.provider)
+  const provider = input.provider ?? createProvider(agent.provider)
   const sourceText = buildShortTermToLongTermSourceText(shortTermMemories)
   const response = await provider.sendMessage({
     model: memoryConfig.summarizeModel ?? agent.model,
@@ -473,28 +566,32 @@ export async function runSleepForAgent(input: {
       },
     ],
     reasoning: { effort: 'none' },
-    responseFormat: MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
+    responseFormat: SHORT_TERM_TO_LONG_TERM_RESPONSE_FORMAT,
     signal: input.signal,
   })
 
-  const memoryWrites = parseMemoryBatchWriteResponse(
+  const shortTermMemoryIds = new Set(shortTermMemories.map((memory) => memory.id))
+  const memoryWrites = parseShortTermToLongTermResponse(
     response.content
       .map((block) => block.type === 'text' ? block.text : '')
       .join('\n'),
     settings.maxShortTermMemoriesPerFlush,
+    shortTermMemoryIds,
   )
 
-  const created = await persistMemories({
+  const shortTermMemoriesById = new Map(shortTermMemories.map((memory) => [memory.id, memory]))
+  const created = await persistLongTermMemoriesFromShortTerm({
     agentId: agent.id,
-    sessionId: shortTermMemories[0]!.sessionId,
-    layer: 'long_term',
-    sourceText,
+    fallbackSessionId: shortTermMemories[0]!.sessionId,
     memoryWrites,
+    shortTermMemoriesById,
     embeddingModel: memoryConfig.embeddingModel,
+    embedder: input.embedder,
   })
 
-  for (const memory of shortTermMemories) {
-    memoryRepo.deleteSqliteMemoryByAgent(agent.id, memory.id)
+  const usedShortTermIds = new Set(created.flatMap((item) => item.sourceStmIds))
+  for (const memoryId of usedShortTermIds) {
+    memoryRepo.deleteSqliteMemoryByAgent(agent.id, memoryId)
   }
 
   agentMemorySleepStateRepo.upsertAgentMemorySleepState({
@@ -510,15 +607,17 @@ export async function runSleepForAgent(input: {
       agentId: input.agentId,
       mode,
       createdCount: created.length,
-      deletedShortTermCount: shortTermMemories.length,
+      deletedShortTermCount: usedShortTermIds.size,
+      retainedShortTermCount: shortTermMemories.length - usedShortTermIds.size,
     },
   })
 
   return {
     ok: true as const,
     createdCount: created.length,
-    memoryIds: created.map((memory) => memory.id),
-    deletedShortTermCount: shortTermMemories.length,
+    memoryIds: created.map((item) => item.memory.id),
+    deletedShortTermCount: usedShortTermIds.size,
+    retainedShortTermCount: shortTermMemories.length - usedShortTermIds.size,
   }
 }
 

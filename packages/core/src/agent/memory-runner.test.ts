@@ -255,7 +255,7 @@ test('runAgent uses bound named counterpart labels in the memory semantic analyz
   }
 })
 
-test('runAgent records embedding retrieval metadata and writes a memory row after turn', async () => {
+test('runAgent records embedding retrieval metadata without writing a short-term row after every turn', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
   const dbPath = join(dir, 'data.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -272,6 +272,8 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
       tags: ['猫', '橘子', '宠物'],
       importance: 0.9,
+      observedStartAt: new Date('2026-04-17T09:55:00.000Z'),
+      observedEndAt: new Date('2026-04-17T10:00:00.000Z'),
       createdAt: new Date('2026-04-17T10:00:00.000Z'),
     })
 
@@ -352,7 +354,6 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
                 text: JSON.stringify({
                   display_summary: '用户养了一只叫橘子的猫',
                   retrieval_text: '用户曾告诉我，他养了一只名叫橘子的猫',
-                  tags: ['猫', '橘子', '宠物'],
                   importance: 0.9,
                 }),
               },
@@ -365,7 +366,7 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
       }
 
       assert.match(params.systemPrompt, /下面是本轮检索到的短期记忆。/)
-      assert.match(params.systemPrompt, /短期最相关记忆：\[短期记忆\]\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\]/)
+      assert.match(params.systemPrompt, /短期最相关记忆：\[短期记忆\]\[发生于 \d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2} - \d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\]/)
       assert.match(params.systemPrompt, /固化记忆检索结果：未搜索到相关记忆。/)
       yield {
         type: 'message_complete',
@@ -486,7 +487,6 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
           id: existingMemory.id,
           summary: '用户养了一只叫橘子的猫',
           layer: 'short_term',
-          tags: ['猫', '橘子', '宠物'],
           importance: 0.9,
         },
       ],
@@ -497,7 +497,6 @@ test('runAgent records embedding retrieval metadata and writes a memory row afte
           id: existingMemory.id,
           summary: '用户养了一只叫橘子的猫',
           layer: 'short_term',
-          tags: ['猫', '橘子', '宠物'],
           importance: 0.9,
         },
       ],
@@ -537,6 +536,8 @@ test('runAgent supports pure time-range recall without a retrieval query', async
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
       tags: ['晚饭', '番茄鸡蛋面'],
       importance: 0.8,
+      observedStartAt: new Date('2026-04-19T18:30:00.000Z'),
+      observedEndAt: new Date('2026-04-19T18:40:00.000Z'),
       createdAt: new Date('2026-04-19T18:30:00.000Z'),
     })
 
@@ -571,7 +572,6 @@ test('runAgent supports pure time-range recall without a retrieval query', async
                 text: JSON.stringify({
                   display_summary: '用户昨天提到自己昨晚吃了番茄鸡蛋面',
                   retrieval_text: '用户昨天提到自己昨晚吃了很多胡椒的番茄鸡蛋面。',
-                  tags: ['晚饭', '番茄鸡蛋面', '胡椒'],
                   importance: 0.7,
                 }),
               },
@@ -1178,7 +1178,7 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
 
       if (params.systemPrompt === '记忆总结 prompt') {
         return {
-          content: [{ type: 'text', text: '{"display_summary":"用户打了招呼","retrieval_text":"用户刚刚向我打了招呼","tags":["打招呼"],"importance":0.4}' }],
+          content: [{ type: 'text', text: '{"display_summary":"用户打了招呼","retrieval_text":"用户刚刚向我打了招呼","importance":0.4}' }],
           stopReason: 'end_turn',
           usage: { inputTokens: 3, outputTokens: 3 },
         }

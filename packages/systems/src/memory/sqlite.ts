@@ -15,6 +15,7 @@ import type {
   MemoryResponseFormat,
   PendingMemoryQuery,
   MemoryWriteResult,
+  ShortTermToLongTermMemoryWriteResult,
   PendingMemoryWrite,
   TurnContext,
 } from '../types'
@@ -67,13 +68,9 @@ const MEMORY_WRITE_RESPONSE_FORMAT: MemoryResponseFormat = {
       properties: {
         display_summary: { type: 'string' },
         retrieval_text: { type: 'string' },
-        tags: {
-          type: 'array',
-          items: { type: 'string' },
-        },
         importance: { type: 'number' },
       },
-      required: ['display_summary', 'retrieval_text', 'tags', 'importance'],
+      required: ['display_summary', 'retrieval_text', 'importance'],
       additionalProperties: false,
     },
   },
@@ -93,13 +90,40 @@ export const MEMORY_BATCH_WRITE_RESPONSE_FORMAT: MemoryResponseFormat = {
             properties: {
               display_summary: { type: 'string' },
               retrieval_text: { type: 'string' },
-              tags: {
+              importance: { type: 'number' },
+            },
+            required: ['display_summary', 'retrieval_text', 'importance'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['memories'],
+      additionalProperties: false,
+    },
+  },
+}
+export const SHORT_TERM_TO_LONG_TERM_RESPONSE_FORMAT: MemoryResponseFormat = {
+  type: 'json_schema',
+  jsonSchema: {
+    name: 'short_term_to_long_term_memory',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        memories: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              display_summary: { type: 'string' },
+              retrieval_text: { type: 'string' },
+              importance: { type: 'number' },
+              source_stm_ids: {
                 type: 'array',
                 items: { type: 'string' },
               },
-              importance: { type: 'number' },
             },
-            required: ['display_summary', 'retrieval_text', 'tags', 'importance'],
+            required: ['display_summary', 'retrieval_text', 'importance', 'source_stm_ids'],
             additionalProperties: false,
           },
         },
@@ -166,8 +190,6 @@ const WRITE_GUIDANCE = [
   'retrieval_text 用自然语言完整描述可检索的事实、场景或事件，不要写成标签列表。',
   '如果 source_text 或上文里已经明确出现当前对话对象的名字，display_summary 和 retrieval_text 优先直接使用这个名字，不要退回成泛化的“用户”。',
   '描述助手自身时默认使用第一人称“我”，不要把“AI”或“助手”当成记忆主体，除非是在直接引用原话。',
-  'tags 默认使用简体中文；除非是专有名词、代码标识符或固定英文术语，否则不要输出英文标签。',
-  'tags 至少提供 4 个简短、可复用的中文标签。',
 ].join('\n')
 
 function formatMemoryLayerLabel(layer: MemoryRecord['layer']): string {
@@ -429,7 +451,7 @@ export function buildContextToShortTermPrompt(promptOverride?: string | null, ma
     `请从提供的消息片段里提炼最多 ${maxMemories} 条短期记忆。`,
     '不要逐句复述聊天记录，只保留对后续对话最有价值的几个近期印象。',
     '请严格返回如下 JSON 结构：',
-    '{"memories": Array<{"display_summary": string, "retrieval_text": string, "tags": string[], "importance": number}>}',
+    '{"memories": Array<{"display_summary": string, "retrieval_text": string, "importance": number}>}',
     WRITE_GUIDANCE,
     '如果这段上下文里没有值得留下的短期记忆，也必须返回 {"memories": []}。',
     '不要输出 markdown、代码块或任何额外说明。',
@@ -447,8 +469,11 @@ export function buildShortTermToLongTermPrompt(promptOverride?: string | null, m
     '你负责在睡眠阶段把短期记忆沉淀成更稳定的长期记忆。',
     `请从提供的短期记忆里整理出最多 ${maxMemories} 条长期记忆。`,
     '长期记忆应更稳定、更抽象，不要保留太多转瞬即逝的聊天细节。',
+    '每条长期记忆都必须通过 source_stm_ids 引用它实际依据的短期记忆 id。',
+    '只能引用输入中存在的短期记忆 id；不要引用与该长期记忆无关的短期记忆。',
+    '如果无法判断一条长期记忆来自哪些短期记忆，就不要输出这条长期记忆。',
     '请严格返回如下 JSON 结构：',
-    '{"memories": Array<{"display_summary": string, "retrieval_text": string, "tags": string[], "importance": number}>}',
+    '{"memories": Array<{"display_summary": string, "retrieval_text": string, "importance": number, "source_stm_ids": string[]}>}',
     WRITE_GUIDANCE,
     '如果没有值得沉淀的长期记忆，也必须返回 {"memories": []}。',
     '不要输出 markdown、代码块或任何额外说明。',
@@ -786,7 +811,6 @@ export function buildShortTermToLongTermSourceText(memories: MemoryRecord[]): st
         id: memory.id,
         display_summary: memory.displaySummary,
         retrieval_text: memory.retrievalText,
-        tags: memory.tags,
         importance: memory.importance,
         observedStartAt: memory.observedStartAt?.toISOString() ?? null,
         observedEndAt: memory.observedEndAt?.toISOString() ?? null,
@@ -834,22 +858,22 @@ function extractJson(text: string): unknown {
   return JSON.parse(candidate)
 }
 
-function normalizeTags(tags: unknown): string[] {
-  if (!Array.isArray(tags)) {
+function normalizeImportance(value: unknown): number {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : 0.5
+}
+
+function normalizeSourceStmIds(value: unknown, validSourceIds: ReadonlySet<string>): string[] {
+  if (!Array.isArray(value)) {
     return []
   }
 
   return [...new Set(
-    tags
-      .filter((tag): tag is string => typeof tag === 'string')
-      .map((tag) => tag.trim())
-      .filter(Boolean),
+    value
+      .filter((id): id is string => typeof id === 'string')
+      .map((id) => id.trim())
+      .filter((id) => id && validSourceIds.has(id)),
   )]
-}
-
-function normalizeImportance(value: unknown): number {
-  const numeric = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : 0.5
 }
 
 export function parseMemoryWriteResponse(responseText: string): MemoryWriteResult {
@@ -869,7 +893,6 @@ export function parseMemoryWriteResponse(responseText: string): MemoryWriteResul
   return {
     displaySummary,
     retrievalText,
-    tags: normalizeTags(record.tags),
     importance: normalizeImportance(record.importance),
   }
 }
@@ -903,10 +926,57 @@ export function parseMemoryBatchWriteResponse(responseText: string, maxCount: nu
       return {
         displaySummary,
         retrievalText,
-        tags: normalizeTags(record.tags),
         importance: normalizeImportance(record.importance),
       }
     })
+}
+
+export function parseShortTermToLongTermResponse(
+  responseText: string,
+  maxCount: number,
+  validSourceIds: ReadonlySet<string>,
+): ShortTermToLongTermMemoryWriteResult[] {
+  const parsed = extractJson(responseText)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Short-term to long-term memory call did not return a JSON object')
+  }
+
+  const rawMemories = (parsed as { memories?: unknown }).memories
+  if (!Array.isArray(rawMemories)) {
+    throw new Error('Short-term to long-term memory call did not return a memories array')
+  }
+
+  const results: ShortTermToLongTermMemoryWriteResult[] = []
+  for (const [index, memory] of rawMemories.entries()) {
+    if (results.length >= maxCount) {
+      break
+    }
+    if (!memory || typeof memory !== 'object' || Array.isArray(memory)) {
+      throw new Error(`Short-term to long-term memory item ${index} is not an object`)
+    }
+
+    const record = memory as Record<string, unknown>
+    const displaySummary = typeof record.display_summary === 'string' ? record.display_summary.trim() : ''
+    const retrievalText = typeof record.retrieval_text === 'string' ? record.retrieval_text.trim() : ''
+
+    if (!displaySummary || !retrievalText) {
+      throw new Error(`Short-term to long-term memory item ${index} is missing display_summary or retrieval_text`)
+    }
+
+    const sourceStmIds = normalizeSourceStmIds(record.source_stm_ids, validSourceIds)
+    if (sourceStmIds.length === 0) {
+      continue
+    }
+
+    results.push({
+      displaySummary,
+      retrievalText,
+      importance: normalizeImportance(record.importance),
+      sourceStmIds,
+    })
+  }
+
+  return results
 }
 
 function parseSemanticAnalyzerResponse(responseText: string): MemorySemanticAnalysisResult {
@@ -1123,7 +1193,6 @@ export function serializeMemoryHit(memory: MemoryRecord) {
     id: memory.id,
     summary: memory.displaySummary,
     layer: memory.layer,
-    tags: [...memory.tags],
     importance: memory.importance,
   }
 }

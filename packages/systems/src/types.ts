@@ -60,8 +60,11 @@ export interface MemoryRecord {
 export interface MemoryWriteResult {
   displaySummary: string
   retrievalText: string
-  tags: string[]
   importance: number
+}
+
+export interface ShortTermToLongTermMemoryWriteResult extends MemoryWriteResult {
+  sourceStmIds: string[]
 }
 
 export interface MemoryTimeRange {
