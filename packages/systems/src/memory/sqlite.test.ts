@@ -13,7 +13,9 @@ import {
 } from '@mas/db'
 import {
   buildContextToShortTermPrompt,
+  buildContextToShortTermSourceText,
   buildSemanticAnalyzerPrompt,
+  buildShortTermToLongTermSourceText,
   buildShortTermToLongTermPrompt,
   MemorySqliteSystem,
   parseMemoryBatchWriteResponse,
@@ -116,6 +118,8 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
       tags: ['猫', '橘子', '宠物'],
       importance: 0.95,
+      observedStartAt: new Date('2026-04-17T09:55:00.000Z'),
+      observedEndAt: new Date('2026-04-17T10:00:00.000Z'),
       createdAt: new Date('2026-04-17T10:00:00.000Z'),
     })
     memoryRepo.addMemory({
@@ -167,7 +171,7 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
     assert.match(ctx.promptFragments[0]?.content ?? '', /短期最相关记忆：/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /固化记忆检索结果：未搜索到相关记忆/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /\[短期记忆\]/)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\]/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /\[发生于 \d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2} - \d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\]/)
     assert.match(ctx.promptFragments[0]?.content ?? '', /橘子的猫/)
   } finally {
     resetDb()
@@ -229,6 +233,8 @@ test('memory sqlite retrieval skips semantic embeddings for pure time recall and
       retrievalModel: 'qwen/qwen3-embedding-8b',
       tags: ['对话开场', '记忆询问'],
       importance: 0.9,
+      observedStartAt: new Date('2026-04-20T23:46:47.000Z'),
+      observedEndAt: new Date('2026-04-20T23:46:47.000Z'),
       createdAt: new Date('2026-04-20T23:46:47.000Z'),
     })
     const newestTarget = memoryRepo.addMemory({
@@ -241,6 +247,8 @@ test('memory sqlite retrieval skips semantic embeddings for pure time recall and
       retrievalModel: 'qwen/qwen3-embedding-8b',
       tags: ['琥珀纸鹤', '记忆请求'],
       importance: 0.6,
+      observedStartAt: new Date('2026-04-20T23:49:54.300Z'),
+      observedEndAt: new Date('2026-04-20T23:49:54.300Z'),
       createdAt: new Date('2026-04-20T23:49:54.300Z'),
     })
 
@@ -631,6 +639,117 @@ test('memory sqlite can suppress no-hit short-term and fixed fragments', async (
   await system.beforeLLM?.(ctx)
 
   assert.equal(ctx.promptFragments.length, 0)
+})
+
+test('memory sqlite renders short-term observed time and keeps fixed created time in prompt fragments', async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('昨天聊了什么')
+  ctx.state.shortTermMemories = [
+    {
+      id: 'stm-observed',
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'source',
+      displaySummary: '用户昨晚吃了番茄鸡蛋面',
+      retrievalText: '用户昨晚吃了番茄鸡蛋面。',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'model',
+      tags: ['晚饭'],
+      importance: 0.6,
+      createdAt: new Date('2026-04-20T09:00:00.000Z'),
+      observedStartAt: new Date('2026-04-19T18:00:00.000Z'),
+      observedEndAt: new Date('2026-04-19T18:20:00.000Z'),
+    },
+    {
+      id: 'stm-legacy',
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'source',
+      displaySummary: '旧短期记忆缺少 observed range',
+      retrievalText: '旧短期记忆缺少 observed range。',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'model',
+      tags: ['旧数据'],
+      importance: 0.4,
+      createdAt: new Date('2026-04-18T09:00:00.000Z'),
+      observedStartAt: null,
+      observedEndAt: null,
+    },
+  ]
+  ctx.state.fixedMemories = [
+    {
+      id: 'fixed-created',
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'fixed',
+      sourceText: 'source',
+      displaySummary: '用户偏好本地数据库',
+      retrievalText: '用户偏好本地数据库。',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'model',
+      tags: ['数据库'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-17T09:00:00.000Z'),
+      observedStartAt: null,
+      observedEndAt: null,
+    },
+  ]
+
+  await system.beforeLLM?.(ctx)
+
+  const fragment = ctx.promptFragments[0]?.content ?? ''
+  assert.match(fragment, /短期最相关记忆：\[短期记忆\]\[发生于 .+ - .+\] 用户昨晚吃了番茄鸡蛋面/)
+  assert.match(fragment, /短期补充记忆：\[短期记忆\]\[时间未知\] 旧短期记忆缺少 observed range/)
+  assert.match(fragment, /固化最相关记忆：\[固化记忆\]\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\] 用户偏好本地数据库/)
+})
+
+test('context-to-short-term source text carries observed window and message local times', () => {
+  const sourceText = buildContextToShortTermSourceText([
+    {
+      role: 'user',
+      content: '我昨晚吃了番茄鸡蛋面。',
+      createdAt: new Date('2026-04-23T10:00:00.000Z'),
+    },
+    {
+      role: 'assistant',
+      content: '记住了。',
+      createdAt: new Date('2026-04-23T10:01:00.000Z'),
+    },
+  ])
+
+  assert.match(sourceText, /^待整理的旧上下文：\n整理窗口时间范围：.+ - .+\n/)
+  assert.match(sourceText, /用户：\[.+\] 我昨晚吃了番茄鸡蛋面。/)
+  assert.match(sourceText, /我：\[.+\] 记住了。/)
+})
+
+test('short-term to long-term source text prefers observed range over creation time', () => {
+  const sourceText = buildShortTermToLongTermSourceText([
+    {
+      id: 'memory-1',
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'source',
+      displaySummary: '用户昨晚吃了番茄鸡蛋面',
+      retrievalText: '用户昨晚吃了番茄鸡蛋面。',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'model',
+      tags: ['晚饭'],
+      importance: 0.6,
+      createdAt: new Date('2026-04-20T09:00:00.000Z'),
+      observedStartAt: new Date('2026-04-19T18:00:00.000Z'),
+      observedEndAt: new Date('2026-04-19T18:20:00.000Z'),
+    },
+  ])
+
+  assert.match(sourceText, /"observedStartAt": "2026-04-19T18:00:00.000Z"/)
+  assert.match(sourceText, /"observedEndAt": "2026-04-19T18:20:00.000Z"/)
+  assert.doesNotMatch(sourceText, /"createdAt"/)
 })
 
 test('memory sqlite time parser recognizes explicit Chinese time expressions', () => {

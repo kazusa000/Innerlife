@@ -42,11 +42,21 @@ function ensureMemoryDbSchema(sqlite: Database.Database) {
       retrieval_model TEXT NOT NULL,
       tags TEXT NOT NULL,
       importance REAL NOT NULL,
+      observed_start_at INTEGER,
+      observed_end_at INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
     CREATE INDEX IF NOT EXISTS idx_memories_agent_created_at ON memories(agent_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_memories_agent_id ON memories(agent_id);
   `)
+
+  const columns = sqlite.prepare(`PRAGMA table_info(memories)`).all() as Array<{ name: string }>
+  if (!columns.some((column) => column.name === 'observed_start_at')) {
+    sqlite.exec('ALTER TABLE memories ADD COLUMN observed_start_at INTEGER;')
+  }
+  if (!columns.some((column) => column.name === 'observed_end_at')) {
+    sqlite.exec('ALTER TABLE memories ADD COLUMN observed_end_at INTEGER;')
+  }
 }
 
 export function getMemoryDb(dbPath?: string): Database.Database {

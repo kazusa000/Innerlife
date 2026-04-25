@@ -3,6 +3,7 @@ import test from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import Database from 'better-sqlite3'
 import { getMemoryDb, getMemoryRawSqlite, resetMemoryDb } from '../memory-client'
 import * as memoryRepo from './memories'
 import {
@@ -29,6 +30,8 @@ function bootstrapMemoryDb(dbPath: string) {
       retrieval_model TEXT NOT NULL,
       tags TEXT NOT NULL,
       importance REAL NOT NULL,
+      observed_start_at INTEGER,
+      observed_end_at INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
     CREATE INDEX idx_memories_agent_created_at ON memories(agent_id, created_at);
@@ -39,6 +42,73 @@ function bootstrapMemoryDb(dbPath: string) {
 function vector(values: number[]) {
   return values
 }
+
+test('memory db bootstrap adds observed range columns to an existing memories table', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    const sqlite = new Database(dbPath)
+    sqlite.exec(`
+      CREATE TABLE memories (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        layer TEXT NOT NULL DEFAULT 'short_term',
+        source_text TEXT NOT NULL,
+        display_summary TEXT NOT NULL,
+        retrieval_text TEXT NOT NULL,
+        retrieval_embedding TEXT NOT NULL,
+        retrieval_model TEXT NOT NULL,
+        tags TEXT NOT NULL,
+        importance REAL NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+      );
+    `)
+    sqlite.close()
+
+    process.env.MAS_MEMORY_DB_PATH = dbPath
+    resetMemoryDb()
+    getMemoryDb(dbPath)
+
+    const columns = getMemoryRawSqlite().prepare(`PRAGMA table_info(memories)`).all() as Array<{ name: string }>
+    assert.ok(columns.some((column) => column.name === 'observed_start_at'))
+    assert.ok(columns.some((column) => column.name === 'observed_end_at'))
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('addMemory persists nullable observed time ranges', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapMemoryDb(dbPath)
+
+    const memory = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User talked about dinner yesterday.',
+      displaySummary: '用户昨晚吃了番茄鸡蛋面',
+      retrievalText: '用户昨晚吃了番茄鸡蛋面。',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['晚饭'],
+      importance: 0.6,
+      createdAt: new Date('2026-04-20T09:00:00.000Z'),
+      observedStartAt: new Date('2026-04-19T18:00:00.000Z'),
+      observedEndAt: new Date('2026-04-19T18:20:00.000Z'),
+    })
+
+    assert.equal(memory.observedStartAt?.toISOString(), '2026-04-19T18:00:00.000Z')
+    assert.equal(memory.observedEndAt?.toISOString(), '2026-04-19T18:20:00.000Z')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 
 test('findRelevantMemories scopes by agent and orders by similarity then importance then recency', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
@@ -163,6 +233,8 @@ test('findRelevantMemories supports time range filtering on top of embedding sim
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
       tags: ['修 bug', 'consolidate'],
       importance: 0.4,
+      observedStartAt: new Date('2026-04-20T13:58:00.000Z'),
+      observedEndAt: new Date('2026-04-20T13:58:00.000Z'),
       createdAt: new Date('2026-04-20T13:58:00.000Z'),
     })
     addMemory({
@@ -195,6 +267,101 @@ test('findRelevantMemories supports time range filtering on top of embedding sim
   }
 })
 
+test('findRelevantMemories uses short-term observed range overlap for time filtering', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapMemoryDb(dbPath)
+
+    const observedInsideRange = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'User described yesterday dinner in a context flush.',
+      displaySummary: '用户昨晚吃了番茄鸡蛋面',
+      retrievalText: '用户昨晚晚饭吃了番茄鸡蛋面。',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['晚饭'],
+      importance: 0.6,
+      createdAt: new Date('2026-04-20T09:00:00.000Z'),
+      observedStartAt: new Date('2026-04-19T18:00:00.000Z'),
+      observedEndAt: new Date('2026-04-19T18:30:00.000Z'),
+    })
+    addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'Old short-term memory without observed range.',
+      displaySummary: '用户昨天聊了工作',
+      retrievalText: '用户昨天聊了工作。',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['工作'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-19T18:10:00.000Z'),
+    })
+
+    const results = findRelevantMemories({
+      agentId: 'agent-1',
+      queryEmbeddings: [],
+      topK: 5,
+      layers: ['short_term'],
+      timeRange: {
+        start: new Date('2026-04-19T18:15:00.000Z'),
+        end: new Date('2026-04-19T18:45:00.000Z'),
+      },
+    })
+
+    assert.deepEqual(results.map((memory) => memory.id), [observedInsideRange.id])
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('findRelevantMemories keeps fixed time filtering on createdAt', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapMemoryDb(dbPath)
+
+    const fixedMemory = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'fixed',
+      sourceText: 'User prefers local databases.',
+      displaySummary: '用户偏好本地数据库',
+      retrievalText: '用户偏好使用本地 sqlite 数据库。',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      tags: ['数据库'],
+      importance: 0.9,
+      createdAt: new Date('2026-04-19T18:10:00.000Z'),
+      observedStartAt: new Date('2026-04-18T18:10:00.000Z'),
+      observedEndAt: new Date('2026-04-18T18:20:00.000Z'),
+    })
+
+    const results = findRelevantMemories({
+      agentId: 'agent-1',
+      queryEmbeddings: [],
+      topK: 5,
+      layers: ['fixed'],
+      timeRange: {
+        start: new Date('2026-04-19T18:00:00.000Z'),
+        end: new Date('2026-04-19T18:30:00.000Z'),
+      },
+    })
+
+    assert.deepEqual(results.map((memory) => memory.id), [fixedMemory.id])
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('findRelevantMemories keeps time-range candidates even when semantic similarity is zero', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
   const dbPath = join(dir, 'memory.db')
@@ -212,6 +379,8 @@ test('findRelevantMemories keeps time-range candidates even when semantic simila
       retrievalModel: 'openai/text-embedding-3-small',
       tags: ['晚饭', '番茄鸡蛋面'],
       importance: 0.6,
+      observedStartAt: new Date('2026-04-19T18:30:00.000Z'),
+      observedEndAt: new Date('2026-04-19T18:30:00.000Z'),
       createdAt: new Date('2026-04-19T18:30:00.000Z'),
     })
     addMemory({
@@ -323,6 +492,8 @@ test('findRelevantMemories prefers newest memories for pure time-range recall wi
       retrievalModel: 'qwen/qwen3-embedding-8b',
       tags: ['番茄鸡蛋面', '喜好'],
       importance: 0.95,
+      observedStartAt: new Date('2026-04-20T23:35:00.000Z'),
+      observedEndAt: new Date('2026-04-20T23:35:00.000Z'),
       createdAt: new Date('2026-04-20T23:35:00.000Z'),
     })
     const newest = addMemory({
@@ -335,6 +506,8 @@ test('findRelevantMemories prefers newest memories for pure time-range recall wi
       retrievalModel: 'qwen/qwen3-embedding-8b',
       tags: ['蓝色热气球', '记忆请求'],
       importance: 0.6,
+      observedStartAt: new Date('2026-04-20T23:42:18.000Z'),
+      observedEndAt: new Date('2026-04-20T23:42:18.000Z'),
       createdAt: new Date('2026-04-20T23:42:18.000Z'),
     })
 

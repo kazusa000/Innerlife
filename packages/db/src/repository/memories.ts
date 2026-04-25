@@ -15,6 +15,8 @@ export interface MemoryRecord {
   retrievalModel: string
   tags: string[]
   importance: number
+  observedStartAt: Date | null
+  observedEndAt: Date | null
   createdAt: Date
 }
 
@@ -30,6 +32,8 @@ type MemoryRow = {
   retrieval_model: string
   tags: string
   importance: number
+  observed_start_at: number | null
+  observed_end_at: number | null
   created_at: number
 }
 
@@ -86,6 +90,8 @@ function mapMemory(row: MemoryRow): MemoryRecord {
     retrievalModel: row.retrieval_model,
     tags: parseTags(row.tags),
     importance: row.importance,
+    observedStartAt: typeof row.observed_start_at === 'number' ? new Date(row.observed_start_at) : null,
+    observedEndAt: typeof row.observed_end_at === 'number' ? new Date(row.observed_end_at) : null,
     createdAt: new Date(row.created_at),
   }
 }
@@ -105,6 +111,8 @@ function selectMemories(whereSql: string, ...values: unknown[]) {
       retrieval_model,
       tags,
       importance,
+      observed_start_at,
+      observed_end_at,
       created_at
     FROM memories
     ${whereSql}
@@ -122,6 +130,8 @@ export function addMemory(data: {
   retrievalModel: string
   tags: string[]
   importance: number
+  observedStartAt?: Date | null
+  observedEndAt?: Date | null
   createdAt?: Date
 }) {
   const sqlite = getMemoryRawSqlite()
@@ -140,8 +150,10 @@ export function addMemory(data: {
       retrieval_model,
       tags,
       importance,
+      observed_start_at,
+      observed_end_at,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     data.agentId,
@@ -154,6 +166,8 @@ export function addMemory(data: {
     data.retrievalModel,
     JSON.stringify(normalizeTags(data.tags)),
     normalizeImportance(data.importance),
+    data.observedStartAt?.getTime() ?? null,
+    data.observedEndAt?.getTime() ?? null,
     (data.createdAt ?? new Date()).getTime(),
   )
 
@@ -340,9 +354,26 @@ export function findRelevantMemories(input: {
   }
 
   if (input.timeRange) {
-    conditions.push('created_at >= ?')
-    conditions.push('created_at <= ?')
-    values.push(input.timeRange.start.getTime(), input.timeRange.end.getTime())
+    conditions.push(`(
+      (
+        layer = 'short_term'
+        AND observed_start_at IS NOT NULL
+        AND observed_end_at IS NOT NULL
+        AND observed_start_at <= ?
+        AND observed_end_at >= ?
+      )
+      OR (
+        layer != 'short_term'
+        AND created_at >= ?
+        AND created_at <= ?
+      )
+    )`)
+    values.push(
+      input.timeRange.end.getTime(),
+      input.timeRange.start.getTime(),
+      input.timeRange.start.getTime(),
+      input.timeRange.end.getTime(),
+    )
   }
 
   if (queryEmbeddings.length === 0 && !input.timeRange) {
@@ -380,9 +411,9 @@ export function findRelevantMemories(input: {
     ))
     .sort((left, right) => {
       if (isPureTimeRecall) {
-        const createdAtDelta = right.memory.createdAt.getTime() - left.memory.createdAt.getTime()
-        if (createdAtDelta !== 0) {
-          return createdAtDelta
+        const memoryTimeDelta = getMemoryTimeSortValue(right.memory) - getMemoryTimeSortValue(left.memory)
+        if (memoryTimeDelta !== 0) {
+          return memoryTimeDelta
         }
         if (right.memory.importance !== left.memory.importance) {
           return right.memory.importance - left.memory.importance
@@ -399,6 +430,13 @@ export function findRelevantMemories(input: {
     })
     .slice(0, input.topK)
     .map(({ memory }) => memory)
+}
+
+function getMemoryTimeSortValue(memory: MemoryRecord) {
+  if (memory.layer === 'short_term') {
+    return memory.observedEndAt?.getTime() ?? memory.createdAt.getTime()
+  }
+  return memory.createdAt.getTime()
 }
 
 function normalizeImportance(value: number): number {

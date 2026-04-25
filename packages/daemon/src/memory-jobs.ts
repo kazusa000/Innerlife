@@ -31,6 +31,7 @@ function toConversationMessage(message: DbMessage): ConversationMessage {
   return {
     role: message.role as ConversationMessage['role'],
     content: JSON.parse(message.content) as Message['content'],
+    createdAt: message.createdAt,
   }
 }
 
@@ -123,6 +124,8 @@ async function persistMemories(input: {
   memoryWrites: ReturnType<typeof parseMemoryBatchWriteResponse>
   embeddingModel: string
   embedder?: MemoryEmbedder
+  observedStartAt?: Date | null
+  observedEndAt?: Date | null
 }) {
   const embedder = input.embedder ?? createOpenRouterMemoryEmbedder()
   const embeddings = await embedder.embed(
@@ -144,6 +147,8 @@ async function persistMemories(input: {
     retrievalModel: input.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL,
     tags: memory.tags,
     importance: memory.importance,
+    observedStartAt: input.observedStartAt ?? null,
+    observedEndAt: input.observedEndAt ?? null,
   }))
 }
 
@@ -286,6 +291,15 @@ export async function runContextFlushForSession(input: {
     candidateMessages.map(toConversationMessage),
     actorLabels,
   )
+  const candidateTimes = candidateMessages
+    .map((message) => message.createdAt)
+    .filter((date): date is Date => date instanceof Date && Number.isFinite(date.getTime()))
+  const observedStartAt = candidateTimes.length > 0
+    ? new Date(Math.min(...candidateTimes.map((date) => date.getTime())))
+    : null
+  const observedEndAt = candidateTimes.length > 0
+    ? new Date(Math.max(...candidateTimes.map((date) => date.getTime())))
+    : null
   const response = await provider.sendMessage({
     model: memoryConfig.summarizeModel ?? agent.model,
     systemPrompt: buildContextToShortTermPrompt(
@@ -318,6 +332,8 @@ export async function runContextFlushForSession(input: {
     memoryWrites,
     embeddingModel: memoryConfig.embeddingModel,
     embedder: input.embedder,
+    observedStartAt,
+    observedEndAt,
   })
 
   const nextActiveStartMessageId = candidateMessages.length === activeMessages.length
