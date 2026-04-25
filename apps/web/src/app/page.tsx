@@ -1,18 +1,24 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   buildModules,
   getEmotionFormState,
   getMemoryFormState,
+  getPersonalityAvatarUrl,
   getRelationshipFormState,
   type EmotionScheme,
   type MemoryScheme,
   type RelationshipScheme,
 } from './persona-modules'
 import { AGENT_MANAGER_TILES, type AgentManagerSection } from './manager-tiles'
+import {
+  countConfiguredHomeModules,
+  resolveSelectedAgentId,
+  type HomeAgentModuleState,
+} from './home-view-model'
 
 interface Agent {
   id: string
@@ -30,6 +36,38 @@ const MODEL_LABELS: Record<string, string> = {
   'claude-haiku-4-5-20251001': 'Haiku 4.5',
   'claude-opus-4-6': 'Opus 4.6',
 }
+
+const MODULE_STATUS = [
+  {
+    key: 'persona',
+    title: '人设',
+    subtitle: 'Prompt 与角色档案',
+    section: 'personality',
+  },
+  {
+    key: 'emotion',
+    title: '情绪',
+    subtitle: '心境、能量、压力',
+    section: 'emotion',
+  },
+  {
+    key: 'relationship',
+    title: '关系',
+    subtitle: '信任、熟悉、亲近',
+    section: 'relationships',
+  },
+  {
+    key: 'memory',
+    title: '记忆',
+    subtitle: '检索、归档、上下文',
+    section: 'memory',
+  },
+] as const satisfies readonly {
+  key: keyof HomeAgentModuleState | 'persona'
+  title: string
+  subtitle: string
+  section: AgentManagerSection
+}[]
 
 function gradientFor(seed: string) {
   let h = 0
@@ -49,7 +87,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-function readAgentSchemes(modules: Record<string, unknown> | null) {
+function readAgentSchemes(modules: Record<string, unknown> | null): HomeAgentModuleState {
   const personality = isRecord(modules?.personality)
     ? modules?.personality as Record<string, unknown>
     : null
@@ -74,8 +112,31 @@ function formatSchemeLabel(value: string) {
   return value
 }
 
+function formatMetricSchemeLabel(value: string) {
+  if (value === 'named-multi-dim') return '多对象'
+  if (value === 'multi-dim') return '多维'
+  return formatSchemeLabel(value)
+}
+
+function moduleValue(
+  schemes: HomeAgentModuleState,
+  key: typeof MODULE_STATUS[number]['key'],
+) {
+  if (key === 'persona') return schemes.personaConfigured ? '已配置' : '未配置'
+  return formatSchemeLabel(schemes[key])
+}
+
+function moduleEnabled(
+  schemes: HomeAgentModuleState,
+  key: typeof MODULE_STATUS[number]['key'],
+) {
+  if (key === 'persona') return schemes.personaConfigured
+  return schemes[key] !== 'noop'
+}
+
 export default function HomePage() {
   const [agents, setAgents] = useState<Agent[]>([])
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -97,6 +158,20 @@ export default function HomePage() {
   useEffect(() => {
     void loadAgents()
   }, [])
+
+  useEffect(() => {
+    setSelectedAgentId((current) => resolveSelectedAgentId(agents, current))
+  }, [agents])
+
+  const selectedAgent = useMemo(
+    () => agents.find((agent) => agent.id === selectedAgentId) ?? agents[0] ?? null,
+    [agents, selectedAgentId],
+  )
+  const selectedSchemes = selectedAgent ? readAgentSchemes(selectedAgent.modules) : null
+  const selectedAvatarUrl = selectedAgent ? getPersonalityAvatarUrl(selectedAgent.modules) : ''
+  const configuredCount = selectedSchemes
+    ? countConfiguredHomeModules(selectedSchemes)
+    : 0
 
   function resetForm() {
     setShowForm(false)
@@ -125,6 +200,7 @@ export default function HomePage() {
     setEmotionScheme(emotion.scheme)
     setRelationshipScheme(relationship.scheme)
     setMemoryScheme(memory.scheme)
+    setSelectedAgentId(agent.id)
     setShowForm(true)
   }
 
@@ -197,16 +273,17 @@ export default function HomePage() {
 
   return (
     <main className="home">
+      <div className="ambient" aria-hidden />
       <div className="home-wrap">
         <header className="home-head">
-          <div>
-            <p className="eyebrow">你的陪伴者</p>
-            <h1 className="home-title">虚拟人格</h1>
+          <div className="title-block">
+            <p className="eyebrow">Multi Agent System</p>
+            <h1 className="home-title">角色大厅</h1>
             <p className="home-sub">
-              首页现在只负责模型和模块入口；真正的人设文本、情绪、关系和记忆细项都在各自管理页里维护。
+              管理你的虚拟人格、关系状态、记忆系统和运行入口。这里是进入每个角色之前的总控台。
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <div className="head-actions">
             <button
               type="button"
               className="btn btn-ghost"
@@ -221,16 +298,24 @@ export default function HomePage() {
                 setShowForm(true)
               }}
             >
-              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> 新建虚拟人
+              <span className="button-mark">+</span> 新建虚拟人
             </button>
           </div>
         </header>
 
         {showForm && (
-          <form onSubmit={handleSubmit} className="card form">
-            <h3 className="form-title">
-              {editingId ? '编辑虚拟人' : '创建虚拟人'}
-            </h3>
+          <form onSubmit={handleSubmit} className="creation-panel">
+            <div className="form-head">
+              <div>
+                <p className="panel-label">Persona Builder</p>
+                <h3 className="form-title">
+                  {editingId ? '编辑虚拟人' : '创建虚拟人'}
+                </h3>
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={resetForm}>
+                收起
+              </button>
+            </div>
 
             <div className="form-grid">
               <label className="field">
@@ -244,7 +329,7 @@ export default function HomePage() {
                 />
               </label>
 
-              <label className="field">
+              <label className="field wide">
                 <span className="field-label">描述</span>
                 <input
                   className="input"
@@ -276,7 +361,7 @@ export default function HomePage() {
                 </select>
               </label>
 
-              <label className="field">
+              <label className="field wide">
                 <span className="field-label">模型</span>
                 <input
                   className="input"
@@ -300,102 +385,45 @@ export default function HomePage() {
                 </datalist>
               </label>
 
-              <section className="modules-panel" aria-label="模块配置">
-                <div className="modules-panel-head">
-                  <span className="field-label">模块方案</span>
-                  <span className="placeholder-pill">人设已迁到独立页</span>
-                </div>
+              <label className="field">
+                <span className="field-label">情绪方案</span>
+                <select
+                  className="input"
+                  value={emotionScheme}
+                  onChange={(event) =>
+                    setEmotionScheme(event.target.value as EmotionScheme)}
+                >
+                  <option value="noop">noop</option>
+                  <option value="dimensional">dimensional</option>
+                </select>
+              </label>
 
-                <div className="module-note">
-                  <strong>人设不在首页编辑。</strong>
-                  <span>
-                    `System Prompt / Persona Prompt` 已收口到虚拟人卡片的「人设」入口；这里仅管理情绪、关系和记忆方案。
-                  </span>
-                </div>
+              <label className="field">
+                <span className="field-label">关系方案</span>
+                <select
+                  className="input"
+                  value={relationshipScheme}
+                  onChange={(event) =>
+                    setRelationshipScheme(event.target.value as RelationshipScheme)}
+                >
+                  <option value="noop">noop</option>
+                  <option value="multi-dim">multi-dim</option>
+                  <option value="named-multi-dim">named-multi-dim</option>
+                </select>
+              </label>
 
-                <article className="module-card">
-                  <div className="module-head">
-                    <div>
-                      <p className="module-label">情绪</p>
-                      <h4 className="module-title">情绪方案</h4>
-                    </div>
-                    <span className="module-pill">{formatSchemeLabel(emotionScheme)}</span>
-                  </div>
-                  <p className="module-copy">
-                    情绪模块的基线、衰减和分析模型迁到情绪管理页，这里只保留启用与方案选择。
-                  </p>
-                  <label className="field">
-                    <span className="field-label">方案</span>
-                    <select
-                      className="input"
-                      value={emotionScheme}
-                      onChange={(event) =>
-                        setEmotionScheme(event.target.value as EmotionScheme)}
-                    >
-                      <option value="noop">noop</option>
-                      <option value="dimensional">dimensional</option>
-                    </select>
-                  </label>
-                </article>
-
-                <article className="module-card">
-                  <div className="module-head">
-                    <div>
-                      <p className="module-label">关系</p>
-                      <h4 className="module-title">关系方案</h4>
-                    </div>
-                    <span className="module-pill">{formatSchemeLabel(relationshipScheme)}</span>
-                  </div>
-                  <p className="module-copy">
-                    关系模块的基线、衰减和分析模型迁到关系管理页。这里仅负责打开或关闭以及选择方案。
-                  </p>
-                  <label className="field">
-                    <span className="field-label">方案</span>
-                    <select
-                      className="input"
-                      value={relationshipScheme}
-                      onChange={(event) =>
-                        setRelationshipScheme(event.target.value as RelationshipScheme)}
-                    >
-                      <option value="noop">noop</option>
-                      <option value="multi-dim">multi-dim</option>
-                      <option value="named-multi-dim">named-multi-dim</option>
-                    </select>
-                  </label>
-                </article>
-
-                <article className="module-card">
-                  <div className="module-head">
-                    <div>
-                      <p className="module-label">记忆</p>
-                      <h4 className="module-title">记忆方案</h4>
-                    </div>
-                    <span className="module-pill">{formatSchemeLabel(memoryScheme)}</span>
-                  </div>
-                  <p className="module-copy">
-                    记忆模型覆盖已迁到 `/agent/[id]/memory`。首页只选择当前记忆架构，进入统一入口后再管理具体系统。
-                  </p>
-                  <label className="field">
-                    <span className="field-label">方案</span>
-                    <select
-                      className="input"
-                      value={memoryScheme}
-                      onChange={(event) =>
-                        setMemoryScheme(event.target.value as MemoryScheme)}
-                    >
-                      <option value="noop">noop</option>
-                      <option value="sqlite">sqlite</option>
-                    </select>
-                  </label>
-                </article>
-
-                <div className="module-note">
-                  <strong>模块参数已迁移。</strong>
-                  <span>
-                    保存后请从虚拟人卡片进入人设 / 情绪 / 关系 / 记忆管理页，继续配置详细参数。
-                  </span>
-                </div>
-              </section>
+              <label className="field">
+                <span className="field-label">记忆方案</span>
+                <select
+                  className="input"
+                  value={memoryScheme}
+                  onChange={(event) =>
+                    setMemoryScheme(event.target.value as MemoryScheme)}
+                >
+                  <option value="noop">noop</option>
+                  <option value="sqlite">sqlite</option>
+                </select>
+              </label>
             </div>
 
             <div className="form-actions">
@@ -410,581 +438,793 @@ export default function HomePage() {
         )}
 
         {agents.length === 0 && !showForm && (
-          <div className="empty">
-            <div className="empty-glyph" aria-hidden />
-            <p className="empty-title">还没有虚拟人</p>
-            <p className="empty-sub">
-              创建第一个虚拟人，开始一段对话。
-            </p>
-          </div>
+          <section className="empty-stage">
+            <div className="empty-art" aria-hidden />
+            <div className="empty-copy">
+              <p className="panel-label">No persona online</p>
+              <h2>还没有虚拟人</h2>
+              <p>先创建一个角色，再进入聊天、人设、情绪、关系和记忆管理。</p>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  resetForm()
+                  setShowForm(true)
+                }}
+              >
+                <span className="button-mark">+</span> 创建第一个虚拟人
+              </button>
+            </div>
+          </section>
         )}
 
-        <div className="grid">
-          {agents.map((agent) => {
-            const schemes = readAgentSchemes(agent.modules)
+        {agents.length > 0 && selectedAgent && selectedSchemes && (
+          <section className="hall-grid">
+            <aside className="roster-panel" aria-label="虚拟人列表">
+              <div className="panel-topline">
+                <div>
+                  <p className="panel-label">Roster</p>
+                  <h2>虚拟人格</h2>
+                </div>
+                <span className="count-pill">{agents.length}</span>
+              </div>
 
-            return (
-              <article key={agent.id} className="card persona">
-                <div className="persona-stage">
+              <div className="roster-list">
+                {agents.map((agent) => {
+                  const schemes = readAgentSchemes(agent.modules)
+                  const avatarUrl = getPersonalityAvatarUrl(agent.modules)
+                  const isActive = agent.id === selectedAgent.id
+
+                  return (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      className={`roster-item ${isActive ? 'roster-item-active' : ''}`}
+                      onClick={() => setSelectedAgentId(agent.id)}
+                    >
+                      <span
+                        className="avatar avatar-list"
+                        style={avatarUrl ? undefined : { backgroundImage: gradientFor(agent.id) }}
+                      >
+                        {avatarUrl ? (
+                          <img src={avatarUrl} alt="" />
+                        ) : (
+                          initials(agent.name)
+                        )}
+                      </span>
+                      <span className="roster-copy">
+                        <strong>{agent.name}</strong>
+                        <small>{MODEL_LABELS[agent.model] ?? agent.model}</small>
+                      </span>
+                      <span className="roster-score">
+                        {countConfiguredHomeModules(schemes)}/4
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </aside>
+
+            <section className="focus-panel" aria-label="当前虚拟人">
+              <div className="focus-art" aria-hidden />
+              <div className="focus-content">
+                <div className="focus-portrait">
                   <div
-                    className="avatar avatar-hero"
-                    style={{ backgroundImage: gradientFor(agent.id) }}
+                    className="portrait-backdrop"
+                    style={selectedAvatarUrl ? undefined : { backgroundImage: 'url(/home-assets/portrait-backdrop.png)' }}
                   >
-                    {initials(agent.name)}
-                  </div>
-
-                  <div className="persona-body">
-                    <div className="persona-head">
-                      <div className="persona-id">
-                        <div className="persona-badges">
-                          <span className="provider-pill">{agent.provider}</span>
-                          <span className="model-pill">
-                            {MODEL_LABELS[agent.model] ?? agent.model}
-                          </span>
-                        </div>
-                        <h3 className="persona-name">{agent.name}</h3>
-                        <p className="persona-meta">已准备好管理的虚拟陪伴者</p>
-                      </div>
-
-                      <div className="persona-admin">
-                        <button className="admin-chip" onClick={() => startEdit(agent)}>
-                          编辑
-                        </button>
-                        <button
-                          className="admin-chip admin-chip-danger"
-                          onClick={() => handleDelete(agent.id)}
-                        >
-                          删除
-                        </button>
-                      </div>
-                    </div>
-
-                    {agent.description && (
-                      <p className="persona-desc">{agent.description}</p>
+                    {selectedAvatarUrl ? (
+                      <img src={selectedAvatarUrl} alt="" />
+                    ) : (
+                      <span>{initials(selectedAgent.name)}</span>
                     )}
                   </div>
                 </div>
 
-                <div className="scheme-pills scheme-pills-elevated">
-                  <span className="scheme-pill">人设 · {schemes.personaConfigured ? '已配置' : '未配置'}</span>
-                  <span className="scheme-pill">情绪 · {formatSchemeLabel(schemes.emotion)}</span>
-                  <span className="scheme-pill">关系 · {formatSchemeLabel(schemes.relationship)}</span>
-                  <span className="scheme-pill">记忆 · {formatSchemeLabel(schemes.memory)}</span>
-                </div>
+                <div className="focus-main">
+                  <div className="agent-badges">
+                    <span className="provider-pill">{selectedAgent.provider}</span>
+                    <span className="model-pill">
+                      {MODEL_LABELS[selectedAgent.model] ?? selectedAgent.model}
+                    </span>
+                  </div>
+                  <h2 className="agent-name">{selectedAgent.name}</h2>
+                  <p className="agent-desc">
+                    {selectedAgent.description || '这个虚拟人还没有描述。可以进入人设页补充角色背景、说话风格和互动边界。'}
+                  </p>
 
-                <div className="persona-console">
-                  <div className="console-head">
+                  <div className="focus-metrics">
                     <div>
-                      <p className="console-label">控制台</p>
-                      <h4 className="console-title">从一个面板管理这个虚拟人</h4>
+                      <strong>{configuredCount}/4</strong>
+                      <span>核心模块</span>
                     </div>
+                    <div>
+                      <strong>{formatMetricSchemeLabel(selectedSchemes.relationship)}</strong>
+                      <span>关系系统</span>
+                    </div>
+                    <div>
+                      <strong>{formatMetricSchemeLabel(selectedSchemes.memory)}</strong>
+                      <span>记忆系统</span>
+                    </div>
+                  </div>
+
+                  <div className="focus-actions">
                     <button
-                      className="btn btn-primary console-chat"
-                      onClick={() => handleChat(agent.id)}
+                      className="btn btn-primary"
+                      onClick={() => handleChat(selectedAgent.id)}
                     >
                       打开聊天
                     </button>
-                  </div>
-
-                  <div className="manager-grid">
-                    {AGENT_MANAGER_TILES.map((tile) => (
-                      <button
-                        key={tile.section}
-                        className="manager-tile"
-                        onClick={() => openManager(agent.id, tile.section)}
-                      >
-                        <span className="manager-index">{tile.index}</span>
-                        <span className="manager-copy">
-                          <strong>{tile.title}</strong>
-                          <small>{tile.subtitle}</small>
-                        </span>
-                      </button>
-                    ))}
+                    <button
+                      className="btn"
+                      onClick={() => openManager(selectedAgent.id, 'personality')}
+                    >
+                      人设档案
+                    </button>
+                    <button className="btn btn-ghost" onClick={() => startEdit(selectedAgent)}>
+                      编辑基础信息
+                    </button>
                   </div>
                 </div>
-              </article>
-            )
-          })}
-        </div>
+              </div>
+            </section>
+
+            <aside className="system-panel" aria-label="角色系统状态">
+              <div className="panel-topline">
+                <div>
+                  <p className="panel-label">Systems</p>
+                  <h2>角色系统</h2>
+                </div>
+                <span className="count-pill">{configuredCount}/4</span>
+              </div>
+
+              <div className="module-stack">
+                {MODULE_STATUS.map((module) => {
+                  const enabled = moduleEnabled(selectedSchemes, module.key)
+                  return (
+                    <button
+                      key={module.key}
+                      type="button"
+                      className={`module-tile module-${module.key} ${enabled ? 'module-on' : ''}`}
+                      onClick={() => openManager(selectedAgent.id, module.section)}
+                    >
+                      <span className="module-texture" aria-hidden />
+                      <span className="module-copy">
+                        <span className="module-row">
+                          <strong>{module.title}</strong>
+                          <em>{moduleValue(selectedSchemes, module.key)}</em>
+                        </span>
+                        <small>{module.subtitle}</small>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="manager-strip">
+                {AGENT_MANAGER_TILES.map((tile) => (
+                  <button
+                    key={tile.section}
+                    className="manager-tile"
+                    onClick={() => openManager(selectedAgent.id, tile.section)}
+                  >
+                    <span>{tile.index}</span>
+                    <strong>{tile.title}</strong>
+                  </button>
+                ))}
+              </div>
+            </aside>
+          </section>
+        )}
       </div>
 
       <style jsx>{`
         .home {
           min-height: 100vh;
-          padding: 64px 24px 96px;
+          position: relative;
+          overflow: hidden;
+          padding: 48px 22px 76px;
+          background:
+            linear-gradient(180deg, rgba(2, 6, 15, 0.4), rgba(2, 6, 15, 0.88)),
+            #030612;
+        }
+        .ambient {
+          position: fixed;
+          inset: 0;
+          z-index: 0;
+          background:
+            linear-gradient(90deg, rgba(3, 6, 18, 0.82), rgba(3, 6, 18, 0.45) 42%, rgba(3, 6, 18, 0.88)),
+            url('/home-assets/role-hall-bg.png') center / cover no-repeat;
+          opacity: 0.72;
+          transform: scale(1.04);
+          pointer-events: none;
+        }
+        .ambient::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background:
+            linear-gradient(180deg, rgba(3, 6, 18, 0.18), rgba(3, 6, 18, 0.9)),
+            radial-gradient(circle at 72% 18%, rgba(34, 197, 94, 0.14), transparent 34%),
+            radial-gradient(circle at 12% 80%, rgba(245, 158, 11, 0.12), transparent 34%);
         }
         .home-wrap {
-          max-width: 1040px;
+          position: relative;
+          z-index: 1;
+          max-width: 1440px;
           margin: 0 auto;
           display: flex;
           flex-direction: column;
-          gap: 32px;
+          gap: 22px;
         }
         .home-head {
           display: flex;
           justify-content: space-between;
           align-items: flex-end;
-          gap: 24px;
+          gap: 22px;
           flex-wrap: wrap;
+          padding: 6px 2px 10px;
         }
-        .eyebrow {
+        .title-block {
+          max-width: 720px;
+        }
+        .eyebrow,
+        .panel-label {
+          margin: 0 0 9px;
+          color: #90a4bc;
           font-size: 11px;
           letter-spacing: 0.14em;
           text-transform: uppercase;
-          color: var(--fg-subtle);
-          margin-bottom: 10px;
         }
         .home-title {
+          margin: 0;
           font-family: var(--font-display);
-          font-size: clamp(40px, 6vw, 64px);
-          font-weight: 400;
-          line-height: 1;
-          letter-spacing: -0.03em;
-          font-variation-settings: 'SOFT' 80, 'opsz' 72;
-          background: linear-gradient(135deg, #f5f5f7 0%, #d9d9e0 55%, var(--indigo) 100%);
-          -webkit-background-clip: text;
-          background-clip: text;
-          color: transparent;
+          font-size: clamp(42px, 6vw, 78px);
+          font-weight: 500;
+          line-height: 0.95;
+          color: #f8fafc;
+          letter-spacing: 0;
+          text-shadow: 0 18px 60px rgba(0, 0, 0, 0.52);
         }
         .home-sub {
-          color: var(--fg-muted);
+          max-width: 64ch;
+          margin: 14px 0 0;
+          color: #b7c3d4;
           font-size: 15px;
-          margin-top: 10px;
-          max-width: 52ch;
-          line-height: 1.7;
+          line-height: 1.72;
         }
-        .form {
-          padding: 24px;
+        .head-actions,
+        .form-actions,
+        .focus-actions {
           display: flex;
-          flex-direction: column;
-          gap: 18px;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
         }
-        .form-title {
-          font-size: 20px;
+        .button-mark {
+          font-size: 16px;
+          line-height: 1;
+        }
+        .creation-panel,
+        .roster-panel,
+        .focus-panel,
+        .system-panel,
+        .empty-stage {
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          background:
+            linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(8, 13, 25, 0.72)),
+            rgba(3, 7, 18, 0.6);
+          box-shadow:
+            0 24px 80px rgba(0, 0, 0, 0.35),
+            inset 0 1px 0 rgba(255, 255, 255, 0.04);
+          backdrop-filter: blur(18px) saturate(135%);
+          -webkit-backdrop-filter: blur(18px) saturate(135%);
+        }
+        .creation-panel {
+          border-radius: 22px;
+          padding: 20px;
+        }
+        .form-head,
+        .panel-topline {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 14px;
+        }
+        .form-title,
+        .panel-topline h2 {
+          margin: 0;
+          color: #f8fafc;
+          font-family: var(--font-display);
+          font-size: 22px;
           font-weight: 500;
-          font-variation-settings: 'SOFT' 80, 'opsz' 24;
+          letter-spacing: 0;
         }
         .form-grid {
-          display: flex;
-          flex-direction: column;
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 14px;
+          margin-top: 18px;
         }
         .field {
           display: flex;
           flex-direction: column;
-          gap: 6px;
+          gap: 7px;
+        }
+        .field.wide {
+          grid-column: span 2;
         }
         .field-label {
+          color: #98a8bd;
           font-size: 12px;
-          color: var(--fg-muted);
           font-weight: 500;
-          letter-spacing: 0.02em;
         }
-        .modules-panel {
-          border: 1px dashed var(--border);
-          border-radius: 18px;
-          padding: 16px;
-          background: rgba(255, 255, 255, 0.02);
+        .hall-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-          gap: 14px;
-        }
-        .modules-panel-head {
-          grid-column: 1 / -1;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-        .placeholder-pill {
-          font-size: 11px;
-          line-height: 1;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: var(--fg-subtle);
-          border: 1px solid var(--border);
-          border-radius: 999px;
-          padding: 6px 10px;
-          background: rgba(255, 255, 255, 0.03);
-        }
-        .module-card {
-          border: 1px solid rgba(129, 140, 248, 0.18);
-          border-radius: 22px;
-          padding: 16px;
-          background: linear-gradient(135deg, rgba(129, 140, 248, 0.08), rgba(255, 255, 255, 0.02)), rgba(255, 255, 255, 0.02);
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-        .module-head {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 12px;
-        }
-        .module-label {
-          margin: 0 0 4px;
-          font-size: 12px;
-          color: var(--fg-subtle);
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-        .module-title {
-          margin: 0;
-          font-size: 18px;
-          color: var(--fg);
-        }
-        .module-pill {
-          font-size: 11px;
-          line-height: 1;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: #d9ddff;
-          border: 1px solid rgba(129, 140, 248, 0.28);
-          border-radius: 999px;
-          padding: 6px 10px;
-          background: rgba(129, 140, 248, 0.14);
-          white-space: nowrap;
-        }
-        .module-copy {
-          margin: 0;
-          color: var(--fg-muted);
-          font-size: 13px;
-          line-height: 1.65;
-        }
-        .prompt-meta-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-        .prompt-meta {
-          font-size: 12px;
-          color: var(--fg-subtle);
-        }
-        .prompt-inline-action {
-          padding: 6px 10px;
-          font-size: 12px;
-        }
-        .module-note {
-          grid-column: 1 / -1;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 18px;
-          padding: 14px 16px;
-          background: rgba(0, 0, 0, 0.18);
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          color: var(--fg-muted);
-          line-height: 1.65;
-        }
-        .module-note strong {
-          color: var(--fg);
-        }
-        .form-actions {
-          display: flex;
-          gap: 8px;
-          padding-top: 4px;
-          flex-wrap: wrap;
-        }
-        .empty {
-          padding: 72px 24px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          text-align: center;
-          gap: 12px;
-        }
-        .empty-glyph {
-          width: 72px;
-          height: 72px;
-          border-radius: 999px;
-          background: radial-gradient(circle at 30% 30%, var(--indigo-glow), transparent 60%), radial-gradient(circle at 70% 70%, var(--orange-soft), transparent 60%);
-          border: 1px solid var(--border);
-        }
-        .empty-title {
-          font-family: var(--font-display);
-          font-size: 22px;
-          color: var(--fg);
-          font-variation-settings: 'SOFT' 100, 'opsz' 28;
-        }
-        .empty-sub {
-          color: var(--fg-muted);
-          font-size: 14px;
-        }
-        .grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-          gap: 18px;
-        }
-        .persona {
-          padding: 22px;
-          display: flex;
-          flex-direction: column;
-          gap: 18px;
-          position: relative;
-          overflow: hidden;
-        }
-        .persona::before {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background:
-            radial-gradient(circle at top right, rgba(236, 72, 153, 0.16), transparent 34%),
-            radial-gradient(circle at bottom left, rgba(129, 140, 248, 0.18), transparent 30%);
-          pointer-events: none;
-        }
-        .persona-stage {
-          position: relative;
-          display: grid;
-          grid-template-columns: 74px minmax(0, 1fr);
+          grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(260px, 330px);
           gap: 16px;
-          align-items: start;
-          z-index: 1;
+          align-items: stretch;
+          min-height: 640px;
+        }
+        .roster-panel,
+        .system-panel {
+          border-radius: 24px;
+          padding: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          min-width: 0;
+        }
+        .count-pill {
+          min-width: 36px;
+          height: 28px;
+          padding: 0 10px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #d8f5e3;
+          background: rgba(34, 197, 94, 0.13);
+          border: 1px solid rgba(34, 197, 94, 0.26);
+          font-size: 12px;
+          font-weight: 700;
+        }
+        .roster-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-height: 0;
+          overflow: auto;
+          padding-right: 2px;
+        }
+        .roster-item {
+          width: 100%;
+          display: grid;
+          grid-template-columns: 46px minmax(0, 1fr) auto;
+          gap: 11px;
+          align-items: center;
+          padding: 10px;
+          border: 1px solid rgba(148, 163, 184, 0.12);
+          border-radius: 16px;
+          background: rgba(15, 23, 42, 0.42);
+          color: #eef4ff;
+          text-align: left;
+          cursor: pointer;
+          transition:
+            transform 160ms ease,
+            border-color 160ms ease,
+            background 160ms ease;
+        }
+        .roster-item:hover,
+        .roster-item-active {
+          transform: translateY(-1px);
+          border-color: rgba(34, 197, 94, 0.34);
+          background: linear-gradient(135deg, rgba(34, 197, 94, 0.13), rgba(15, 23, 42, 0.62));
         }
         .avatar {
           display: flex;
           align-items: center;
           justify-content: center;
-          font-family: var(--font-display);
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.95);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
           flex-shrink: 0;
-        }
-        .avatar-hero {
-          width: 74px;
-          height: 74px;
-          border-radius: 24px;
-          font-size: 24px;
-          border: 1px solid rgba(255, 255, 255, 0.22);
+          overflow: hidden;
+          color: rgba(255, 255, 255, 0.95);
+          font-family: var(--font-display);
+          font-weight: 600;
           box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.2),
-            0 18px 38px -24px rgba(0, 0, 0, 0.9);
+            inset 0 1px 0 rgba(255, 255, 255, 0.22),
+            0 16px 30px rgba(0, 0, 0, 0.24);
         }
-        .persona-body {
-          min-width: 0;
+        .avatar-list {
+          width: 46px;
+          height: 46px;
+          border-radius: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          font-size: 15px;
+        }
+        .avatar img,
+        .portrait-backdrop img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+        .roster-copy {
           display: flex;
           flex-direction: column;
-          gap: 12px;
-        }
-        .persona-head {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 16px;
-        }
-        .persona-id {
+          gap: 3px;
           min-width: 0;
         }
-        .persona-badges {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin-bottom: 10px;
-        }
-        .persona-name {
-          font-size: 22px;
-          line-height: 1.1;
-          font-family: var(--font-display);
-          font-weight: 450;
-          font-variation-settings: 'SOFT' 100, 'opsz' 28;
-        }
-        .persona-meta {
-          margin-top: 6px;
-          color: var(--fg-subtle);
-          font-size: 12px;
-          line-height: 1.5;
-          text-transform: uppercase;
-          letter-spacing: 0.1em;
-        }
-        .provider-pill {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 7px 10px;
-          border-radius: 999px;
-          background: rgba(236, 72, 153, 0.12);
-          border: 1px solid rgba(236, 72, 153, 0.28);
-          color: #ffd1eb;
-          font-size: 10px;
-          line-height: 1;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-        }
-        .model-pill {
-          flex-shrink: 0;
-          font-size: 11px;
-          line-height: 1;
-          padding: 8px 10px;
-          border-radius: 999px;
-          color: #ececff;
-          border: 1px solid var(--border);
-          background: rgba(255, 255, 255, 0.07);
-          max-width: 220px;
+        .roster-copy strong,
+        .manager-tile strong {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        .persona-admin {
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-          gap: 8px;
-        }
-        .admin-chip {
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.04);
-          color: var(--fg);
-          padding: 8px 12px;
-          font-size: 11px;
-          line-height: 1;
-          letter-spacing: 0.04em;
-          text-transform: uppercase;
-          cursor: pointer;
-        }
-        .admin-chip-danger {
-          color: #ffc2c2;
-          border-color: rgba(248, 113, 113, 0.18);
-          background: rgba(248, 113, 113, 0.08);
-        }
-        .persona-desc {
-          color: var(--fg-muted);
-          line-height: 1.65;
+        .roster-copy strong {
           font-size: 14px;
-          max-width: 44ch;
         }
-        .scheme-pills {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-        .scheme-pills-elevated {
-          position: relative;
-          z-index: 1;
-        }
-        .scheme-pill {
-          padding: 7px 11px;
-          border-radius: 999px;
-          border: 1px solid rgba(129, 140, 248, 0.26);
-          background: rgba(9, 9, 12, 0.32);
-          color: var(--fg);
+        .roster-copy small {
+          color: #93a4bc;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
           font-size: 11px;
-          line-height: 1;
-          letter-spacing: 0.04em;
         }
-        .persona-console {
+        .roster-score {
+          color: #a7f3d0;
+          font-size: 11px;
+          font-weight: 700;
+        }
+        .focus-panel {
+          position: relative;
+          overflow: hidden;
+          border-radius: 28px;
+          min-width: 0;
+        }
+        .focus-art {
+          position: absolute;
+          inset: 0;
+          background:
+            linear-gradient(90deg, rgba(4, 8, 20, 0.68), rgba(4, 8, 20, 0.2) 52%, rgba(4, 8, 20, 0.86)),
+            url('/home-assets/role-hall-bg.png') center / cover no-repeat;
+          opacity: 0.9;
+        }
+        .focus-art::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background:
+            linear-gradient(180deg, rgba(3, 7, 18, 0.08), rgba(3, 7, 18, 0.92)),
+            radial-gradient(circle at 40% 28%, rgba(34, 197, 94, 0.12), transparent 36%);
+        }
+        .focus-content {
           position: relative;
           z-index: 1;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 24px;
-          padding: 16px;
-          background:
-            linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
-            rgba(4, 6, 14, 0.52);
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-        }
-        .console-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-        .console-label {
-          margin: 0 0 5px;
-          font-size: 10px;
-          line-height: 1;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
-          color: var(--fg-subtle);
-        }
-        .console-title {
-          font-size: 16px;
-          line-height: 1.3;
-          color: var(--fg);
-        }
-        .console-chat {
-          min-width: 122px;
-        }
-        .manager-grid {
+          min-height: 100%;
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 10px;
+          grid-template-columns: minmax(250px, 36%) minmax(0, 1fr);
+          gap: 24px;
+          align-items: end;
+          padding: clamp(22px, 4vw, 38px);
         }
-        .manager-tile {
-          display: grid;
-          grid-template-columns: 34px minmax(0, 1fr);
-          gap: 12px;
+        .focus-portrait {
+          align-self: stretch;
+          display: flex;
           align-items: center;
-          width: 100%;
-          padding: 13px 14px;
-          border-radius: 18px;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          background: rgba(255, 255, 255, 0.04);
-          color: var(--fg);
-          text-align: left;
-          cursor: pointer;
-          transition:
-            transform 180ms ease,
-            border-color 180ms ease,
-            background 180ms ease;
+          justify-content: center;
         }
-        .manager-tile:hover {
-          transform: translateY(-1px);
-          border-color: rgba(236, 72, 153, 0.28);
-          background: rgba(236, 72, 153, 0.08);
+        .portrait-backdrop {
+          width: min(100%, 330px);
+          aspect-ratio: 0.78;
+          border-radius: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          background-size: cover;
+          background-position: center;
+          border: 1px solid rgba(255, 255, 255, 0.22);
+          box-shadow:
+            0 34px 82px rgba(0, 0, 0, 0.48),
+            inset 0 1px 0 rgba(255, 255, 255, 0.18);
         }
-        .manager-index {
-          width: 34px;
-          height: 34px;
-          border-radius: 12px;
+        .portrait-backdrop span {
+          width: 108px;
+          height: 108px;
+          border-radius: 32px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          background: rgba(129, 140, 248, 0.14);
-          border: 1px solid rgba(129, 140, 248, 0.26);
-          color: #dfe2ff;
-          font-size: 11px;
+          color: #e8fff3;
+          background: rgba(2, 6, 15, 0.46);
+          border: 1px solid rgba(255, 255, 255, 0.24);
           font-family: var(--font-display);
+          font-size: 42px;
+          font-weight: 600;
+          backdrop-filter: blur(10px);
         }
-        .manager-copy {
+        .focus-main {
           min-width: 0;
           display: flex;
           flex-direction: column;
-          gap: 3px;
+          gap: 16px;
         }
-        .manager-copy strong {
-          font-size: 14px;
-          color: var(--fg);
+        .agent-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
         }
-        .manager-copy small {
-          color: var(--fg-muted);
+        .provider-pill,
+        .model-pill {
+          display: inline-flex;
+          align-items: center;
+          min-height: 28px;
+          padding: 7px 10px;
+          border-radius: 999px;
+          line-height: 1;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          white-space: nowrap;
+        }
+        .provider-pill {
+          color: #d8f5e3;
+          background: rgba(34, 197, 94, 0.14);
+          border: 1px solid rgba(34, 197, 94, 0.28);
+        }
+        .model-pill {
+          max-width: min(100%, 280px);
+          color: #dbe8ff;
+          background: rgba(148, 163, 184, 0.12);
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .agent-name {
+          margin: 0;
+          color: #f8fafc;
+          font-family: var(--font-display);
+          font-size: clamp(42px, 6vw, 76px);
+          line-height: 0.96;
+          font-weight: 520;
+          letter-spacing: 0;
+          text-shadow: 0 22px 70px rgba(0, 0, 0, 0.62);
+        }
+        .agent-desc {
+          max-width: 62ch;
+          margin: 0;
+          color: #c1ccda;
+          font-size: 15px;
+          line-height: 1.75;
+        }
+        .focus-metrics {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+        .focus-metrics div {
+          min-width: 0;
+          border: 1px solid rgba(148, 163, 184, 0.16);
+          border-radius: 16px;
+          padding: 13px 14px;
+          background: rgba(3, 7, 18, 0.46);
+        }
+        .focus-metrics strong {
+          display: block;
+          color: #f8fafc;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 17px;
+        }
+        .focus-metrics span {
+          display: block;
+          margin-top: 4px;
+          color: #91a3bc;
           font-size: 12px;
-          line-height: 1.35;
         }
-        @media (max-width: 760px) {
-          .modules-panel {
-            grid-template-columns: 1fr;
+        .module-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .module-tile {
+          position: relative;
+          overflow: hidden;
+          width: 100%;
+          min-height: 88px;
+          padding: 14px;
+          border: 1px solid rgba(148, 163, 184, 0.14);
+          border-radius: 18px;
+          background: rgba(15, 23, 42, 0.48);
+          color: #eef4ff;
+          text-align: left;
+          cursor: pointer;
+          transition:
+            transform 160ms ease,
+            border-color 160ms ease,
+            background 160ms ease;
+        }
+        .module-tile:hover,
+        .module-on {
+          transform: translateY(-1px);
+          border-color: rgba(34, 197, 94, 0.26);
+          background: rgba(12, 29, 31, 0.58);
+        }
+        .module-texture {
+          position: absolute;
+          inset: 0;
+          background-image:
+            linear-gradient(90deg, rgba(3, 7, 18, 0.22), rgba(3, 7, 18, 0.72)),
+            url('/home-assets/module-texture.png');
+          background-size: cover;
+          opacity: 0.34;
+        }
+        .module-emotion .module-texture {
+          background-position: 48% 50%;
+        }
+        .module-relationship .module-texture {
+          background-position: 68% 38%;
+        }
+        .module-memory .module-texture {
+          background-position: 78% 78%;
+        }
+        .module-copy {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .module-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
+        }
+        .module-row strong {
+          color: #f8fafc;
+          font-size: 15px;
+        }
+        .module-row em {
+          color: #a7f3d0;
+          font-size: 11px;
+          font-style: normal;
+          white-space: nowrap;
+        }
+        .module-copy small {
+          color: #a7b5c8;
+          line-height: 1.45;
+        }
+        .manager-strip {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 9px;
+          margin-top: auto;
+        }
+        .manager-tile {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+          padding: 10px;
+          border: 1px solid rgba(148, 163, 184, 0.13);
+          border-radius: 14px;
+          background: rgba(15, 23, 42, 0.42);
+          color: #eef4ff;
+          cursor: pointer;
+          text-align: left;
+        }
+        .manager-tile:hover {
+          border-color: rgba(245, 158, 11, 0.28);
+          background: rgba(245, 158, 11, 0.1);
+        }
+        .manager-tile span {
+          color: #f9d58b;
+          font-family: var(--font-display);
+          font-size: 11px;
+        }
+        .manager-tile strong {
+          font-size: 13px;
+        }
+        .empty-stage {
+          min-height: 560px;
+          border-radius: 28px;
+          overflow: hidden;
+          display: grid;
+          grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+        }
+        .empty-art {
+          background:
+            linear-gradient(90deg, rgba(3, 7, 18, 0.08), rgba(3, 7, 18, 0.52)),
+            url('/home-assets/empty-dossier.png') center / cover no-repeat;
+          min-height: 420px;
+        }
+        .empty-copy {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 16px;
+          padding: clamp(26px, 5vw, 52px);
+        }
+        .empty-copy h2 {
+          margin: 0;
+          color: #f8fafc;
+          font-family: var(--font-display);
+          font-size: clamp(34px, 5vw, 58px);
+          line-height: 1;
+          letter-spacing: 0;
+        }
+        .empty-copy p {
+          margin: 0;
+          color: #b7c3d4;
+          line-height: 1.72;
+        }
+        @media (max-width: 1180px) {
+          .hall-grid {
+            grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
           }
-          .manager-grid {
-            grid-template-columns: 1fr;
+          .system-panel {
+            grid-column: 1 / -1;
+          }
+          .module-stack {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .manager-strip {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
           }
         }
-        @media (max-width: 640px) {
-          .persona-stage {
+        @media (max-width: 860px) {
+          .home {
+            padding: 28px 14px 56px;
+          }
+          .hall-grid,
+          .empty-stage {
             grid-template-columns: 1fr;
           }
-          .persona-head {
-            flex-direction: column;
+          .focus-content {
+            grid-template-columns: 1fr;
           }
-          .persona-admin {
-            justify-content: flex-start;
+          .focus-portrait {
+            align-self: center;
+          }
+          .portrait-backdrop {
+            max-width: 260px;
+          }
+          .form-grid,
+          .focus-metrics,
+          .module-stack,
+          .manager-strip {
+            grid-template-columns: 1fr;
+          }
+          .field.wide {
+            grid-column: auto;
+          }
+          .roster-list {
+            max-height: 360px;
+          }
+          .empty-art {
+            min-height: 320px;
+          }
+        }
+        @media (max-width: 520px) {
+          .home-title {
+            font-size: 42px;
+          }
+          .agent-name {
+            font-size: 40px;
+          }
+          .focus-content,
+          .creation-panel,
+          .roster-panel,
+          .system-panel {
+            padding: 16px;
+          }
+          .roster-item {
+            grid-template-columns: 42px minmax(0, 1fr);
+          }
+          .roster-score {
+            display: none;
           }
         }
       `}</style>
