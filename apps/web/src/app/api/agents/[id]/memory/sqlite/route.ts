@@ -1,5 +1,5 @@
 import { initDb } from '@/lib/db-init'
-import { listSqliteMemories, updateSqliteMemorySettings } from './handler'
+import { clearSqliteMemories, listSqliteMemories, updateSqliteMemorySettings } from './handler'
 
 export async function GET(
   request: Request,
@@ -27,4 +27,13 @@ export async function PATCH(
   const { id } = await params
   const body = await request.json()
   return updateSqliteMemorySettings(id, body)
+}
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  initDb()
+  const { id } = await params
+  return clearSqliteMemories(id)
 }

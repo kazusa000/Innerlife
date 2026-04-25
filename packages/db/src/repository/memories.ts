@@ -296,10 +296,12 @@ export function deleteSqliteMemoryByAgent(agentId: string, memoryId: string) {
 
 export function deleteMemoriesByAgent(agentId: string) {
   const sqlite = getMemoryRawSqlite()
-  sqlite.prepare(`
+  const result = sqlite.prepare(`
     DELETE FROM memories
     WHERE agent_id = ?
   `).run(agentId)
+
+  return result.changes
 }
 
 export function updateSqliteMemoryLayerByAgent(agentId: string, memoryId: string, layer: MemoryLayer) {

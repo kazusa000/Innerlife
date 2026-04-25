@@ -66,6 +66,12 @@ interface MemoryActionResponse {
   }
 }
 
+interface ClearMemoriesResponse {
+  ok?: boolean
+  deletedCount?: number
+  error?: string
+}
+
 interface ContextSummary {
   activeSessionId: string | null
   activeStartMessageId: string | null
@@ -236,6 +242,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [loading, setLoading] = useState(true)
   const [isFlushingContext, setIsFlushingContext] = useState(false)
   const [isSleeping, setIsSleeping] = useState(false)
+  const [isClearingMemories, setIsClearingMemories] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -328,6 +335,38 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     startTransition(() => {
       void refresh()
     })
+  }
+
+  async function handleClearAllMemories() {
+    if (!window.confirm('要清空当前 persona 的全部 sqlite 记忆吗？这会删除短期记忆、长期记忆和固化记忆，但不会清除聊天上下文或其他 persona 的记忆。')) {
+      return
+    }
+
+    setError(null)
+    setNotice(null)
+    setIsClearingMemories(true)
+
+    try {
+      const response = await fetch(`/api/agents/${agentId}/memory/sqlite`, {
+        method: 'DELETE',
+      })
+      const data = await response.json() as ClearMemoriesResponse
+      if (!response.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : '清空 sqlite 记忆失败')
+      }
+
+      const deletedCount = typeof data.deletedCount === 'number' ? data.deletedCount : 0
+      setNotice(`已清空当前 persona 的 ${deletedCount} 条 sqlite 记忆。`)
+      setExpandedId(null)
+      setPage(1)
+      startTransition(() => {
+        void refresh(deferredQuery, 1, layerFilter)
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '清空 sqlite 记忆失败')
+    } finally {
+      setIsClearingMemories(false)
+    }
   }
 
   async function handleLayerChange(memoryId: string, layer: SqliteMemory['layer']) {
@@ -508,7 +547,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             type="button"
             className={styles.secondaryButton}
             onClick={() => void handleFlushContext()}
-            disabled={isFlushingContext || isSleeping || loading}
+            disabled={isFlushingContext || isSleeping || isClearingMemories || loading}
           >
             {isFlushingContext ? '正在整理旧上下文…' : '整理上下文'}
           </button>
@@ -516,7 +555,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             type="button"
             className={styles.secondaryButton}
             onClick={() => void handleSleep()}
-            disabled={isSleeping || isFlushingContext || loading}
+            disabled={isSleeping || isFlushingContext || isClearingMemories || loading}
           >
             {isSleeping ? '正在睡觉…' : '立即睡觉'}
           </button>
@@ -524,7 +563,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             type="button"
             className={styles.primaryButton}
             onClick={() => void handleSaveSettings()}
-            disabled={!settingsDirty || isFlushingContext || isSleeping}
+            disabled={!settingsDirty || isFlushingContext || isSleeping || isClearingMemories}
           >
             保存配置
           </button>
@@ -877,6 +916,14 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               {deferredQuery.trim() ? ` · 搜索词：${deferredQuery.trim()}` : ''}
               {layerFilter !== 'all' ? ` · 层级：${MEMORY_LAYER_LABELS[layerFilter]}` : ''}
             </span>
+            <button
+              type="button"
+              className={styles.dangerButton}
+              onClick={() => void handleClearAllMemories()}
+              disabled={isClearingMemories || isFlushingContext || isSleeping || loading}
+            >
+              {isClearingMemories ? '正在清空…' : '清空全部记忆'}
+            </button>
           </div>
         </div>
 
@@ -939,7 +986,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                               type="button"
                               className={styles.dangerButton}
                               onClick={() => void handleDelete(memory.id)}
-                              disabled={toolbarState.deleteDisabled}
+                              disabled={toolbarState.deleteDisabled || isClearingMemories}
                             >
                               删除
                             </button>

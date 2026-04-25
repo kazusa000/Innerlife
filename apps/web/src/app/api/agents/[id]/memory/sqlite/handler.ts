@@ -197,6 +197,20 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
   })
 }
 
+export function clearSqliteMemories(agentId: string) {
+  const agent = agentRepo.getAgent(agentId)
+  if (!agent) {
+    return Response.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  if (!isSqliteMemoryConfig(agent.modules?.memory)) {
+    return Response.json({ error: 'Agent memory scheme must be sqlite' }, { status: 400 })
+  }
+
+  const deletedCount = memoryRepo.deleteMemoriesByAgent(agentId)
+  return Response.json({ ok: true, deletedCount })
+}
+
 export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   const agent = agentRepo.getAgent(agentId)
   if (!agent) {
