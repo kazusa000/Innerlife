@@ -11,6 +11,7 @@ import {
   memoryRepo,
   resetDb,
   resetMemoryDb,
+  sessionContextStateRepo,
 } from '@mas/db'
 import { runContextFlushForSession } from './memory-jobs'
 
@@ -185,6 +186,89 @@ test('runContextFlushForSession uses bound counterpart labels in source text and
     assert.match(rows[0]?.sourceText ?? '', /张三：\[.+\] 我小时候养过一只橘猫。/)
     assert.equal(rows[0]?.observedStartAt?.toISOString(), '2026-04-23T10:00:00.000Z')
     assert.equal(rows[0]?.observedEndAt?.toISOString(), '2026-04-23T10:03:00.000Z')
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('runContextFlushForSession idle mode flushes only overflow batch and keeps recent context active', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-daemon-memory-idle-flush-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+    getRawSqlite().exec(`
+      INSERT INTO agents (id, name, model, modules, config)
+      VALUES (
+        'agent-1',
+        'Hazel',
+        'claude-sonnet-4-6',
+        '{"memory":{"scheme":"sqlite","summarizeModel":"memory-model","embeddingModel":"memory-embed","contextWindowMessages":4,"contextOverflowBatchSize":2,"contextIdleFlushMinutes":10}}',
+        '{"provider":"anthropic"}'
+      );
+      INSERT INTO sessions (id, agent_id, title) VALUES ('session-1', 'agent-1', 'Idle');
+      INSERT INTO messages (id, session_id, role, content, created_at) VALUES
+        ('m-1', 'session-1', 'user', '[{"type":"text","text":"第一轮用户。"}]', unixepoch('2026-04-23T10:00:00Z') * 1000),
+        ('m-2', 'session-1', 'assistant', '[{"type":"text","text":"第一轮助手。"}]', unixepoch('2026-04-23T10:01:00Z') * 1000),
+        ('m-3', 'session-1', 'user', '[{"type":"text","text":"第二轮用户。"}]', unixepoch('2026-04-23T10:02:00Z') * 1000),
+        ('m-4', 'session-1', 'assistant', '[{"type":"text","text":"第二轮助手。"}]', unixepoch('2026-04-23T10:03:00Z') * 1000),
+        ('m-5', 'session-1', 'user', '[{"type":"text","text":"第三轮用户。"}]', unixepoch('2026-04-23T10:04:00Z') * 1000),
+        ('m-6', 'session-1', 'assistant', '[{"type":"text","text":"第三轮助手。"}]', unixepoch('2026-04-23T10:05:00Z') * 1000);
+    `)
+
+    let sourceText = ''
+    const result = await runContextFlushForSession({
+      sessionId: 'session-1',
+      mode: 'idle',
+      now: new Date('2026-04-23T10:30:00.000Z'),
+      provider: {
+        async sendMessage(params) {
+          sourceText = Array.isArray(params.messages[0]?.content)
+            ? params.messages[0].content
+                .map((block) => block.type === 'text' ? block.text : '')
+                .join('\n')
+            : ''
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  memories: [
+                    {
+                      display_summary: '第一轮对话',
+                      retrieval_text: '第一轮用户和助手说过话。',
+                      importance: 0.6,
+                    },
+                  ],
+                }),
+              },
+            ],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 10, outputTokens: 10 },
+          }
+        },
+      },
+      embedder: {
+        async embed(input: string[]) {
+          return input.map(() => [1, 0])
+        },
+      },
+    })
+
+    assert.equal(result.ok, true)
+    assert.equal(result.flushedMessageCount, 2)
+    assert.equal(result.nextActiveStartMessageId, 'm-3')
+    assert.match(sourceText, /第一轮用户/)
+    assert.match(sourceText, /第一轮助手/)
+    assert.doesNotMatch(sourceText, /第二轮用户/)
+    assert.doesNotMatch(sourceText, /第三轮用户/)
+    assert.equal(
+      sessionContextStateRepo.getSessionContextState('session-1')?.activeStartMessageId,
+      'm-3',
+    )
   } finally {
     resetDb()
     resetMemoryDb()

@@ -259,7 +259,11 @@ export async function runContextFlushForSession(input: {
       })
       return { ok: false as const, reason: 'not_idle_enough' as const }
     }
-    candidateMessages = activeMessages
+    candidateMessages = selectOverflowCandidate(
+      activeMessages,
+      settings.contextWindowMessages,
+      settings.contextOverflowBatchSize,
+    )
   } else {
     candidateMessages = activeMessages.length > settings.contextWindowMessages
       ? selectOverflowCandidate(activeMessages, settings.contextWindowMessages, settings.contextOverflowBatchSize)
