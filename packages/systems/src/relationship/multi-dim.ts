@@ -3,6 +3,7 @@ import type {
   AgentSystem,
   ConversationMessage,
   PendingRelationshipAnalysis,
+  RelationshipAnalysisResult,
   RelationshipCounterpartRef,
   RelationshipDimensions,
   RelationshipHistoryEntry,
@@ -355,6 +356,48 @@ export class MultiDimRelationshipSystem implements AgentSystem {
       history,
       updatedAt: new Date(),
     })
+  }
+}
+
+export function parseRelationshipAnalysis(rawResponse: string): RelationshipAnalysisResult {
+  const trimmed = rawResponse.trim()
+  const withoutFence = trimmed.startsWith('```')
+    ? trimmed
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim()
+    : trimmed
+  const record = JSON.parse(withoutFence) as {
+    trust_delta?: unknown
+    affinity_delta?: unknown
+    familiarity_delta?: unknown
+    respect_delta?: unknown
+    trigger?: unknown
+  }
+
+  return {
+    delta: {
+      trust: clampSigned(record.trust_delta),
+      affinity: clampSigned(record.affinity_delta),
+      familiarity: clampSigned(record.familiarity_delta),
+      respect: clampSigned(record.respect_delta),
+    },
+    trigger:
+      typeof record.trigger === 'string' && record.trigger.trim()
+        ? record.trigger.trim()
+        : null,
+    rawResponse: withoutFence,
+  }
+}
+
+export function serializeRelationshipState(state: RelationshipDimensions) {
+  const round = (value: number) => Number(value.toFixed(3))
+
+  return {
+    trust: round(state.trust),
+    affinity: round(state.affinity),
+    familiarity: round(state.familiarity),
+    respect: round(state.respect),
   }
 }
 

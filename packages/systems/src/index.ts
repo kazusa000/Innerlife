@@ -39,6 +39,8 @@ export {
   DimensionalEmotionSystem,
   normalizeEmotionConfig,
   normalizeEmotionState,
+  parseEmotionAnalysis,
+  serializeEmotionState,
 } from './emotion'
 export {
   analyzeMemoryTimeText,
@@ -61,6 +63,7 @@ export {
   resolveMemoryActorLabels,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
+  serializeMemoryHit,
 } from './memory'
 export type { MemoryActorLabels, MemoryEmbedder } from './memory'
 export { NoopSystem, HelloWorldSystem } from './noop'
@@ -73,5 +76,7 @@ export {
   MultiDimRelationshipSystem,
   normalizeRelationshipConfig,
   normalizeRelationshipState,
+  parseRelationshipAnalysis,
+  serializeRelationshipState,
 } from './relationship'
 export { createSystems, systemRegistry } from './registry'
