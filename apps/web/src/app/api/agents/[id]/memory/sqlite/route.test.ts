@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { agentRepo, getDb, getMemoryDb, getRawSqlite, memoryRepo, resetDb, resetMemoryDb } from '@mas/db'
 import { deleteSqliteMemory, updateSqliteMemory } from './[memoryId]/handler'
-import { listSqliteMemories, updateSqliteMemorySettings } from './handler'
+import { clearSqliteMemories, listSqliteMemories, updateSqliteMemorySettings } from './handler'
 
 function bootstrapDb(dbPath: string, memoryDbPath: string) {
   process.env.MAS_MEMORY_DB_PATH = memoryDbPath
@@ -495,6 +495,114 @@ test('deleteSqliteMemory removes only memories owned by the given agent', async 
     assert.deepEqual(await blocked.json(), { error: 'Memory not found' })
     assert.equal(memoryRepo.getMemory(ownMemory.id), undefined)
     assert.ok(memoryRepo.getMemory(foreignMemory.id))
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('clearSqliteMemories removes all memories for the sqlite agent and returns the deleted count', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const shortTerm = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '用户提到短期事项',
+      tags: ['short'],
+      createdAt: '2026-04-17T10:00:00.000Z',
+      layer: 'short_term',
+    })
+    const longTerm = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '用户提到长期事项',
+      tags: ['long'],
+      createdAt: '2026-04-17T11:00:00.000Z',
+      layer: 'long_term',
+    })
+    const fixed = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-2',
+      summary: '用户提到固化事项',
+      tags: ['fixed'],
+      createdAt: '2026-04-17T12:00:00.000Z',
+      layer: 'fixed',
+    })
+    const foreign = addMemory({
+      agentId: 'agent-2',
+      sessionId: 'session-3',
+      summary: '别的 agent 的记忆',
+      tags: ['foreign'],
+      createdAt: '2026-04-17T13:00:00.000Z',
+      layer: 'long_term',
+    })
+    getRawSqlite().exec(`
+      INSERT INTO messages (id, session_id, role, content, created_at)
+      VALUES ('message-1', 'session-1', 'user', '不要删除聊天消息', 1);
+    `)
+
+    const response = clearSqliteMemories('agent-1')
+
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), { ok: true, deletedCount: 3 })
+    assert.equal(memoryRepo.getMemory(shortTerm.id), undefined)
+    assert.equal(memoryRepo.getMemory(longTerm.id), undefined)
+    assert.equal(memoryRepo.getMemory(fixed.id), undefined)
+    assert.ok(memoryRepo.getMemory(foreign.id))
+    assert.equal((getRawSqlite().prepare('SELECT COUNT(*) AS count FROM sessions').get() as { count: number }).count, 3)
+    assert.equal((getRawSqlite().prepare('SELECT COUNT(*) AS count FROM messages').get() as { count: number }).count, 1)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('clearSqliteMemories returns 404 when the agent does not exist', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const response = clearSqliteMemories('missing-agent')
+
+    assert.equal(response.status, 404)
+    assert.deepEqual(await response.json(), { error: 'Not found' })
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('clearSqliteMemories returns 400 when the agent memory scheme is not sqlite', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+    addMemory({
+      agentId: 'agent-2',
+      sessionId: 'session-3',
+      summary: '非 sqlite agent 的记忆',
+      tags: ['noop'],
+      createdAt: '2026-04-17T10:00:00.000Z',
+    })
+
+    const response = clearSqliteMemories('agent-2')
+
+    assert.equal(response.status, 400)
+    assert.deepEqual(await response.json(), { error: 'Agent memory scheme must be sqlite' })
+    assert.equal(memoryRepo.listMemoriesByAgent('agent-2').length, 1)
   } finally {
     resetDb()
     resetMemoryDb()

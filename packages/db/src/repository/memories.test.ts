@@ -446,6 +446,62 @@ test('deleteSqliteMemory removes only memories owned by the given agent', () => 
   }
 })
 
+test('deleteMemoriesByAgent returns count and removes only the target agent memories', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapMemoryDb(dbPath)
+
+    const first = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User prefers local databases.',
+      displaySummary: '用户偏好本地数据库',
+      retrievalText: '用户偏好本地 sqlite 数据库',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
+      tags: ['database'],
+      importance: 0.7,
+      createdAt: new Date('2026-04-17T10:00:00.000Z'),
+    })
+    const second = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User prefers late work.',
+      displaySummary: '用户偏好深夜工作',
+      retrievalText: '用户偏好深夜工作',
+      retrievalEmbedding: vector([0.8, 0.2]),
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
+      tags: ['night'],
+      importance: 0.6,
+      createdAt: new Date('2026-04-17T11:00:00.000Z'),
+    })
+    const foreign = addMemory({
+      agentId: 'agent-2',
+      sessionId: 'session-3',
+      sourceText: 'Another agent memory.',
+      displaySummary: '另一个 agent 的记忆',
+      retrievalText: '另一个虚拟人的记忆',
+      retrievalEmbedding: vector([0.8, 0.2]),
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
+      tags: ['foreign'],
+      importance: 0.5,
+      createdAt: new Date('2026-04-17T12:00:00.000Z'),
+    })
+
+    const deletedCount = memoryRepo.deleteMemoriesByAgent('agent-1')
+
+    assert.equal(deletedCount, 2)
+    assert.equal(memoryRepo.getMemory(first.id), undefined)
+    assert.equal(memoryRepo.getMemory(second.id), undefined)
+    assert.ok(memoryRepo.getMemory(foreign.id))
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('updateSqliteMemoryLayer changes only the targeted memory layer', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
   const dbPath = join(dir, 'memory.db')
