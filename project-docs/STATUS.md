@@ -3,7 +3,7 @@
 > 这个文件用大白话记录系统**目前能做什么**。由 Coordinator 在 TASK 归档到 `TASKS/done/` 之后统一更新。
 > 不写未来计划（路线图见 `DESIGN.md §11`）。
 
-最后更新：2026-04-23（D1e / D4a / Prompt 直编并入）
+最后更新：2026-04-25（D1f / D4b / Playwright 验收并入）
 
 ---
 
@@ -38,7 +38,7 @@
 - **上下文压缩（compaction:summary）**：消息数 > 40 或粗略 token 估算超阈值时，runner 调一次 LLM 把早期消息摘要成一条 `system` message，保留最近 20 条原文；DB 不删原消息。摘要 prompt 强制包含关键事实 / 用户偏好 / 未解决任务；连续多轮压缩会保留之前的 summary 作为下一轮输入。Observer 用 `kind: 'compaction'` 标记并展示 trigger / before / after 对比
 - **情绪系统（emotion:dimensional）**：mood / energy / stress 三轴；运行时状态现在**按 agent 持续**，不再因新 session 重置。`beforeTurn` 读取该 agent 最近一条情绪状态，`beforeLLM` 注入"当前情绪"段落（priority 20），`afterLLM` 让同一 LLM 分析本轮情绪变化产 delta，`afterTurn` 衰减后写入新的 `emotion_states`。固定管理入口 `/agent/[id]/emotion` 现在主控的是 `Current emotion`，手动保存会写一条 `trigger = manual_override` 的情绪记录；`decayPerTurn / analysisModel` 仍可配置。Observer 用 `kind: 'emotion'` 标记，详情页显示最新状态 + delta + trigger
 - **关系系统（relationship:multi-dim / relationship:named-multi-dim）**：trust / affinity / familiarity / respect 四轴。旧 `multi-dim` 仍然代表 `default-user ↔ agent`：`beforeTurn` 读取默认用户的最新关系，没有就用 baseline；`beforeLLM` 注入关系 prompt fragment（priority 40）；`afterLLM` 走 pending-analysis；`afterTurn` 衰减回 baseline、clip 到 `0..1` 后写入 `relationships` 表并追加 history。新的 `named-multi-dim` 允许同一个 agent 手动维护多个命名对象，并让每条 session 绑定其中一个对象：未绑定时该 session 上的关系系统不启用；绑定后，关系读取 / fragment 注入 / history 演化都只作用于当前对象，并且不同对象彼此隔离。持久化新增 `relationship_counterparts`（对象列表）与 `session_relationship_bindings`（session 当前绑定对象）。固定入口仍是 `/agent/[id]/relationships`：`multi-dim` 继续显示单对象状态，`named-multi-dim` 切成“左侧对象列表 + 右侧详情”工作台；聊天页侧栏也能为当前 session 绑定关系对象。Observer 继续把关系分析记成 `kind: 'relationship'`，metadata 含 `before / after / delta / trigger`，`named-multi-dim` 额外包含对象 id / 名称
-- **记忆系统（memory:sqlite）**：现在已经按 **context / short_term / long_term / fixed** 四层运作。`context` 只是当前 session 的活跃上下文窗口，不参与检索；原始消息仍保留在 `messages` 表里，通过 `session_context_state` 记录当前活跃窗口起点、最近 flush 时间和空闲状态。每轮 `beforeTurn` 会先做双分析：时间识别不再走 LLM，而是本地 parser（Recognizers-Text）只产出 `time_range`；语义识别也不再有 `focus` 字段，semantic analyzer 现在会吃一个**短历史窗口 + 当前用户消息**，只通过 LLM 产出 `retrieval_query`，更稳地补全代词、省略和回指。随后系统前置检索 `short_term + fixed` 两层；命中结果注入主 prompt 时会带上 `layer + 本地时间` 前缀，没命中时也会明确写出“未搜索到相关记忆”。`long_term` 不前置注入，而是由主模型在必要时通过 `search_long_term_memory` tool 继续深搜，且每轮最多 1 次；该 tool 现在只使用 `query` 检索，不再接收 `focus`。daemon 现在会处理两条后台链路：`context -> short_term`（空闲或超窗时，把最早完整回合块提炼成最多 3 条 STM，写入成功后才把它们从活跃窗口移出）和 `short_term -> long_term`（每天一次“睡眠”沉淀）；`fixed` 仍是从 LTM 手动提升。记忆数据继续落独立的 `memory.db`，layer 只允许 `short_term / long_term / fixed`。固定 `/agent/[id]/memory` 入口现在是完整工作台：左侧章节导航，右侧分成 **Context 控制区 / 记忆表格 / 睡眠区 / Prompt Lab**；可查看活跃窗口、配置上下文阈值和 idle flush、手动整理旧上下文、手动触发睡眠、搜索/筛选/删除记忆、单条改 layer，并编辑 `Memory model override`、`Embedding model`、`Semantic Analyzer Prompt`、`Summarize Prompt`、`Fragment Prompt`、`Consolidate Prompt`。Observer 继续用 `kind: 'memory'` 标记，`metadata.phase` 区分 `retrieve` / `summarize` / `consolidate`；其中 `retrieve` 会显示 parser 产出的 `timeAnalyzer`、语义分析器输出的 `semanticAnalyzer`、其 `inputPreview`、`mergedQuery`、最终 `hits` 以及各命中的 layer
+- **记忆系统（memory:sqlite）**：现在已经按 **context / short_term / long_term / fixed** 四层运作。`context` 只是当前 session 的活跃上下文窗口，不参与检索；原始消息仍保留在 `messages` 表里，通过 `session_context_state` 记录当前活跃窗口起点、最近 flush 时间和空闲状态。每轮 `beforeTurn` 会先做双分析：时间识别不再走 LLM，而是本地 parser（Recognizers-Text）只产出 `time_range`；语义识别也不再有 `focus` 字段，semantic analyzer 现在会吃一个**短历史窗口 + 当前用户消息**，只通过 LLM 产出 `retrieval_query`，更稳地补全代词、省略和回指。随后系统前置检索 `short_term + fixed` 两层；`short_term` 的时间语义是上下文实际发生窗口，记忆行会保存 `observed_start_at / observed_end_at`，带时间范围检索时用 observed range overlap，旧 STM 缺少 observed range 时显示“时间未知”；`fixed` 仍按 `created_at` 过滤。命中结果注入主 prompt 时会带上 `layer + 时间` 前缀，没命中时也会明确写出“未搜索到相关记忆”。`long_term` 不前置注入，而是由主模型在必要时通过 `search_long_term_memory` tool 继续深搜，且每轮最多 1 次；该 tool 现在只使用 `query` 检索，不再接收 `focus`。daemon 现在会处理两条后台链路：`context -> short_term`（空闲或超窗时，把最早完整回合块提炼成最多 3 条 STM，写入 observed 时间范围后才把它们从活跃窗口移出）和 `short_term -> long_term`（每天一次“睡眠”沉淀）；`fixed` 仍是从 LTM 手动提升。记忆数据继续落独立的 `memory.db`，layer 只允许 `short_term / long_term / fixed`。固定 `/agent/[id]/memory` 入口现在是完整工作台：可查看活跃窗口、配置上下文阈值和 idle flush、手动整理旧上下文、手动触发睡眠、搜索/筛选/删除记忆、单条改 layer、清空当前 persona 的全部 sqlite 记忆，并编辑 `Memory model override`、`Embedding model`、`Semantic Analyzer Prompt`、`Context → STM Prompt`、`STM → LTM Prompt` 和 fragment prompt。Observer 继续用 `kind: 'memory'` 标记，`metadata.phase` 区分不同记忆内部 call；其中 `retrieve` 会显示 parser 产出的 `timeAnalyzer`、语义分析器输出的 `semanticAnalyzer`、其 `inputPreview`、`mergedQuery`、最终 `hits` 以及各命中的 layer。
 - **图灵测试系统（Turing test v1）**：每个 persona 现在都有固定入口 `/agent/[id]/turing`。页面不是聊天页变种，而是图灵测试工作台：可发起一次**外部优先的异步评测 run**，后台会复制当前 persona 为临时测试 agent、强制开启全部模块，并由固定 7 段测试套件（自然开场 / 日常延续 / 记忆追问 / 记忆拟人性 / 情绪合理性 / 关系边界 / 不确定性与露馅处理）自动对话。右侧有命令行风格的后台日志台，主区显示报告，底部保留完整对话回放。测试结果默认保留，并支持一键清理本次 run 产生的临时 agent、会话、记忆、关系/情绪状态和事件日志
 - **daemon 事件流已独立落库**：新增 `daemon_events`，统一记录 daemon 生命周期、图灵测试消费、记忆 Flush、睡眠沉淀等结构化后台事件；`/daemon` 页的只读命令行状态台读的就是这条全局事件流
 
@@ -108,7 +108,10 @@ cd apps/web && npx next dev --turbopack
 cd ../..
 npm run daemon:start
 
-# 4. 浏览器打开 http://localhost:3000
+# 4. 可选：跑浏览器验收（首次机器上可先 npm run playwright:install）
+npm run test:e2e
+
+# 5. 浏览器打开 http://localhost:3000
 #    需要图灵测试时，从某个 persona 卡片进入「图灵测试」
 #    需要看后台系统时，从首页顶部进入「Daemon」
 ```
