@@ -8,6 +8,12 @@
     "apps/*"
   ],
   "scripts": {
-    "daemon:start": "npm run start --workspace @mas/daemon"
+    "daemon:start": "npm run start --workspace @mas/daemon",
+    "playwright:install": "playwright install chromium",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
   }
 }
