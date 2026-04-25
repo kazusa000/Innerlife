@@ -25,6 +25,8 @@ interface SqliteMemory {
   retrievalText: string
   tags: string[]
   importance: number
+  observedStartAt: string | null
+  observedEndAt: string | null
   createdAt: string
 }
 
@@ -147,6 +149,22 @@ const DATE_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
   hour: '2-digit',
   minute: '2-digit',
 })
+
+function formatDateTime(value: string) {
+  return DATE_FORMATTER.format(new Date(value))
+}
+
+function formatSqliteMemoryTime(memory: SqliteMemory) {
+  if (memory.layer === 'short_term') {
+    if (!memory.observedStartAt || !memory.observedEndAt) {
+      return '时间未知'
+    }
+
+    return `${formatDateTime(memory.observedStartAt)} - ${formatDateTime(memory.observedEndAt)}`
+  }
+
+  return formatDateTime(memory.createdAt)
+}
 
 function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySettings>): MemorySettings {
   return {
@@ -903,7 +921,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                             </button>
                           </td>
                           <td className={styles.statusText}>{MEMORY_LAYER_LABELS[memory.layer]}</td>
-                          <td className={styles.statusText}>{DATE_FORMATTER.format(new Date(memory.createdAt))}</td>
+                          <td className={styles.statusText}>{formatSqliteMemoryTime(memory)}</td>
                           <td className={styles.mono}>{memory.sessionId}</td>
                           <td className={styles.mono}>{memory.importance.toFixed(2)}</td>
                           <td>
@@ -943,6 +961,10 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                                   <div>
                                     <dt>全部标签</dt>
                                     <dd>{memory.tags.join(' / ') || '无'}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>生成时间</dt>
+                                    <dd className={styles.statusText}>{formatDateTime(memory.createdAt)}</dd>
                                   </div>
                                   <div>
                                     <dt>层级</dt>

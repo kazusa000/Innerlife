@@ -18,6 +18,7 @@ export interface ConversationBlock {
 export interface ConversationMessage {
   role: 'user' | 'assistant' | 'system'
   content: string | ConversationBlock[]
+  createdAt?: Date
 }
 
 export type CompactionReason =
@@ -51,6 +52,8 @@ export interface MemoryRecord {
   retrievalModel: string
   tags: string[]
   importance: number
+  observedStartAt: Date | null
+  observedEndAt: Date | null
   createdAt: Date
 }
 

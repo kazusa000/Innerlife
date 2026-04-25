@@ -566,7 +566,7 @@ function renderMemoryLayerResult(input: {
 
   const [primaryMemory, ...secondaryMemories] = input.memories
   const renderMemoryLine = (label: string, memory: MemoryRecord) =>
-    `${label}：[${formatMemoryLayerLabel(memory.layer)}][${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.displaySummary}`
+    `${label}：[${formatMemoryLayerLabel(memory.layer)}][${formatMemoryPromptTime(memory)}] ${memory.displaySummary}`
 
   return [
     input.prompt,
@@ -644,6 +644,18 @@ function formatLocalMemoryPromptTime(date: Date): string {
   const hours = String(localDate.getUTCHours()).padStart(2, '0')
   const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
   return `${year}-${month}-${day} ${hours}:${minutes} ${formatOffset(localMinutes)}`
+}
+
+function formatMemoryPromptTime(memory: MemoryRecord): string {
+  if (memory.layer === 'short_term') {
+    if (!memory.observedStartAt || !memory.observedEndAt) {
+      return '时间未知'
+    }
+
+    return `发生于 ${formatLocalMemoryPromptTime(memory.observedStartAt)} - ${formatLocalMemoryPromptTime(memory.observedEndAt)}`
+  }
+
+  return formatLocalMemoryPromptTime(memory.createdAt)
 }
 
 function extractSemanticHistoryMessageText(message: ConversationMessage): string | null {
@@ -747,8 +759,21 @@ export function buildContextToShortTermSourceText(
   labels: MemoryActorLabels = FALLBACK_MEMORY_ACTOR_LABELS,
 ): string {
   const lines: string[] = ['待整理的旧上下文：']
+  const observedDates = messages
+    .map((message) => message.createdAt)
+    .filter((date): date is Date => date instanceof Date && Number.isFinite(date.getTime()))
+
+  if (observedDates.length > 0) {
+    const observedStartAt = new Date(Math.min(...observedDates.map((date) => date.getTime())))
+    const observedEndAt = new Date(Math.max(...observedDates.map((date) => date.getTime())))
+    lines.push(`整理窗口时间范围：${formatLocalMemoryPromptTime(observedStartAt)} - ${formatLocalMemoryPromptTime(observedEndAt)}`)
+  }
+
   for (const message of messages) {
-    lines.push(`${getConversationSpeakerLabel(message.role, labels)}：${extractConversationMessageText(message)}`)
+    const timePrefix = message.createdAt instanceof Date && Number.isFinite(message.createdAt.getTime())
+      ? `[${formatLocalMemoryPromptTime(message.createdAt)}] `
+      : ''
+    lines.push(`${getConversationSpeakerLabel(message.role, labels)}：${timePrefix}${extractConversationMessageText(message)}`)
   }
   return truncate(lines.join('\n'), MAX_MEMORY_CONTENT_CHARS * 4)
 }
@@ -763,7 +788,8 @@ export function buildShortTermToLongTermSourceText(memories: MemoryRecord[]): st
         retrieval_text: memory.retrievalText,
         tags: memory.tags,
         importance: memory.importance,
-        createdAt: memory.createdAt.toISOString(),
+        observedStartAt: memory.observedStartAt?.toISOString() ?? null,
+        observedEndAt: memory.observedEndAt?.toISOString() ?? null,
       })),
       null,
       2,

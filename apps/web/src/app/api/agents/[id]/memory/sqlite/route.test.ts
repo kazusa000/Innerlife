@@ -74,6 +74,8 @@ function addMemory(input: {
   summary: string
   tags: string[]
   createdAt: string
+  observedStartAt?: string | null
+  observedEndAt?: string | null
   layer?: 'short_term' | 'long_term' | 'fixed'
 }) {
   return memoryRepo.addMemory({
@@ -88,6 +90,8 @@ function addMemory(input: {
     tags: input.tags,
     importance: 0.6,
     createdAt: new Date(input.createdAt),
+    observedStartAt: input.observedStartAt ? new Date(input.observedStartAt) : null,
+    observedEndAt: input.observedEndAt ? new Date(input.observedEndAt) : null,
   })
 }
 
@@ -151,6 +155,8 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
       summary: '用户希望被称为 WJJ',
       tags: ['name'],
       createdAt: '2026-04-17T09:00:00.000Z',
+      observedStartAt: '2026-04-17T08:55:00.000Z',
+      observedEndAt: '2026-04-17T09:05:00.000Z',
     })
     addMemory({
       agentId: 'agent-2',
@@ -211,6 +217,8 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.deepEqual(listData.memories.map((memory: { id: string }) => memory.id), [latest.id, older.id])
     assert.equal(listData.memories[0]?.layer, 'long_term')
     assert.equal(listData.memories[1]?.layer, 'short_term')
+    assert.equal(listData.memories[1]?.observedStartAt, '2026-04-17T08:55:00.000Z')
+    assert.equal(listData.memories[1]?.observedEndAt, '2026-04-17T09:05:00.000Z')
     assert.deepEqual((await secondPageResponse.json()).memories.map((memory: { id: string }) => memory.id), [oldest.id])
     assert.deepEqual((await summaryResponse.json()).memories.map((memory: { id: string }) => memory.id), [older.id])
     assert.deepEqual((await tagResponse.json()).memories.map((memory: { id: string }) => memory.id), [latest.id])
@@ -516,12 +524,17 @@ test('updateSqliteMemory updates a single memory layer', async () => {
       summary: '用户偏好使用本地数据库',
       tags: ['sqlite'],
       createdAt: '2026-04-17T10:00:00.000Z',
+      observedStartAt: '2026-04-17T09:45:00.000Z',
+      observedEndAt: '2026-04-17T10:00:00.000Z',
     })
 
     const response = updateSqliteMemory('agent-1', memory.id, { layer: 'fixed' })
+    const data = await response.json()
 
     assert.equal(response.status, 200)
     assert.equal(memoryRepo.getMemory(memory.id)?.layer, 'fixed')
+    assert.equal(data.memory.observedStartAt, '2026-04-17T09:45:00.000Z')
+    assert.equal(data.memory.observedEndAt, '2026-04-17T10:00:00.000Z')
   } finally {
     resetDb()
     resetMemoryDb()

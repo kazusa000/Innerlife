@@ -92,6 +92,8 @@ function bootstrapDb(dbPath: string, memoryDbPath: string) {
       retrieval_model TEXT NOT NULL,
       tags TEXT NOT NULL,
       importance REAL NOT NULL,
+      observed_start_at INTEGER,
+      observed_end_at INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
     CREATE INDEX IF NOT EXISTS idx_memories_agent_created_at ON memories(agent_id, created_at);
@@ -169,22 +171,20 @@ test('runContextFlushForSession uses bound counterpart labels in source text and
 
     assert.equal(result.ok, true)
     assert.equal(seenPrompts.length, 1)
-    assert.equal(
-      seenPrompts[0],
-      [
-        '待整理的旧上下文：',
-        '张三：我小时候养过一只橘猫。',
-        '我：记住了，你小时候养过一只橘猫。',
-        '张三：下次再提醒我聊这件事。',
-        '我：好，我下次会继续聊这件事。',
-      ].join('\n'),
-    )
+    assert.match(seenPrompts[0] ?? '', /^待整理的旧上下文：\n整理窗口时间范围：.+ - .+\n/)
+    assert.match(seenPrompts[0] ?? '', /张三：\[.+\] 我小时候养过一只橘猫。/)
+    assert.match(seenPrompts[0] ?? '', /我：\[.+\] 记住了，你小时候养过一只橘猫。/)
+    assert.match(seenPrompts[0] ?? '', /张三：\[.+\] 下次再提醒我聊这件事。/)
+    assert.match(seenPrompts[0] ?? '', /我：\[.+\] 好，我下次会继续聊这件事。/)
 
     const rows = memoryRepo.listMemoriesByAgentOldestFirst('agent-1')
     assert.equal(rows.length, 1)
     assert.equal(rows[0]?.displaySummary, '张三小时候养过一只橘猫')
     assert.equal(rows[0]?.retrievalText, '张三曾告诉我他小时候养过一只橘猫，我答应过他下次继续聊这件事。')
-    assert.match(rows[0]?.sourceText ?? '', /^待整理的旧上下文：\n张三：/)
+    assert.match(rows[0]?.sourceText ?? '', /^待整理的旧上下文：\n整理窗口时间范围：/)
+    assert.match(rows[0]?.sourceText ?? '', /张三：\[.+\] 我小时候养过一只橘猫。/)
+    assert.equal(rows[0]?.observedStartAt?.toISOString(), '2026-04-23T10:00:00.000Z')
+    assert.equal(rows[0]?.observedEndAt?.toISOString(), '2026-04-23T10:03:00.000Z')
   } finally {
     resetDb()
     resetMemoryDb()
