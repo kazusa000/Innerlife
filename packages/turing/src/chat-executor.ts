@@ -6,6 +6,7 @@ import {
   type AgentConfig,
   type AgentEvent,
   type ContentBlock,
+  type LLMReasoningConfig,
   type Message,
 } from '@mas/core'
 import { agentRepo, messageRepo, sessionContextStateRepo, sessionRepo } from '@mas/db'
@@ -50,7 +51,7 @@ function selectActiveDbMessages(
   return startIndex >= 0 ? dbMessages.slice(startIndex) : dbMessages
 }
 
-function readPersonalityPrompts(modules: Record<string, unknown> | null | undefined) {
+export function readPersonalityPrompts(modules: Record<string, unknown> | null | undefined) {
   const personality = isRecord(modules?.personality)
     ? modules?.personality as Record<string, unknown>
     : null
@@ -63,6 +64,11 @@ function readPersonalityPrompts(modules: Record<string, unknown> | null | undefi
     personaPrompt:
       typeof personality?.personaPrompt === 'string' && personality.personaPrompt.trim().length > 0
         ? personality.personaPrompt.trim()
+        : '',
+    thinkingRoleImmersionPrompt:
+      typeof personality?.thinkingRoleImmersionPrompt === 'string'
+      && personality.thinkingRoleImmersionPrompt.trim().length > 0
+        ? personality.thinkingRoleImmersionPrompt.trim()
         : '',
   }
 }
@@ -99,6 +105,7 @@ export async function executeChatTurn(input: {
   onEvent?: (event: AgentEvent | ObserverEvent | { type: 'turn_start' | 'turn_end'; payload: Record<string, unknown> }) => void
   signal?: AbortSignal
   observerMode?: 'auto' | 'always' | 'off'
+  reasoning?: LLMReasoningConfig
 }) {
   const userMessageId = messageRepo.addMessage({
     sessionId: input.sessionId,
@@ -144,6 +151,7 @@ export async function executeChatTurn(input: {
   })
   const tools = toolRuntime.effectiveTools
   const systems = createSystems(agent.modules ?? null)
+  const personality = readPersonalityPrompts(agent.modules)
   const config: AgentConfig = {
     id: agent.id,
     model: agent.model,
@@ -152,9 +160,12 @@ export async function executeChatTurn(input: {
     maxTurns: 10,
     sessionId: input.sessionId,
     userId: 'default-user',
+    reasoning: input.reasoning,
+    thinkingRoleImmersionPrompt: personality.thinkingRoleImmersionPrompt,
   }
 
   let assistantText = ''
+  let thinkingText = ''
   let turnStatus: 'complete' | 'aborted' | 'error' = 'complete'
   let responseContent: ContentBlock[] = []
   input.onEvent?.({
@@ -187,6 +198,10 @@ export async function executeChatTurn(input: {
       observer,
       input.signal,
     )) {
+      if (event.type === 'thinking_delta') {
+        thinkingText += event.text
+      }
+
       if (event.type === 'text_delta') {
         assistantText += event.text
       }
@@ -228,6 +243,7 @@ export async function executeChatTurn(input: {
     status: turnStatus,
     responseText: responseContent.length > 0 ? extractAssistantText(responseContent) : assistantText,
     responseContent,
+    thinkingText,
     userMessageId,
   }
 }

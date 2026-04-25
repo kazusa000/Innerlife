@@ -7,6 +7,7 @@ type AgentPatchBody = {
   model?: unknown
   systemPrompt?: unknown
   personaPrompt?: unknown
+  avatarUrl?: unknown
   modules?: unknown
   tools?: unknown
 }
@@ -36,6 +37,7 @@ export function updateAgentDetail(id: string, body: AgentPatchBody) {
     model?: string
     systemPrompt?: string
     personaPrompt?: string
+    avatarUrl?: string
     modules?: Record<string, unknown> | null
     tools?: Record<string, { enabled?: boolean; description?: string }> | null
   } = {}
@@ -80,6 +82,13 @@ export function updateAgentDetail(id: string, body: AgentPatchBody) {
       return Response.json({ error: 'personaPrompt must be a string' }, { status: 400 })
     }
     updates.personaPrompt = body.personaPrompt
+  }
+
+  if (body.avatarUrl !== undefined) {
+    if (typeof body.avatarUrl !== 'string') {
+      return Response.json({ error: 'avatarUrl must be a string' }, { status: 400 })
+    }
+    updates.avatarUrl = body.avatarUrl
   }
 
   if (body.modules !== undefined) {

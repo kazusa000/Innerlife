@@ -107,6 +107,15 @@ export function getMemoryFormState(
   }
 }
 
+export function getPersonalityAvatarUrl(
+  modules: Record<string, unknown> | null | undefined,
+): string {
+  const personality = readModule(modules, 'personality')
+  return typeof personality?.avatarUrl === 'string'
+    ? personality.avatarUrl.trim()
+    : ''
+}
+
 function applyScheme(
   current: unknown,
   scheme: string,

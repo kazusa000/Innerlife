@@ -4,6 +4,7 @@ import {
   buildModules,
   getEmotionFormState,
   getMemoryFormState,
+  getPersonalityAvatarUrl,
   getRelationshipFormState,
 } from './persona-modules'
 
@@ -79,6 +80,19 @@ test('buildModules preserves existing personality prompts and detailed module se
       summarizeModel: 'memory-fast',
     },
   })
+})
+
+test('getPersonalityAvatarUrl reads trimmed avatar url from modules.personality', () => {
+  assert.equal(
+    getPersonalityAvatarUrl({
+      personality: {
+        avatarUrl: '  https://example.com/avatar.webp  ',
+      },
+    }),
+    'https://example.com/avatar.webp',
+  )
+  assert.equal(getPersonalityAvatarUrl({ personality: { avatarUrl: '' } }), '')
+  assert.equal(getPersonalityAvatarUrl({ personality: 'legacy' }), '')
 })
 
 test('buildModules removes values and writes noop markers when a scheme is disabled', () => {

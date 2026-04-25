@@ -285,6 +285,7 @@ test('getMultiDimRelationshipConfig returns config, current dimensions and histo
     assert.match(data.fragmentPromptDefault, /让这些关系状态轻微影响语气、耐心、亲疏感和措辞/)
     assert.equal(data.fragmentPromptEffective, [
       '当前你与用户的关系状态参考：',
+      '当前谈话对象：用户',
       '- trust：基本信任（0.63）',
       '- affinity：亲和度较高（0.52）',
       '- familiarity：开始熟悉（0.35）',
@@ -366,6 +367,7 @@ test('updateMultiDimRelationshipConfig only mutates modules.relationship and pre
     assert.match(data.fragmentPromptDefault, /^当前你与用户的关系状态（会随互动缓慢变化）：/)
     assert.equal(data.fragmentPromptEffective, [
       '当前你与用户的关系状态参考：',
+      '当前谈话对象：用户',
       '- trust：基本信任（0.63）',
       '- affinity：亲和度较高（0.52）',
       '- familiarity：开始熟悉（0.35）',

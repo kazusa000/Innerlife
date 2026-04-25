@@ -16,6 +16,8 @@ function readPersonalityPrompts(modules: Record<string, unknown> | null | undefi
   return {
     systemPrompt: readPrompt(personality?.systemPrompt),
     personaPrompt: readPrompt(personality?.personaPrompt),
+    avatarUrl: readPrompt(personality?.avatarUrl),
+    thinkingRoleImmersionPrompt: readPrompt(personality?.thinkingRoleImmersionPrompt),
   }
 }
 
@@ -31,6 +33,8 @@ export function getPersonalityConfig(agentId: string) {
     agentId,
     systemPrompt: prompts.systemPrompt,
     personaPrompt: prompts.personaPrompt,
+    avatarUrl: prompts.avatarUrl,
+    thinkingRoleImmersionPrompt: prompts.thinkingRoleImmersionPrompt,
   })
 }
 
@@ -44,18 +48,26 @@ export function updatePersonalityConfig(agentId: string, body: unknown) {
     return Response.json({ error: 'body must be an object' }, { status: 400 })
   }
 
-  const { systemPrompt, personaPrompt } = body
+  const { systemPrompt, personaPrompt, avatarUrl, thinkingRoleImmersionPrompt } = body
   if (systemPrompt !== undefined && typeof systemPrompt !== 'string') {
     return Response.json({ error: 'systemPrompt must be a string' }, { status: 400 })
   }
   if (personaPrompt !== undefined && typeof personaPrompt !== 'string') {
     return Response.json({ error: 'personaPrompt must be a string' }, { status: 400 })
   }
+  if (avatarUrl !== undefined && typeof avatarUrl !== 'string') {
+    return Response.json({ error: 'avatarUrl must be a string' }, { status: 400 })
+  }
+  if (thinkingRoleImmersionPrompt !== undefined && typeof thinkingRoleImmersionPrompt !== 'string') {
+    return Response.json({ error: 'thinkingRoleImmersionPrompt must be a string' }, { status: 400 })
+  }
 
   const updated = agentRepo.updateAgent(agentId, {
     modules: agent.modules,
     systemPrompt,
     personaPrompt,
+    avatarUrl,
+    thinkingRoleImmersionPrompt,
   })
   if (!updated) {
     return Response.json({ error: 'Not found' }, { status: 404 })
@@ -66,5 +78,7 @@ export function updatePersonalityConfig(agentId: string, body: unknown) {
     agentId,
     systemPrompt: prompts.systemPrompt,
     personaPrompt: prompts.personaPrompt,
+    avatarUrl: prompts.avatarUrl,
+    thinkingRoleImmersionPrompt: prompts.thinkingRoleImmersionPrompt,
   })
 }

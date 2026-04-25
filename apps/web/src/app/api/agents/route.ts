@@ -16,6 +16,7 @@ export async function POST(request: Request) {
   const model = (body.model as string) || 'claude-sonnet-4-6'
   const systemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt : ''
   const personaPrompt = typeof body.personaPrompt === 'string' ? body.personaPrompt : ''
+  const avatarUrl = typeof body.avatarUrl === 'string' ? body.avatarUrl : ''
   const modules = (body.modules as Record<string, unknown> | null | undefined) ?? null
 
   if (!name?.trim()) {
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
     model,
     systemPrompt,
     personaPrompt,
+    avatarUrl,
     modules,
   })
   return Response.json({ agent }, { status: 201 })

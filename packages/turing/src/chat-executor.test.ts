@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildAgentSystemPrompt } from './chat-executor'
+import { buildAgentSystemPrompt, readPersonalityPrompts } from './chat-executor'
 
 test('buildAgentSystemPrompt reads both persona prompts from modules.personality', () => {
   const prompt = buildAgentSystemPrompt({
@@ -50,4 +50,25 @@ test('buildAgentSystemPrompt falls back to agent identity copy when persona syst
   assert.match(prompt, /web_fetch/)
   assert.doesNotMatch(prompt, /search_long_term_memory/)
   assert.doesNotMatch(prompt, /Big Five|开放性|legacy/)
+})
+
+test('readPersonalityPrompts exposes editable thinking role immersion prompt without fallback', () => {
+  assert.deepEqual(
+    readPersonalityPrompts({
+      personality: {
+        thinkingRoleImmersionPrompt: '只在 think 中内心独白。',
+      },
+    }),
+    {
+      systemPrompt: '',
+      personaPrompt: '',
+      thinkingRoleImmersionPrompt: '只在 think 中内心独白。',
+    },
+  )
+
+  assert.deepEqual(readPersonalityPrompts(null), {
+    systemPrompt: '',
+    personaPrompt: '',
+    thinkingRoleImmersionPrompt: '',
+  })
 })

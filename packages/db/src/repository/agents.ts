@@ -14,12 +14,16 @@ type AgentConfig = {
   provider?: AgentProvider
   systemPrompt?: string
   personaPrompt?: string
+  avatarUrl?: string
+  thinkingRoleImmersionPrompt?: string
   tools?: AgentToolsConfig
 }
 
-type PersonalityPrompts = {
+type PersonalitySettings = {
   systemPrompt?: string
   personaPrompt?: string
+  avatarUrl?: string
+  thinkingRoleImmersionPrompt?: string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -93,7 +97,7 @@ function serializeConfig(config: AgentConfig | undefined) {
   return JSON.stringify(config)
 }
 
-function readModulesPrompts(modules: AgentModules | undefined): PersonalityPrompts {
+function readModulesPersonality(modules: AgentModules | undefined): PersonalitySettings {
   const personality = isRecord(modules?.personality)
     ? modules?.personality as Record<string, unknown>
     : null
@@ -101,15 +105,17 @@ function readModulesPrompts(modules: AgentModules | undefined): PersonalityPromp
   return {
     systemPrompt: readPrompt(personality?.systemPrompt),
     personaPrompt: readPrompt(personality?.personaPrompt),
+    avatarUrl: readPrompt(personality?.avatarUrl),
+    thinkingRoleImmersionPrompt: readPrompt(personality?.thinkingRoleImmersionPrompt),
   }
 }
 
-function resolvePersonalityPrompts(
+function resolvePersonalitySettings(
   modules: AgentModules | undefined,
   config: AgentConfig,
-  overrides?: PersonalityPrompts,
+  overrides?: PersonalitySettings,
 ) {
-  const fromModules = readModulesPrompts(modules)
+  const fromModules = readModulesPersonality(modules)
 
   return {
     systemPrompt:
@@ -120,21 +126,35 @@ function resolvePersonalityPrompts(
       overrides?.personaPrompt !== undefined
         ? readPrompt(overrides.personaPrompt)
         : readPrompt(config.personaPrompt) ?? fromModules.personaPrompt,
+    avatarUrl:
+      overrides?.avatarUrl !== undefined
+        ? readPrompt(overrides.avatarUrl)
+        : readPrompt(config.avatarUrl) ?? fromModules.avatarUrl,
+    thinkingRoleImmersionPrompt:
+      overrides?.thinkingRoleImmersionPrompt !== undefined
+        ? readPrompt(overrides.thinkingRoleImmersionPrompt)
+        : readPrompt(config.thinkingRoleImmersionPrompt) ?? fromModules.thinkingRoleImmersionPrompt,
   }
 }
 
 function normalizeModules(
   modules: AgentModules | undefined,
-  prompts: PersonalityPrompts,
+  personalitySettings: PersonalitySettings,
 ): AgentModules {
   const next = isRecord(modules) ? { ...modules } : {}
   const personality: Record<string, string> = {}
 
-  if (prompts.systemPrompt) {
-    personality.systemPrompt = prompts.systemPrompt
+  if (personalitySettings.systemPrompt) {
+    personality.systemPrompt = personalitySettings.systemPrompt
   }
-  if (prompts.personaPrompt) {
-    personality.personaPrompt = prompts.personaPrompt
+  if (personalitySettings.personaPrompt) {
+    personality.personaPrompt = personalitySettings.personaPrompt
+  }
+  if (personalitySettings.avatarUrl) {
+    personality.avatarUrl = personalitySettings.avatarUrl
+  }
+  if (personalitySettings.thinkingRoleImmersionPrompt) {
+    personality.thinkingRoleImmersionPrompt = personalitySettings.thinkingRoleImmersionPrompt
   }
 
   if (Object.keys(personality).length > 0) {
@@ -148,14 +168,16 @@ function normalizeModules(
 
 function mapAgent(row: typeof agents.$inferSelect) {
   const config = parseConfig(row.config)
-  const prompts = resolvePersonalityPrompts(parseModules(row.modules), config)
-  const modules = normalizeModules(parseModules(row.modules), prompts)
+  const personalitySettings = resolvePersonalitySettings(parseModules(row.modules), config)
+  const modules = normalizeModules(parseModules(row.modules), personalitySettings)
 
   return {
     ...row,
     provider: config.provider === 'openrouter' ? 'openrouter' : 'anthropic',
-    systemPrompt: prompts.systemPrompt ?? '',
-    personaPrompt: prompts.personaPrompt ?? '',
+    systemPrompt: personalitySettings.systemPrompt ?? '',
+    personaPrompt: personalitySettings.personaPrompt ?? '',
+    avatarUrl: personalitySettings.avatarUrl ?? '',
+    thinkingRoleImmersionPrompt: personalitySettings.thinkingRoleImmersionPrompt ?? '',
     tools: parseToolsConfig(config.tools),
     modules,
   }
@@ -170,17 +192,21 @@ export function createAgent(data: {
   model: string
   systemPrompt?: string
   personaPrompt?: string
+  avatarUrl?: string
+  thinkingRoleImmersionPrompt?: string
   modules?: AgentModules
   tools?: AgentToolsConfig
 }) {
   const db = getDb()
   const id = randomUUID()
-  const prompts = resolvePersonalityPrompts(
+  const personalitySettings = resolvePersonalitySettings(
     data.modules ?? null,
     {},
     {
       systemPrompt: data.systemPrompt,
       personaPrompt: data.personaPrompt,
+      avatarUrl: data.avatarUrl,
+      thinkingRoleImmersionPrompt: data.thinkingRoleImmersionPrompt,
     },
   )
 
@@ -193,7 +219,7 @@ export function createAgent(data: {
       personality: data.personality,
       skills: data.skills,
       model: data.model,
-      modules: serializeModules(normalizeModules(data.modules ?? null, prompts)) ?? null,
+      modules: serializeModules(normalizeModules(data.modules ?? null, personalitySettings)) ?? null,
       config: serializeConfig({
         provider: data.provider ?? 'anthropic',
         tools: data.tools,
@@ -221,6 +247,8 @@ export function updateAgent(id: string, data: {
   model?: string
   systemPrompt?: string
   personaPrompt?: string
+  avatarUrl?: string
+  thinkingRoleImmersionPrompt?: string
   modules?: AgentModules
   tools?: AgentToolsConfig | null
 }) {
@@ -228,20 +256,26 @@ export function updateAgent(id: string, data: {
   const existing = db.select().from(agents).where(eq(agents.id, id)).get()
   const existingModules = parseModules(existing?.modules ?? null)
   const existingConfig = parseConfig(existing?.config ?? null)
-  const prompts = resolvePersonalityPrompts(
+  const personalitySettings = resolvePersonalitySettings(
     data.modules !== undefined ? data.modules : existingModules,
     existingConfig,
     {
       systemPrompt: data.systemPrompt,
       personaPrompt: data.personaPrompt,
+      avatarUrl: data.avatarUrl,
+      thinkingRoleImmersionPrompt: data.thinkingRoleImmersionPrompt,
     },
   )
   const shouldRewriteModules =
     data.modules !== undefined
     || data.systemPrompt !== undefined
     || data.personaPrompt !== undefined
+    || data.avatarUrl !== undefined
+    || data.thinkingRoleImmersionPrompt !== undefined
     || existingConfig.systemPrompt !== undefined
     || existingConfig.personaPrompt !== undefined
+    || existingConfig.avatarUrl !== undefined
+    || existingConfig.thinkingRoleImmersionPrompt !== undefined
     || existingModules?.personality !== undefined
   const nextTools =
     data.tools !== undefined
@@ -254,6 +288,7 @@ export function updateAgent(id: string, data: {
     || existingConfig.tools !== undefined
     || existingConfig.systemPrompt !== undefined
     || existingConfig.personaPrompt !== undefined
+    || existingConfig.thinkingRoleImmersionPrompt !== undefined
       ? serializeConfig({
           provider: data.provider ?? existingConfig.provider ?? 'anthropic',
           tools: nextTools,
@@ -268,7 +303,7 @@ export function updateAgent(id: string, data: {
       modules: shouldRewriteModules
         ? serializeModules(normalizeModules(
           data.modules !== undefined ? data.modules : existingModules,
-          prompts,
+          personalitySettings,
         ))
         : undefined,
       config: nextConfig,

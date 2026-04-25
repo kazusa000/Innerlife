@@ -87,6 +87,66 @@ test('createAgent and updateAgent migrate top-level prompts into modules.persona
   }
 })
 
+test('createAgent and updateAgent round-trip persona avatarUrl in modules.personality', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-agents-avatar-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    resetDb()
+    getDb(dbPath)
+    getRawSqlite().exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        personality TEXT,
+        skills TEXT,
+        modules TEXT,
+        status TEXT NOT NULL DEFAULT 'idle',
+        model TEXT NOT NULL,
+        config TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+      );
+    `)
+
+    const created = createAgent({
+      name: 'Avatar Test',
+      model: 'claude-sonnet-4-6',
+      systemPrompt: '保持真实。',
+      avatarUrl: 'https://example.com/avatar.png',
+    })
+
+    assert.equal(created.avatarUrl, 'https://example.com/avatar.png')
+    assert.deepEqual(created.modules, {
+      personality: {
+        systemPrompt: '保持真实。',
+        avatarUrl: 'https://example.com/avatar.png',
+      },
+    })
+
+    const promptOnlyUpdate = updateAgent(created.id, {
+      personaPrompt: '像熟人一样聊天。',
+    })
+    assert.equal(promptOnlyUpdate?.avatarUrl, 'https://example.com/avatar.png')
+    assert.deepEqual(promptOnlyUpdate?.modules?.personality, {
+      systemPrompt: '保持真实。',
+      personaPrompt: '像熟人一样聊天。',
+      avatarUrl: 'https://example.com/avatar.png',
+    })
+
+    const cleared = updateAgent(created.id, { avatarUrl: '' })
+    assert.equal(cleared?.avatarUrl, '')
+    assert.deepEqual(cleared?.modules?.personality, {
+      systemPrompt: '保持真实。',
+      personaPrompt: '像熟人一样聊天。',
+    })
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('createAgent and updateAgent round-trip top-level tools config', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-agents-tools-'))
   const dbPath = join(dir, 'test.db')

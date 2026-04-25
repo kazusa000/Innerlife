@@ -9,6 +9,8 @@ type PersonalityConfig = {
   agentId: string
   systemPrompt: string
   personaPrompt: string
+  avatarUrl: string
+  thinkingRoleImmersionPrompt: string
 }
 
 function isPersonalityConfig(value: unknown): value is PersonalityConfig {
@@ -17,6 +19,8 @@ function isPersonalityConfig(value: unknown): value is PersonalityConfig {
     && !Array.isArray(value)
     && 'systemPrompt' in (value as Record<string, unknown>)
     && 'personaPrompt' in (value as Record<string, unknown>)
+    && 'avatarUrl' in (value as Record<string, unknown>)
+    && 'thinkingRoleImmersionPrompt' in (value as Record<string, unknown>)
 }
 
 function readErrorMessage(value: unknown, fallback: string) {
@@ -36,6 +40,8 @@ function readErrorMessage(value: unknown, fallback: string) {
 export default function PersonalityManagerShell({ agentId }: { agentId: string }) {
   const [systemPrompt, setSystemPrompt] = useState('')
   const [personaPrompt, setPersonaPrompt] = useState('')
+  const [avatarUrl, setAvatarUrl] = useState('')
+  const [thinkingRoleImmersionPrompt, setThinkingRoleImmersionPrompt] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -63,6 +69,8 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
         if (!cancelled) {
           setSystemPrompt(data.systemPrompt)
           setPersonaPrompt(data.personaPrompt)
+          setAvatarUrl(data.avatarUrl)
+          setThinkingRoleImmersionPrompt(data.thinkingRoleImmersionPrompt)
         }
       } catch (err) {
         if (!cancelled) {
@@ -94,6 +102,8 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
         body: JSON.stringify({
           systemPrompt,
           personaPrompt,
+          avatarUrl,
+          thinkingRoleImmersionPrompt,
         }),
       })
       const data = await response.json() as unknown
@@ -106,6 +116,8 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
 
       setSystemPrompt(data.systemPrompt)
       setPersonaPrompt(data.personaPrompt)
+      setAvatarUrl(data.avatarUrl)
+      setThinkingRoleImmersionPrompt(data.thinkingRoleImmersionPrompt)
       setNotice('人设已保存。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存人设失败')
@@ -122,7 +134,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
             <p className="personality-eyebrow">{COMMON_UI_COPY.unifiedEntry}</p>
             <h1 className="personality-title">人设管理</h1>
             <p className="personality-sub">
-              固定入口 `/agent/{agentId}/personality` 现在只维护两段真正参与主聊天链路的人设文本。
+              固定入口 `/agent/{agentId}/personality` 维护真正参与主聊天链路的人设文本和思考模式规则。
             </p>
           </div>
           <div className="personality-actions">
@@ -152,8 +164,8 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                   <p className={styles.eyebrow}>Persona System</p>
                   <h2 className={styles.title}>双 Prompt 人设</h2>
                   <p className={styles.copy}>
-                    `System Prompt` 负责角色底层规则，`Persona Prompt` 负责说话方式与边界感。
-                    保存后主聊天链路和图灵测试链路都会只读取这里。
+                    `System Prompt` 负责角色底层规则，`Persona Prompt` 负责说话方式与边界感，
+                    `Thinking Mode Prompt` 只在主聊天开启思考模式时追加。
                   </p>
                 </div>
                 <div className={styles.heroActions}>
@@ -178,7 +190,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                     <p className={styles.panelLabel}>Prompt Editor</p>
                     <h3 className={styles.panelTitle}>当前生效的人设文本</h3>
                   </div>
-                  <span className={styles.panelPill}>2 fields</span>
+                  <span className={styles.panelPill}>4 fields</span>
                 </div>
                 <p className={styles.panelCopy}>
                   留空即可移除对应片段。主系统会在没有 `System Prompt` 时退回到基于
@@ -186,6 +198,36 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                 </p>
 
                 <div className={styles.fieldGrid}>
+                  <label className={styles.wideField}>
+                    <span className={styles.fieldLabel}>Avatar URL</span>
+                    <div className="avatar-editor">
+                      <div className="avatar-preview" aria-label="头像预览">
+                        {avatarUrl.trim() ? (
+                          <img src={avatarUrl.trim()} alt="" />
+                        ) : (
+                          <span>头像</span>
+                        )}
+                      </div>
+                      <div className="avatar-controls">
+                        <input
+                          className={styles.input}
+                          value={avatarUrl}
+                          onChange={(event) => setAvatarUrl(event.target.value)}
+                          placeholder="https://example.com/avatar.png 或 data:image/png;base64,..."
+                        />
+                        {avatarUrl.trim() && (
+                          <button
+                            type="button"
+                            className={styles.secondaryButton}
+                            onClick={() => setAvatarUrl('')}
+                          >
+                            清除头像
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+
                   <label className={styles.wideField}>
                     <span className={styles.fieldLabel}>System Prompt</span>
                     <textarea
@@ -208,6 +250,28 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                     />
                   </label>
                 </div>
+
+                <label className={styles.promptCard}>
+                  <div className={styles.promptHead}>
+                    <div>
+                      <span className={styles.promptLabel}>Thinking Mode Prompt</span>
+                      <p className={styles.promptHelper}>
+                        开启思考模式时追加到最终 system prompt 末尾。留空则不追加任何思考沉浸规则。
+                      </p>
+                    </div>
+                    <span className={styles.statusPill}>modules.personality</span>
+                  </div>
+                  <textarea
+                    className={styles.promptTextarea}
+                    rows={8}
+                    value={thinkingRoleImmersionPrompt}
+                    onChange={(event) => setThinkingRoleImmersionPrompt(event.target.value)}
+                    placeholder="例如：【角色沉浸要求】&#10;在你的思考过程（<think>标签内）中，请遵守以下规则：..."
+                  />
+                  <p className={styles.promptMeta}>
+                    生效条件：主聊天思考模式开启，且这里保存了非空内容。
+                  </p>
+                </label>
               </section>
             </section>
           )}
@@ -280,6 +344,48 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
           backdrop-filter: blur(18px);
           padding: 22px;
           box-shadow: var(--shadow);
+        }
+        .avatar-editor {
+          display: grid;
+          grid-template-columns: 96px minmax(0, 1fr);
+          gap: 14px;
+          align-items: center;
+        }
+        .avatar-preview {
+          width: 96px;
+          height: 96px;
+          border-radius: 24px;
+          border: 1px solid rgba(96, 165, 250, 0.22);
+          background:
+            radial-gradient(circle at 30% 30%, rgba(96, 165, 250, 0.22), transparent 58%),
+            rgba(5, 10, 22, 0.82);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          color: rgba(170, 184, 214, 0.86);
+          font-size: 13px;
+          flex-shrink: 0;
+        }
+        .avatar-preview img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+        .avatar-controls {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-width: 0;
+        }
+        .avatar-controls :global(button) {
+          align-self: flex-start;
+        }
+        @media (max-width: 640px) {
+          .avatar-editor {
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
     </main>
