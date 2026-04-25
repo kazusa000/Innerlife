@@ -6,6 +6,13 @@ export async function POST(request: Request) {
   const body = await request.json()
   const userMessage = body.message as string
   const sessionId = body.sessionId as string
+  const reasoningEnabled = body.reasoningEnabled === true
+  const reasoningEffort =
+    body.reasoningEffort === 'low'
+    || body.reasoningEffort === 'medium'
+    || body.reasoningEffort === 'high'
+      ? body.reasoningEffort
+      : 'medium'
 
   if (!sessionId) {
     return new Response(JSON.stringify({ error: 'sessionId is required' }), {
@@ -35,6 +42,9 @@ export async function POST(request: Request) {
         const result = await executeChatTurn({
           sessionId,
           userMessage,
+          reasoning: reasoningEnabled
+            ? { enabled: true, effort: reasoningEffort }
+            : { effort: 'none' },
           signal: request.signal,
           onEvent: (event) => {
             const serializable =

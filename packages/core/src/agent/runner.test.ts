@@ -346,6 +346,126 @@ test('runAgent composes sorted prompt fragments from systems before calling the 
   assert.deepEqual(seen.reasoning, { effort: 'none' })
 })
 
+test('runAgent passes configured reasoning and streams thinking deltas', async () => {
+  const seen: { reasoning?: unknown; systemPrompt?: string } = {}
+
+  const provider = new FakeProvider(async function* (params) {
+    seen.reasoning = params.reasoning
+    seen.systemPrompt = params.systemPrompt
+    yield { type: 'thinking_delta', text: '先判断问题类型。' }
+    yield { type: 'text_delta', text: 'done' }
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [{ type: 'text', text: 'done' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 2 },
+      },
+    }
+  })
+
+  const events = []
+  for await (const event of runAgent(
+    {
+      ...createConfig(),
+      reasoning: { enabled: true, effort: 'medium' },
+    },
+    [createTextMessage('user', '需要想一下吗？')],
+    provider,
+  )) {
+    events.push(event)
+  }
+
+  assert.deepEqual(seen.reasoning, { enabled: true, effort: 'medium' })
+  assert.deepEqual(events, [
+    { type: 'thinking_delta', text: '先判断问题类型。' },
+    { type: 'text_delta', text: 'done' },
+    {
+      type: 'complete',
+      response: {
+        content: [{ type: 'text', text: 'done' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 2 },
+      },
+    },
+  ])
+  assert.doesNotMatch(seen.systemPrompt ?? '', /【角色沉浸要求】/)
+})
+
+test('runAgent appends persona thinking prompt only when configured', async () => {
+  const seen: { systemPrompt?: string } = {}
+  const provider = new FakeProvider(async function* (params) {
+    seen.systemPrompt = params.systemPrompt
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [{ type: 'text', text: 'done' }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 2 },
+      },
+    }
+  })
+
+  for await (const _event of runAgent(
+    {
+      ...createConfig(),
+      reasoning: { enabled: true, effort: 'medium' },
+      thinkingRoleImmersionPrompt: '自定义思考规则',
+    },
+    [createTextMessage('user', '需要想一下吗？')],
+    provider,
+  )) {
+    // Drain stream.
+  }
+
+  assert.match(seen.systemPrompt ?? '', /test[\s\S]*自定义思考规则$/)
+})
+
+test('runAgent suppresses provider thinking deltas when reasoning is disabled', async () => {
+  const provider = new FakeProvider(async function* () {
+    yield { type: 'thinking_delta', text: '不应该显示。' }
+    yield { type: 'text_delta', text: 'done' }
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [
+          { type: 'thinking', thinking: '不应该显示。', signature: 'sig-1' },
+          { type: 'text', text: 'done' },
+        ],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 2 },
+      },
+    }
+  })
+
+  const events = []
+  for await (const event of runAgent(
+    {
+      ...createConfig(),
+      reasoning: { effort: 'none' },
+    },
+    [createTextMessage('user', '不要显示思考')],
+    provider,
+  )) {
+    events.push(event)
+  }
+
+  assert.deepEqual(events, [
+    { type: 'text_delta', text: 'done' },
+    {
+      type: 'complete',
+      response: {
+        content: [
+          { type: 'thinking', thinking: '不应该显示。', signature: 'sig-1' },
+          { type: 'text', text: 'done' },
+        ],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 2 },
+      },
+    },
+  ])
+})
+
 test('runAgent snapshots normalized prompt fragments into observer metadata', async () => {
   const observerStarts: Array<{ metadata?: Record<string, unknown> }> = []
   const observerEnds: Array<{ metadata?: Record<string, unknown> }> = []

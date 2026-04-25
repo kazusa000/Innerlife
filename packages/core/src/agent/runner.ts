@@ -1,5 +1,5 @@
 import type { AgentConfig, AgentEvent, RunAgentObserver } from './types'
-import type { LLMProvider, LLMResponse } from '../provider/types'
+import type { LLMProvider, LLMReasoningConfig, LLMResponse } from '../provider/types'
 import type { Message, TextBlock, ToolUseBlock, ContentBlock } from '../types'
 import { toolsToDefinitions, executeTool } from '../tools/registry'
 import { isAbortError, throwIfAborted } from '../utils/abort'
@@ -28,6 +28,7 @@ export async function* runAgent(
   const maxTurns = config.maxTurns ?? 20
   let turns = 0
   const ctx = createTurnContext(config, messages)
+  const exposeThinking = isReasoningEnabled(config.reasoning)
 
   yield* runSystemPhase(systems, 'beforeTurn', ctx)
   const memoryQuery = await runPendingMemoryQuery(
@@ -87,30 +88,41 @@ export async function* runAgent(
     }
 
     const llmInput = prepareLLMInput(baseSystemPrompt, messages)
+    const systemPrompt = appendThinkingRoleImmersionPrompt(
+      llmInput.systemPrompt,
+      config.reasoning,
+      config.thinkingRoleImmersionPrompt,
+    )
 
     const callId = observer?.onLLMCallStart({
       kind: 'turn',
       model: config.model,
-      systemPrompt: llmInput.systemPrompt,
+      systemPrompt,
       tools: toolDefs,
       messages: [...messages],
       metadata: promptFragmentMetadata,
     })
 
     let response: LLMResponse | undefined
+    let thinkingText = ''
 
     try {
       for await (const event of provider.streamMessage({
         model: config.model,
-        systemPrompt: llmInput.systemPrompt,
+        systemPrompt,
         messages: llmInput.messages,
         tools: toolDefs,
-        reasoning: { effort: 'none' },
+        reasoning: config.reasoning ?? { effort: 'none' },
         signal,
       })) {
         throwIfAborted(signal)
 
-        if (event.type === 'text_delta') {
+        if (event.type === 'thinking_delta') {
+          if (exposeThinking) {
+            thinkingText += event.text
+            yield { type: 'thinking_delta', text: event.text }
+          }
+        } else if (event.type === 'text_delta') {
           yield { type: 'text_delta', text: event.text }
         } else if (event.type === 'message_complete') {
           response = event.response
@@ -165,6 +177,7 @@ export async function* runAgent(
         usage: response.usage,
         metadata: mergeObserverMetadata(
           promptFragmentMetadata,
+          thinkingText ? { thinking: { text: thinkingText } } : undefined,
           Object.keys(ctx.turnMetadata).length > 0 ? ctx.turnMetadata : undefined,
         ),
       })
@@ -405,6 +418,25 @@ function mergeObserverMetadata(
   }, {})
 
   return Object.keys(merged).length > 0 ? merged : undefined
+}
+
+function isReasoningEnabled(reasoning?: LLMReasoningConfig) {
+  return Boolean(
+    reasoning?.enabled
+    || (reasoning?.effort && reasoning.effort !== 'none')
+    || reasoning?.maxTokens,
+  )
+}
+
+function appendThinkingRoleImmersionPrompt(
+  systemPrompt: string,
+  reasoning?: LLMReasoningConfig,
+  prompt?: string,
+) {
+  const trimmedPrompt = prompt?.trim()
+  return isReasoningEnabled(reasoning) && trimmedPrompt
+    ? [systemPrompt, trimmedPrompt].filter(Boolean).join('\n\n')
+    : systemPrompt
 }
 
 function prepareLLMInput(basePrompt: string, messages: Message[]) {

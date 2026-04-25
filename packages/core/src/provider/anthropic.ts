@@ -3,6 +3,37 @@ import type { LLMProvider, LLMRequest, LLMResponse, LLMStreamEvent } from './typ
 import type { ContentBlock } from '../types'
 import { throwIfAborted } from '../utils/abort'
 
+function isReasoningEnabled(reasoning?: LLMRequest['reasoning']) {
+  return Boolean(reasoning?.enabled || (reasoning?.effort && reasoning.effort !== 'none') || reasoning?.maxTokens)
+}
+
+function mapAnthropicEffort(reasoning?: LLMRequest['reasoning']) {
+  const effort = reasoning?.effort
+  return effort && effort !== 'none' && effort !== 'minimal' ? effort : undefined
+}
+
+function buildAnthropicThinking(model: string, reasoning?: LLMRequest['reasoning']) {
+  if (!reasoning) {
+    return undefined
+  }
+
+  if (!isReasoningEnabled(reasoning)) {
+    return { type: 'disabled' }
+  }
+
+  if (model.includes('4-6') || model.includes('4-7') || model.includes('mythos')) {
+    return { type: 'adaptive', display: 'summarized' }
+  }
+
+  const budgetTokens = reasoning?.maxTokens
+    ?? (reasoning?.effort === 'high' || reasoning?.effort === 'xhigh'
+      ? 3072
+      : reasoning?.effort === 'medium'
+        ? 2048
+        : 1024)
+  return { type: 'enabled', budget_tokens: budgetTokens, display: 'summarized' }
+}
+
 export class AnthropicProvider implements LLMProvider {
   name = 'anthropic'
   private client: Anthropic
@@ -17,7 +48,7 @@ export class AnthropicProvider implements LLMProvider {
   async *streamMessage(params: LLMRequest): AsyncGenerator<LLMStreamEvent> {
     throwIfAborted(params.signal)
 
-    const stream = this.client.messages.stream({
+    const request = {
       model: params.model,
       system: params.systemPrompt,
       messages: params.messages.map((m) => ({
@@ -30,8 +61,14 @@ export class AnthropicProvider implements LLMProvider {
         input_schema: t.input_schema as Anthropic.Tool.InputSchema,
       })),
       max_tokens: params.maxTokens ?? 4096,
-      temperature: params.temperature,
-    }, {
+      temperature: isReasoningEnabled(params.reasoning) ? undefined : params.temperature,
+      thinking: buildAnthropicThinking(params.model, params.reasoning),
+      output_config: mapAnthropicEffort(params.reasoning)
+        ? { effort: mapAnthropicEffort(params.reasoning) }
+        : undefined,
+    } as Anthropic.MessageCreateParams
+
+    const stream = this.client.messages.stream(request, {
       signal: params.signal,
     })
 
@@ -55,7 +92,9 @@ export class AnthropicProvider implements LLMProvider {
         }
         case 'content_block_delta': {
           const delta = event.delta
-          if (delta.type === 'text_delta') {
+          if (delta.type === 'thinking_delta') {
+            yield { type: 'thinking_delta', text: delta.thinking }
+          } else if (delta.type === 'text_delta') {
             yield { type: 'text_delta', text: delta.text }
           } else if (delta.type === 'input_json_delta') {
             currentToolInput += delta.partial_json
@@ -78,20 +117,30 @@ export class AnthropicProvider implements LLMProvider {
     throwIfAborted(params.signal)
     const finalMessage = await stream.finalMessage()
 
-    const allBlocks: ContentBlock[] = finalMessage.content.map((block) => {
+    const allBlocks: ContentBlock[] = []
+    for (const block of finalMessage.content) {
+      if (block.type === 'thinking') {
+        const thinkingBlock = block as typeof block & { thinking?: string; signature?: string }
+        allBlocks.push({
+          type: 'thinking',
+          thinking: thinkingBlock.thinking ?? '',
+          signature: thinkingBlock.signature,
+        })
+        continue
+      }
       if (block.type === 'text') {
-        return { type: 'text' as const, text: block.text }
+        allBlocks.push({ type: 'text', text: block.text })
+        continue
       }
       if (block.type === 'tool_use') {
-        return {
+        allBlocks.push({
           type: 'tool_use' as const,
           id: block.id,
           name: block.name,
           input: block.input as Record<string, unknown>,
-        }
+        })
       }
-      return { type: 'text' as const, text: '' }
-    })
+    }
 
     const response: LLMResponse = {
       content: allBlocks,

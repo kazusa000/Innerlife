@@ -228,3 +228,50 @@ test('OpenRouterProvider streamMessage yields text deltas, tool deltas, and fina
     globalThis.fetch = originalFetch
   }
 })
+
+test('OpenRouterProvider streamMessage emits reasoning deltas', async () => {
+  const originalFetch = globalThis.fetch
+
+  globalThis.fetch = (async () => {
+    return createSseResponse([
+      'data: {"choices":[{"delta":{"reasoning":"先分析。"}}]}\n\n',
+      'data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.summary","summary":"再总结。","format":"anthropic-claude-v1","index":0}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"答案"}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":4}}\n\n',
+      'data: [DONE]\n\n',
+    ])
+  }) as typeof fetch
+
+  try {
+    const provider = new OpenRouterProvider('or-key', 'https://openrouter.ai/api/v1')
+    const events = []
+
+    for await (const event of provider.streamMessage({
+      model: 'openai/gpt-5.2',
+      systemPrompt: 'You are helpful.',
+      messages: [{ role: 'user', content: [{ type: 'text', text: '想一下' }] }],
+      reasoning: { enabled: true, effort: 'medium' },
+    })) {
+      events.push(event)
+    }
+
+    assert.deepEqual(events, [
+      { type: 'thinking_delta', text: '先分析。' },
+      { type: 'thinking_delta', text: '再总结。' },
+      { type: 'text_delta', text: '答案' },
+      {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: '答案' }],
+          stopReason: 'end_turn',
+          usage: {
+            inputTokens: 3,
+            outputTokens: 4,
+          },
+        },
+      },
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

@@ -2,6 +2,7 @@ export type {
   Message,
   ContentBlock,
   TextBlock,
+  ThinkingBlock,
   ToolUseBlock,
   ToolResultBlock,
   ToolDefinition,
@@ -11,6 +12,7 @@ export type { Tool, ToolResult, ToolCallOptions } from './tools'
 export type {
   LLMProvider,
   LLMRequest,
+  LLMReasoningConfig,
   LLMResponse,
   LLMStreamEvent,
   ProviderName,

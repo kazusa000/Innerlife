@@ -5,7 +5,9 @@ export type ProviderName = (typeof PROVIDER_NAMES)[number]
 
 export interface LLMReasoningConfig {
   enabled?: boolean
-  effort?: 'none' | 'low' | 'medium' | 'high'
+  effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+  maxTokens?: number
+  exclude?: boolean
 }
 
 export interface LLMResponseFormatJsonSchema {
@@ -37,6 +39,7 @@ export interface LLMResponse {
 }
 
 export type LLMStreamEvent =
+  | { type: 'thinking_delta'; text: string }
   | { type: 'text_delta'; text: string }
   | { type: 'tool_use_start'; id: string; name: string }
   | { type: 'tool_use_delta'; id: string; input: string }

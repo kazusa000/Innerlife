@@ -17,7 +17,13 @@ export interface ToolResultBlock {
   is_error?: boolean
 }
 
-export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock
+export interface ThinkingBlock {
+  type: 'thinking'
+  thinking: string
+  signature?: string
+}
+
+export type ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock
 
 export interface Message {
   role: 'user' | 'assistant' | 'system'

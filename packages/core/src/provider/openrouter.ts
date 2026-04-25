@@ -41,6 +41,8 @@ interface OpenRouterChoice {
   }
   delta?: {
     content?: string | null
+    reasoning?: string | null
+    reasoning_details?: OpenRouterReasoningDetail[]
     tool_calls?: Array<{
       index?: number
       id?: string
@@ -51,6 +53,11 @@ interface OpenRouterChoice {
     }>
   }
 }
+
+type OpenRouterReasoningDetail =
+  | { type?: 'reasoning.summary'; summary?: string | null }
+  | { type?: 'reasoning.text'; text?: string | null }
+  | { type?: string; [key: string]: unknown }
 
 interface OpenRouterUsage {
   prompt_tokens?: number
@@ -178,6 +185,40 @@ function mapResponseFormat(responseFormat?: LLMResponseFormat) {
   }
 }
 
+function mapReasoning(reasoning?: LLMRequest['reasoning']) {
+  if (!reasoning) {
+    return undefined
+  }
+
+  const result: Record<string, unknown> = {}
+  if (reasoning.enabled !== undefined) {
+    result.enabled = reasoning.enabled
+  }
+  if (reasoning.effort !== undefined) {
+    result.effort = reasoning.effort
+  }
+  if (reasoning.maxTokens !== undefined) {
+    result.max_tokens = reasoning.maxTokens
+  }
+  if (reasoning.exclude !== undefined) {
+    result.exclude = reasoning.exclude
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+function extractReasoningDetailText(detail: OpenRouterReasoningDetail): string | null {
+  if (detail.type === 'reasoning.summary' && typeof detail.summary === 'string') {
+    return detail.summary
+  }
+
+  if (detail.type === 'reasoning.text' && typeof detail.text === 'string') {
+    return detail.text
+  }
+
+  return null
+}
+
 function mapUsage(usage?: OpenRouterUsage) {
   return {
     inputTokens: usage?.prompt_tokens ?? 0,
@@ -281,7 +322,7 @@ export class OpenRouterProvider implements LLMProvider {
         tools: mapTools(params.tools),
         max_tokens: params.maxTokens ?? 4096,
         temperature: params.temperature,
-        reasoning: params.reasoning,
+        reasoning: mapReasoning(params.reasoning),
         response_format: mapResponseFormat(params.responseFormat),
         stream: true,
       }),
@@ -350,6 +391,17 @@ export class OpenRouterProvider implements LLMProvider {
           yield { type: 'text_delta', text: choice.delta.content }
         }
 
+        if (choice.delta?.reasoning) {
+          yield { type: 'thinking_delta', text: choice.delta.reasoning }
+        }
+
+        for (const detail of choice.delta?.reasoning_details ?? []) {
+          const text = extractReasoningDetailText(detail)
+          if (text) {
+            yield { type: 'thinking_delta', text }
+          }
+        }
+
         for (const toolDelta of choice.delta?.tool_calls ?? []) {
           const index = toolDelta.index ?? 0
           const current = toolCalls[index] ?? {
@@ -403,7 +455,7 @@ export class OpenRouterProvider implements LLMProvider {
         tools: mapTools(params.tools),
         max_tokens: params.maxTokens ?? 4096,
         temperature: params.temperature,
-        reasoning: params.reasoning,
+        reasoning: mapReasoning(params.reasoning),
         response_format: mapResponseFormat(params.responseFormat),
         stream: false,
       }),

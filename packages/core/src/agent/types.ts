@@ -1,5 +1,5 @@
 import type { Tool, ToolResult } from '../tools/types'
-import type { LLMResponse } from '../provider/types'
+import type { LLMReasoningConfig, LLMResponse } from '../provider/types'
 import type { SystemPhase } from '@mas/systems'
 import type { Message, ContentBlock, ToolDefinition } from '../types'
 
@@ -11,9 +11,12 @@ export interface AgentConfig {
   maxTurns?: number
   sessionId?: string
   userId?: string
+  reasoning?: LLMReasoningConfig
+  thinkingRoleImmersionPrompt?: string
 }
 
 export type AgentEvent =
+  | { type: 'thinking_delta'; text: string }
   | { type: 'text_delta'; text: string }
   | { type: 'tool_start'; toolName: string; input: Record<string, unknown> }
   | { type: 'tool_result'; toolName: string; result: ToolResult }
