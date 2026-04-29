@@ -47,6 +47,10 @@ function bootstrapDb(dbPath: string) {
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
       name TEXT NOT NULL,
+      avatar_url TEXT,
+      role TEXT,
+      description TEXT,
+      note TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
@@ -179,7 +183,13 @@ test('named-multi-dim config returns counterpart list and selected counterpart s
   try {
     bootstrapDb(dbPath)
 
-    const zhangsan = (await createNamedRelationshipCounterpart('agent-4', { name: '张三' }).json()).counterpart
+    const zhangsan = (await createNamedRelationshipCounterpart('agent-4', {
+      name: '张三',
+      avatarUrl: 'https://example.test/zhangsan.png',
+      role: '旧友',
+      description: '长期参与测试的用户',
+      note: '我觉得他说话很敏锐',
+    }).json()).counterpart
     const lisi = (await createNamedRelationshipCounterpart('agent-4', { name: '李四' }).json()).counterpart
     relationshipRepo.upsertRelationship({
       agentId: 'agent-4',
@@ -210,6 +220,13 @@ test('named-multi-dim config returns counterpart list and selected counterpart s
     assert.deepEqual(data.counterparts.map((item: { name: string }) => item.name).sort(), ['张三', '李四'])
     assert.equal(data.selectedCounterpart.id, zhangsan.id)
     assert.equal(data.selectedCounterpart.name, '张三')
+    assert.equal(data.selectedCounterpart.avatarUrl, 'https://example.test/zhangsan.png')
+    assert.equal(data.selectedCounterpart.role, '旧友')
+    assert.equal(data.selectedCounterpart.description, '长期参与测试的用户')
+    assert.equal(data.selectedCounterpart.note, '我觉得他说话很敏锐')
+    assert.match(data.fragmentPromptDefault, /- 关系角色：旧友/)
+    assert.match(data.fragmentPromptDefault, /- 对象描述：长期参与测试的用户/)
+    assert.match(data.fragmentPromptDefault, /- 角色主观备注：我觉得他说话很敏锐/)
     assert.deepEqual(data.currentState, {
       trust: 0.7,
       affinity: 0.6,
@@ -230,11 +247,28 @@ test('named-multi-dim counterpart CRUD and config update work per agent', async 
   try {
     bootstrapDb(dbPath)
 
-    const created = await createNamedRelationshipCounterpart('agent-4', { name: '张三' }).json()
+    const created = await createNamedRelationshipCounterpart('agent-4', {
+      name: '张三',
+      avatarUrl: 'https://example.test/a.png',
+      role: '朋友',
+      description: '会一起测试系统的人',
+      note: '我对他比较放松',
+    }).json()
     assert.equal(created.counterpart.name, '张三')
+    assert.equal(created.counterpart.role, '朋友')
 
-    const renamed = await renameNamedRelationshipCounterpart('agent-4', created.counterpart.id, { name: '王五' }).json()
+    const renamed = await renameNamedRelationshipCounterpart('agent-4', created.counterpart.id, {
+      name: '王五',
+      avatarUrl: '',
+      role: '同事',
+      description: '一起调试关系系统',
+      note: null,
+    }).json()
     assert.equal(renamed.counterpart.name, '王五')
+    assert.equal(renamed.counterpart.avatarUrl, null)
+    assert.equal(renamed.counterpart.role, '同事')
+    assert.equal(renamed.counterpart.description, '一起调试关系系统')
+    assert.equal(renamed.counterpart.note, null)
 
     const updated = await updateNamedMultiDimRelationshipConfig('agent-4', {
       baseline: { trust: 0.6 },

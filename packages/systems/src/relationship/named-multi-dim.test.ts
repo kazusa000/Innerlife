@@ -42,6 +42,10 @@ function bootstrapDb(dbPath: string) {
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL REFERENCES agents(id),
       name TEXT NOT NULL,
+      avatar_url TEXT,
+      role TEXT,
+      description TEXT,
+      note TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
@@ -66,7 +70,8 @@ function bootstrapDb(dbPath: string) {
     INSERT INTO agents (id, name, model) VALUES ('agent-1', 'Hazel', 'deepseek-chat');
     INSERT INTO sessions (id, agent_id, title) VALUES ('session-a', 'agent-1', 'A');
     INSERT INTO sessions (id, agent_id, title) VALUES ('session-b', 'agent-1', 'B');
-    INSERT INTO relationship_counterparts (id, agent_id, name) VALUES ('cp-1', 'agent-1', '张三');
+    INSERT INTO relationship_counterparts (id, agent_id, name, avatar_url, role, description, note)
+      VALUES ('cp-1', 'agent-1', '张三', 'https://example.test/zhangsan.png', '旧友', '长期参与测试的用户', '我觉得他说话很敏锐');
     INSERT INTO relationship_counterparts (id, agent_id, name) VALUES ('cp-2', 'agent-1', '李四');
   `)
 }
@@ -131,6 +136,14 @@ test('named-multi-dim relationship stays inactive without a bound counterpart an
     await system.beforeLLM?.(zhangsanCtx)
     await system.afterLLM?.(zhangsanCtx)
     assert.match(zhangsanCtx.promptFragments[0]?.content ?? '', /当前谈话对象：张三/)
+    assert.match(zhangsanCtx.promptFragments[0]?.content ?? '', /关系角色：旧友/)
+    assert.match(zhangsanCtx.promptFragments[0]?.content ?? '', /对象描述：长期参与测试的用户/)
+    assert.match(zhangsanCtx.promptFragments[0]?.content ?? '', /角色主观备注：我觉得他说话很敏锐/)
+    const analysisBlock = zhangsanCtx.pendingRelationshipAnalysis?.messages[0]?.content[0]
+    const analysisText = typeof analysisBlock === 'object' && analysisBlock && 'text' in analysisBlock
+      ? String(analysisBlock.text)
+      : ''
+    assert.match(analysisText, /关系角色：旧友/)
     zhangsanCtx.relationshipAnalysis = {
       delta: { trust: 0.15, affinity: 0.1, familiarity: 0.06, respect: 0.05 },
       trigger: '张三主动道谢',

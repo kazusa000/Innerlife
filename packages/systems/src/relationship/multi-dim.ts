@@ -133,12 +133,19 @@ export function buildRelationshipFragment(
   state: RelationshipDimensions,
   promptOverride?: string | null,
   counterpartName = '用户',
+  counterpart?: Pick<RelationshipCounterpartRef, 'role' | 'description' | 'note'> | null,
 ): string {
   const defaultPrompt = '让这些关系状态轻微影响语气、耐心、亲疏感和措辞，但不要直接复述数值，也不要声称自己在“模拟关系分数”。'
+  const profileLines = [
+    counterpart?.role ? `- 关系角色：${counterpart.role}` : null,
+    counterpart?.description ? `- 对象描述：${counterpart.description}` : null,
+    counterpart?.note ? `- 角色主观备注：${counterpart.note}` : null,
+  ].filter((line): line is string => Boolean(line))
   if (promptOverride?.trim()) {
     return [
       `当前你与${counterpartName}的关系状态参考：`,
       `当前谈话对象：${counterpartName}`,
+      ...profileLines,
       `- trust：${renderTrust(state.trust)}（${state.trust.toFixed(2)}）`,
       `- affinity：${renderAffinity(state.affinity)}（${state.affinity.toFixed(2)}）`,
       `- familiarity：${renderFamiliarity(state.familiarity)}（${state.familiarity.toFixed(2)}）`,
@@ -150,6 +157,7 @@ export function buildRelationshipFragment(
   return [
     `当前你与${counterpartName}的关系状态（会随互动缓慢变化）：`,
     `当前谈话对象：${counterpartName}`,
+    ...profileLines,
     `- trust：${renderTrust(state.trust)}（${state.trust.toFixed(2)}）`,
     `- affinity：${renderAffinity(state.affinity)}（${state.affinity.toFixed(2)}）`,
     `- familiarity：${renderFamiliarity(state.familiarity)}（${state.familiarity.toFixed(2)}）`,

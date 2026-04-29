@@ -40,6 +40,10 @@ function initials(name: string) {
 type Counterpart = {
   id: string
   name: string
+  avatarUrl?: string | null
+  role?: string | null
+  description?: string | null
+  note?: string | null
 }
 
 export function Sidebar({
@@ -58,6 +62,7 @@ export function Sidebar({
   const [counterparts, setCounterparts] = useState<Counterpart[]>([])
   const [selectedCounterpartId, setSelectedCounterpartId] = useState('')
   const [bindingNotice, setBindingNotice] = useState<string | null>(null)
+  const selectedCounterpart = counterparts.find((counterpart) => counterpart.id === selectedCounterpartId) ?? null
 
   useEffect(() => {
     let cancelled = false
@@ -228,6 +233,24 @@ export function Sidebar({
               </option>
             ))}
           </select>
+          {selectedCounterpart && (
+            <div className="counterpart-profile">
+              <div
+                className="counterpart-avatar"
+                style={selectedCounterpart.avatarUrl ? undefined : { backgroundImage: gradientFor(selectedCounterpart.id) }}
+              >
+                {selectedCounterpart.avatarUrl ? (
+                  <img src={selectedCounterpart.avatarUrl} alt="" />
+                ) : (
+                  initials(selectedCounterpart.name)
+                )}
+              </div>
+              <div className="counterpart-meta">
+                <span className="counterpart-name">{selectedCounterpart.name}</span>
+                {selectedCounterpart.role && <span className="counterpart-role">{selectedCounterpart.role}</span>}
+              </div>
+            </div>
+          )}
           {bindingNotice && <p className="rail-status">{bindingNotice}</p>}
         </div>
       )}
@@ -421,6 +444,57 @@ export function Sidebar({
           color: var(--fg);
           padding: 10px 12px;
           font-size: 13px;
+        }
+        .counterpart-profile {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-top: 12px;
+          padding: 10px;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.045);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .counterpart-avatar {
+          width: 34px;
+          height: 34px;
+          border-radius: 11px;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          color: rgba(255, 255, 255, 0.95);
+          font-family: var(--font-display);
+          font-size: 12px;
+          font-weight: 600;
+        }
+        .counterpart-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+        .counterpart-meta {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          min-width: 0;
+        }
+        .counterpart-name {
+          color: var(--fg);
+          font-size: 13px;
+          font-weight: 600;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .counterpart-role {
+          color: var(--fg-muted);
+          font-size: 12px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .rail-status {
           margin: 10px 0 0;

@@ -43,6 +43,10 @@ export const relationshipCounterparts = sqliteTable('relationship_counterparts',
     .notNull()
     .references(() => agents.id),
   name: text('name').notNull(),
+  avatarUrl: text('avatar_url'),
+  role: text('role'),
+  description: text('description'),
+  note: text('note'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),

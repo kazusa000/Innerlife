@@ -33,6 +33,10 @@ function bootstrapDb(dbPath: string) {
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL REFERENCES agents(id),
       name TEXT NOT NULL,
+      avatar_url TEXT,
+      role TEXT,
+      description TEXT,
+      note TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
@@ -52,11 +56,29 @@ test('relationship counterpart repo creates, lists, renames, and deletes counter
   try {
     bootstrapDb(dbPath)
 
-    const zhangsan = createRelationshipCounterpart({ agentId: 'agent-1', name: '张三' })
+    const zhangsan = createRelationshipCounterpart({
+      agentId: 'agent-1',
+      name: '张三',
+      avatarUrl: ' https://example.test/zhangsan.png ',
+      role: '旧友',
+      description: '长期参与测试的用户',
+      note: '我觉得他说话很敏锐',
+    })
     const lisi = createRelationshipCounterpart({ agentId: 'agent-1', name: '李四' })
     const agentTwoZhangsan = createRelationshipCounterpart({ agentId: 'agent-2', name: '张三' })
 
     assert.equal(getRelationshipCounterpart(zhangsan.id)?.name, '张三')
+    assert.deepEqual(getRelationshipCounterpart(zhangsan.id), {
+      id: zhangsan.id,
+      agentId: 'agent-1',
+      name: '张三',
+      avatarUrl: 'https://example.test/zhangsan.png',
+      role: '旧友',
+      description: '长期参与测试的用户',
+      note: '我觉得他说话很敏锐',
+      createdAt: zhangsan.createdAt,
+      updatedAt: zhangsan.updatedAt,
+    })
     assert.equal(getRelationshipCounterpart(agentTwoZhangsan.id)?.agentId, 'agent-2')
 
     assert.deepEqual(
@@ -68,8 +90,17 @@ test('relationship counterpart repo creates, lists, renames, and deletes counter
       ['张三'],
     )
 
-    const renamed = updateRelationshipCounterpart(zhangsan.id, { name: '王五' })
+    const renamed = updateRelationshipCounterpart(zhangsan.id, {
+      name: '王五',
+      avatarUrl: '',
+      role: '朋友',
+      note: null,
+    })
     assert.equal(renamed?.name, '王五')
+    assert.equal(renamed?.avatarUrl, null)
+    assert.equal(renamed?.role, '朋友')
+    assert.equal(renamed?.description, '长期参与测试的用户')
+    assert.equal(renamed?.note, null)
 
     deleteRelationshipCounterpart(lisi.id)
     assert.deepEqual(

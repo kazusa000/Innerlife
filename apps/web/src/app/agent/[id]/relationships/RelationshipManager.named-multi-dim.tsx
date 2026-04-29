@@ -18,6 +18,10 @@ type RelationshipManagerProps = {
 type Counterpart = {
   id: string
   name: string
+  avatarUrl: string | null
+  role: string | null
+  description: string | null
+  note: string | null
 }
 
 type RelationshipHistoryEntry = {
@@ -129,6 +133,15 @@ export default function RelationshipManagerNamedMultiDim({ agentId }: Relationsh
     [counterparts, selectedCounterpartId],
   )
 
+  function updateSelectedCounterpart(patch: Partial<Counterpart>) {
+    if (!selectedCounterpart) {
+      return
+    }
+    setCounterparts((current) => current.map((item) => (
+      item.id === selectedCounterpart.id ? { ...item, ...patch } : item
+    )))
+  }
+
   async function saveConfig() {
     setSaving(true)
     setError(null)
@@ -192,7 +205,7 @@ export default function RelationshipManagerNamedMultiDim({ agentId }: Relationsh
     }
   }
 
-  async function renameSelectedCounterpart() {
+  async function saveSelectedCounterpartProfile() {
     if (!selectedCounterpart || !selectedCounterpart.name.trim()) {
       return
     }
@@ -204,7 +217,13 @@ export default function RelationshipManagerNamedMultiDim({ agentId }: Relationsh
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: selectedCounterpart.name }),
+          body: JSON.stringify({
+            name: selectedCounterpart.name,
+            avatarUrl: selectedCounterpart.avatarUrl,
+            role: selectedCounterpart.role,
+            description: selectedCounterpart.description,
+            note: selectedCounterpart.note,
+          }),
         },
       )
       const data = await response.json() as unknown
@@ -212,7 +231,7 @@ export default function RelationshipManagerNamedMultiDim({ agentId }: Relationsh
         throw new Error(readErrorMessage(data, '重命名关系对象失败'))
       }
       await loadConfig(selectedCounterpart.id)
-      setNotice('关系对象已重命名。')
+      setNotice('关系对象档案已保存。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '重命名关系对象失败')
     }
@@ -313,6 +332,7 @@ export default function RelationshipManagerNamedMultiDim({ agentId }: Relationsh
               >
                 <span className={styles.sectionNavIndex}>对象</span>
                 <span>{item.name}</span>
+                {item.role && <span className={styles.sideNavMeta}>{item.role}</span>}
               </button>
             ))}
           </div>
@@ -404,21 +424,73 @@ export default function RelationshipManagerNamedMultiDim({ agentId }: Relationsh
               ) : (
                 <>
                   <div className={styles.fieldStack}>
+                    <div className={styles.profileHeader}>
+                      <div
+                        className={styles.profileAvatar}
+                        style={selectedCounterpart.avatarUrl ? undefined : {
+                          backgroundImage: `linear-gradient(135deg, hsl(${selectedCounterpart.id.length * 31 % 360} 68% 56%), hsl(${(selectedCounterpart.id.length * 31 + 58) % 360} 72% 50%))`,
+                        }}
+                      >
+                        {selectedCounterpart.avatarUrl ? (
+                          <img src={selectedCounterpart.avatarUrl} alt="" />
+                        ) : (
+                          selectedCounterpart.name.slice(0, 2).toUpperCase()
+                        )}
+                      </div>
+                      <div>
+                        <p className={styles.panelLabel}>对象档案</p>
+                        <h4 className={styles.panelTitle}>{selectedCounterpart.role || '未设置关系角色'}</h4>
+                      </div>
+                    </div>
                     <label className={styles.field}>
                       <span className={styles.fieldLabel}>对象名称</span>
                       <input
                         className={styles.input}
                         value={selectedCounterpart.name}
-                        onChange={(event) => {
-                          setCounterparts((current) => current.map((item) => (
-                            item.id === selectedCounterpart.id ? { ...item, name: event.target.value } : item
-                          )))
-                        }}
+                        onChange={(event) => updateSelectedCounterpart({ name: event.target.value })}
+                      />
+                    </label>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>头像 URL</span>
+                      <input
+                        className={styles.input}
+                        value={selectedCounterpart.avatarUrl ?? ''}
+                        onChange={(event) => updateSelectedCounterpart({ avatarUrl: event.target.value })}
+                        placeholder="https://example.com/avatar.png"
+                      />
+                    </label>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>关系角色</span>
+                      <input
+                        className={styles.input}
+                        value={selectedCounterpart.role ?? ''}
+                        onChange={(event) => updateSelectedCounterpart({ role: event.target.value })}
+                        placeholder="朋友 / 恋人 / 家人 / 同事 / 观察者"
+                      />
+                    </label>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>对象描述</span>
+                      <textarea
+                        className={styles.textarea}
+                        value={selectedCounterpart.description ?? ''}
+                        onChange={(event) => updateSelectedCounterpart({ description: event.target.value })}
+                        placeholder="这个人是谁，偏客观描述。"
+                        rows={4}
+                      />
+                    </label>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>角色主观备注</span>
+                      <textarea
+                        className={styles.textarea}
+                        value={selectedCounterpart.note ?? ''}
+                        onChange={(event) => updateSelectedCounterpart({ note: event.target.value })}
+                        placeholder="角色怎么看这个人，偏主观理解。"
+                        rows={4}
                       />
                     </label>
                     <div className={styles.inlineActions}>
-                      <button type="button" className={styles.secondaryButton} onClick={() => void renameSelectedCounterpart()}>
-                        重命名对象
+                      <button type="button" className={styles.secondaryButton} onClick={() => void saveSelectedCounterpartProfile()}>
+                        保存对象档案
                       </button>
                       <button type="button" className={styles.secondaryButton} onClick={() => void deleteSelectedCounterpart()}>
                         删除对象

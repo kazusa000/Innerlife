@@ -54,6 +54,31 @@ function readText(value: unknown, fallback: string | null = null) {
   return trimmed ? trimmed : fallback
 }
 
+function readOptionalText(value: unknown) {
+  if (value === undefined) {
+    return undefined
+  }
+  if (value === null) {
+    return null
+  }
+  if (typeof value !== 'string') {
+    return undefined
+  }
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+function serializeCounterpart(item: relationshipCounterpartRepo.RelationshipCounterpartRecord) {
+  return {
+    id: item.id,
+    name: item.name,
+    avatarUrl: item.avatarUrl,
+    role: item.role,
+    description: item.description,
+    note: item.note,
+  }
+}
+
 function normalizeBaseline(
   value: unknown,
   fallback: RelationshipBaseline = DEFAULT_RELATIONSHIP_BASELINE,
@@ -97,12 +122,11 @@ function buildPayload(agentId: string, config: NamedMultiDimConfig, selectedCoun
     fragmentPrompt: config.fragmentPrompt,
     analysisPrompt: config.analysisPrompt,
     counterparts: counterparts.map((item) => ({
-      id: item.id,
-      name: item.name,
+      ...serializeCounterpart(item),
     })),
     selectedCounterpartId: selectedCounterpart?.id ?? null,
     selectedCounterpart: selectedCounterpart
-      ? { id: selectedCounterpart.id, name: selectedCounterpart.name }
+      ? serializeCounterpart(selectedCounterpart)
       : null,
     currentState: relationship?.dimensions ?? null,
     history: relationship?.history ?? [],
@@ -110,11 +134,13 @@ function buildPayload(agentId: string, config: NamedMultiDimConfig, selectedCoun
       relationship?.dimensions ?? config.baseline,
       null,
       selectedCounterpart?.name ?? '当前对象',
+      selectedCounterpart ?? null,
     ),
     fragmentPromptEffective: buildRelationshipFragment(
       relationship?.dimensions ?? config.baseline,
       config.fragmentPrompt,
       selectedCounterpart?.name ?? '当前对象',
+      selectedCounterpart ?? null,
     ),
     analysisPromptDefault: buildRelationshipAnalysisPrompt(),
     analysisPromptEffective: buildRelationshipAnalysisPrompt(config.analysisPrompt),
@@ -234,6 +260,10 @@ export function createNamedRelationshipCounterpart(agentId: string, body: unknow
   const counterpart = relationshipCounterpartRepo.createRelationshipCounterpart({
     agentId,
     name: body.name,
+    avatarUrl: readOptionalText(body.avatarUrl),
+    role: readOptionalText(body.role),
+    description: readOptionalText(body.description),
+    note: readOptionalText(body.note),
   })
   return Response.json({ counterpart })
 }
@@ -250,6 +280,10 @@ export function renameNamedRelationshipCounterpart(agentId: string, counterpartI
 
   const updated = relationshipCounterpartRepo.updateRelationshipCounterpart(counterpartId, {
     name: body.name,
+    avatarUrl: readOptionalText(body.avatarUrl),
+    role: readOptionalText(body.role),
+    description: readOptionalText(body.description),
+    note: readOptionalText(body.note),
   })
   return Response.json({ counterpart: updated })
 }
@@ -280,10 +314,7 @@ export function serializeSessionRelationshipCounterpart(sessionId: string) {
   return Response.json({
     sessionId,
     counterpart: counterpart
-      ? {
-          id: counterpart.id,
-          name: counterpart.name,
-        }
+      ? serializeCounterpart(counterpart)
       : null,
   })
 }
@@ -310,8 +341,7 @@ export function bindSessionRelationshipCounterpartForSession(sessionId: string, 
   return Response.json({
     sessionId,
     counterpart: {
-      id: counterpart.id,
-      name: counterpart.name,
+      ...serializeCounterpart(counterpart),
     },
   })
 }

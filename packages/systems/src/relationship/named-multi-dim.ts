@@ -66,6 +66,10 @@ function readCounterpart(ctx: TurnContext): RelationshipCounterpartRef | null {
     id: counterpart.id,
     name: counterpart.name,
     type: 'named',
+    avatarUrl: counterpart.avatarUrl,
+    role: counterpart.role,
+    description: counterpart.description,
+    note: counterpart.note,
   }
 }
 
@@ -110,6 +114,9 @@ function buildNamedAnalysisRequest(
     '除非互动强度非常明显，否则增量要保持小幅变化。',
     '',
     `当前面对的对象：${counterpart.name}`,
+    counterpart.role ? `关系角色：${counterpart.role}` : null,
+    counterpart.description ? `对象描述：${counterpart.description}` : null,
+    counterpart.note ? `角色主观备注：${counterpart.note}` : null,
     `当前状态：${JSON.stringify(currentState)}`,
     `基线状态：${JSON.stringify(baseline)}`,
     `每轮衰减：${decayPerTurn}`,
@@ -119,7 +126,7 @@ function buildNamedAnalysisRequest(
     '',
     '助手回复：',
     assistantText || '（空）',
-  ].join('\n')
+  ].filter((line): line is string => line !== null).join('\n')
 
   return {
     kind: 'named-multi-dim' as const,
@@ -178,6 +185,7 @@ export class NamedMultiDimRelationshipSystem implements AgentSystem {
         readCurrentState(ctx, this.config.baseline),
         this.config.fragmentPrompt,
         counterpart.name,
+        counterpart,
       ),
     })
   }

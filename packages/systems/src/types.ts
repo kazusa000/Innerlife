@@ -194,6 +194,10 @@ export interface RelationshipCounterpartRef {
   id: string
   name: string
   type: 'user' | 'named'
+  avatarUrl?: string | null
+  role?: string | null
+  description?: string | null
+  note?: string | null
 }
 
 export interface PendingRelationshipAnalysis {

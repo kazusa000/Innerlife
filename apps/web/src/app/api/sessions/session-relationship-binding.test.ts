@@ -84,6 +84,10 @@ test('session relationship counterpart handler binds, reads, and unbinds counter
       counterpart: {
         id: 'cp-1',
         name: '张三',
+        avatarUrl: null,
+        role: null,
+        description: null,
+        note: null,
       },
     })
 
@@ -93,6 +97,10 @@ test('session relationship counterpart handler binds, reads, and unbinds counter
       counterpart: {
         id: 'cp-1',
         name: '张三',
+        avatarUrl: null,
+        role: null,
+        description: null,
+        note: null,
       },
     })
 

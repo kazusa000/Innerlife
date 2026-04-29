@@ -42,6 +42,10 @@ export function bootstrapAppDatabases(input: {
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL REFERENCES agents(id),
       name TEXT NOT NULL,
+      avatar_url TEXT,
+      role TEXT,
+      description TEXT,
+      note TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
@@ -200,6 +204,18 @@ export function bootstrapAppDatabases(input: {
   }
   if (!llmCallColumns.some((column) => column.name === 'metadata_json')) {
     sqlite.exec('ALTER TABLE llm_calls ADD COLUMN metadata_json TEXT;')
+  }
+  const relationshipCounterpartColumns = sqlite.pragma("table_info('relationship_counterparts')") as Array<{ name: string }>
+  const relationshipCounterpartColumnNames = new Set(relationshipCounterpartColumns.map((column) => column.name))
+  for (const [name, sql] of [
+    ['avatar_url', 'ALTER TABLE relationship_counterparts ADD COLUMN avatar_url TEXT;'],
+    ['role', 'ALTER TABLE relationship_counterparts ADD COLUMN role TEXT;'],
+    ['description', 'ALTER TABLE relationship_counterparts ADD COLUMN description TEXT;'],
+    ['note', 'ALTER TABLE relationship_counterparts ADD COLUMN note TEXT;'],
+  ] as const) {
+    if (!relationshipCounterpartColumnNames.has(name)) {
+      sqlite.exec(sql)
+    }
   }
   const relationshipColumns = sqlite.pragma("table_info('relationships')") as Array<{ name: string }>
   if (relationshipColumns.some((column) => column.name === 'counterpart_type')) {
