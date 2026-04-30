@@ -3,6 +3,7 @@ import {
   agentMemorySleepStateRepo,
   agentRepo,
   daemonEventRepo,
+  episodicMemoryGraphRepo,
   memoryRepo,
   messageRepo,
   sessionContextStateRepo,
@@ -20,6 +21,8 @@ import {
   isSqliteMemoryConfig,
   MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
   parseMemoryBatchWriteResponse,
+  parseEntityResolutionResponse,
+  parseEpisodicExtractionResponse,
   parseShortTermToLongTermResponse,
   resolveMemoryActorLabels,
   resolveMemoryPipelineSettings,
@@ -29,6 +32,12 @@ import {
 import type { MemoryRecord, ShortTermToLongTermMemoryWriteResult } from '@mas/systems'
 
 type DbMessage = ReturnType<typeof messageRepo.getSessionMessages>[number]
+
+function extractTextFromContent(content: Array<{ type: string; text?: string }>) {
+  return content
+    .map((block) => block.type === 'text' ? block.text ?? '' : '')
+    .join('\n')
+}
 
 function toConversationMessage(message: DbMessage): ConversationMessage {
   return {
@@ -618,6 +627,185 @@ export async function runSleepForAgent(input: {
     memoryIds: created.map((item) => item.memory.id),
     deletedShortTermCount: usedShortTermIds.size,
     retainedShortTermCount: shortTermMemories.length - usedShortTermIds.size,
+  }
+}
+
+export async function runEpisodicConsolidationForAgent(input: {
+  agentId: string
+  now?: Date
+  signal?: AbortSignal
+  provider?: Pick<LLMProvider, 'sendMessage'>
+}) {
+  const agent = agentRepo.getAgent(input.agentId)
+  if (!agent || !isSqliteMemoryConfig(agent.modules?.memory)) {
+    return { ok: false as const, reason: 'memory_not_sqlite' as const }
+  }
+
+  const now = input.now ?? new Date()
+  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+  const provider = input.provider ?? createProvider(agent.provider)
+  const shortTermMemories = memoryRepo
+    .listMemoriesByAgentOldestFirst(agent.id)
+    .filter((memory) => memory.layer === 'short_term')
+
+  if (shortTermMemories.length === 0) {
+    return {
+      ok: true as const,
+      createdEntityCount: 0,
+      createdEpisodicCount: 0,
+      deletedShortTermCount: 0,
+    }
+  }
+
+  const sourceText = buildShortTermToLongTermSourceText(shortTermMemories)
+  const extractionResponse = await provider.sendMessage({
+    model: memoryConfig.summarizeModel ?? agent.model,
+    systemPrompt: [
+      '阶段 A：从 STM 抽取实体和情景记忆。',
+      '只输出 entities 与 episodic_memories JSON。',
+      '每条情景记忆最多 5 个 entity_links；weight < 0.3 不输出。',
+      '实体类型只允许 person/place/object/project/event/unknown。',
+    ].join('\n'),
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: sourceText }],
+      },
+    ],
+    reasoning: { effort: 'none' },
+    signal: input.signal,
+  })
+  const extraction = parseEpisodicExtractionResponse(
+    extractTextFromContent(extractionResponse.content),
+  )
+  const candidatePayload = extraction.entities.map((entity) => ({
+    local_entity_id: entity.localEntityId,
+    surface: entity.surface,
+    type: entity.type,
+    context_hint: entity.contextHint,
+    candidates: episodicMemoryGraphRepo.findEntityCandidates({
+      agentId: agent.id,
+      type: entity.type,
+      surface: entity.surface,
+      limit: 10,
+    }).map((candidate) => ({
+      entity_id: candidate.entity.id,
+      canonical_name: candidate.entity.canonicalName,
+      type: candidate.entity.type,
+      description: candidate.entity.description,
+      match_kind: candidate.matchKind,
+    })),
+  }))
+
+  const resolutionResponse = await provider.sendMessage({
+    model: memoryConfig.summarizeModel ?? agent.model,
+    systemPrompt: [
+      '阶段 B：判断 local entity 是否应 merge 到候选实体，或 create_new。',
+      '只有 confidence >= 0.75 才允许 merge。',
+      '不确定就 create_new。alias_to_add 只能来自原文或稳定叫法。',
+    ].join('\n'),
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: JSON.stringify(candidatePayload, null, 2) }],
+      },
+    ],
+    reasoning: { effort: 'none' },
+    signal: input.signal,
+  })
+  const resolutions = parseEntityResolutionResponse(
+    extractTextFromContent(resolutionResponse.content),
+  )
+  const extractionEntitiesById = new Map(
+    extraction.entities.map((entity) => [entity.localEntityId, entity]),
+  )
+  const entityIdsByLocalId = new Map<string, string>()
+  let createdEntityCount = 0
+
+  for (const resolution of resolutions) {
+    if (resolution.action === 'merge') {
+      entityIdsByLocalId.set(resolution.localEntityId, resolution.entityId)
+      if (resolution.aliasToAdd) {
+        episodicMemoryGraphRepo.addEntityAlias({
+          entityId: resolution.entityId,
+          alias: resolution.aliasToAdd,
+          confidence: resolution.confidence,
+          now,
+        })
+      }
+      continue
+    }
+
+    const sourceEntity = extractionEntitiesById.get(resolution.localEntityId)
+    const entity = episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: resolution.type,
+      canonicalName: resolution.canonicalName || sourceEntity?.surface || 'unknown',
+      description: sourceEntity?.contextHint ?? null,
+      confidence: resolution.confidence,
+      aliases: sourceEntity?.aliases.map((alias) => ({ alias, confidence: 0.7 })) ?? [],
+      now,
+    })
+    createdEntityCount += 1
+    entityIdsByLocalId.set(resolution.localEntityId, entity.id)
+  }
+
+  const observedRange = getObservedRangeFromMemories(shortTermMemories)
+  const createdMemories = []
+
+  for (const draft of extraction.episodicMemories) {
+    const entityLinks = draft.entityLinks
+      .map((link) => ({
+        entityId: entityIdsByLocalId.get(link.localEntityId),
+        weight: link.weight,
+      }))
+      .filter((link): link is { entityId: string; weight: number } => Boolean(link.entityId))
+      .slice(0, 5)
+
+    if (entityLinks.length === 0) {
+      continue
+    }
+
+    const created = episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: agent.id,
+      sessionId: shortTermMemories[0]!.sessionId,
+      summary: draft.summary,
+      sourceText,
+      sourceQuote: draft.sourceQuote,
+      importance: draft.importance,
+      observedStartAt: observedRange.observedStartAt,
+      observedEndAt: observedRange.observedEndAt,
+      entityLinks,
+      now,
+    })
+    createdMemories.push(created)
+
+    for (let leftIndex = 0; leftIndex < entityLinks.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < entityLinks.length; rightIndex += 1) {
+        const left = entityLinks[leftIndex]!
+        const right = entityLinks[rightIndex]!
+        episodicMemoryGraphRepo.upsertEntityEdge({
+          agentId: agent.id,
+          sourceEntityId: left.entityId,
+          targetEntityId: right.entityId,
+          delta: 0.1 * Math.min(left.weight, right.weight) * draft.importance,
+          now,
+        })
+      }
+    }
+  }
+
+  if (createdMemories.length > 0) {
+    for (const memory of shortTermMemories) {
+      memoryRepo.deleteSqliteMemoryByAgent(agent.id, memory.id)
+    }
+  }
+
+  return {
+    ok: true as const,
+    createdEntityCount,
+    createdEpisodicCount: createdMemories.length,
+    deletedShortTermCount: createdMemories.length > 0 ? shortTermMemories.length : 0,
   }
 }
 
