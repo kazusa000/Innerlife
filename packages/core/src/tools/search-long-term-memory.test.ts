@@ -110,12 +110,18 @@ test('search_long_term_memory prefers semantic analyzer sentence and weighted ma
   }
 })
 
-test('search_long_term_memory recalls episodic memories through entity activation when graph data exists', async () => {
+test('search_long_term_memory does not graph recall without extracted entity mentions', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-search-ltm-tool-'))
   const dbPath = join(dir, 'data.db')
   const memoryDbPath = join(dir, 'memory.db')
+  const originalFetch = globalThis.fetch
+  const originalApiKey = process.env.OPENROUTER_API_KEY
 
   try {
+    process.env.OPENROUTER_API_KEY = 'test-key'
+    globalThis.fetch = (async () => Response.json({
+      data: [{ embedding: [0, 0], index: 0 }],
+    })) as typeof fetch
     bootstrap(dbPath, memoryDbPath)
     const agent = agentRepo.createAgent({
       name: 'Hazel',
@@ -171,10 +177,13 @@ test('search_long_term_memory recalls episodic memories through entity activatio
       { agentId: agent.id, sessionId: session.id },
     )
 
-    assert.equal(result.isError, undefined)
-    assert.match(result.output, /情景记忆/)
-    assert.match(result.output, /WJJ 在安特卫普旧书店提到过海盐焦糖/)
+    assert.equal(result.isError, false)
+    assert.equal(result.metadata?.noResults, true)
+    assert.doesNotMatch(result.output, /情景记忆/)
+    assert.doesNotMatch(result.output, /WJJ 在安特卫普旧书店提到过海盐焦糖/)
   } finally {
+    globalThis.fetch = originalFetch
+    process.env.OPENROUTER_API_KEY = originalApiKey
     resetDb()
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })

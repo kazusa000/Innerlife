@@ -165,17 +165,7 @@ export const SearchLongTermMemoryTool: Tool = {
         mention,
       })),
     )
-    const directCandidates = mentions.length === 0 && graphQuery
-      ? episodicMemoryGraphRepo.findEntityCandidates({
-        agentId,
-        surface: graphQuery,
-        limit: 10,
-      }).map((candidate) => ({
-        ...candidate,
-        mention: null,
-      }))
-      : []
-    const graphCandidates = mentionCandidates.length > 0 ? mentionCandidates : directCandidates
+    const graphCandidates = mentionCandidates
 
     if (graphCandidates.length > 0) {
       const activation = graphCandidates.length === 1 ? 1 : 0.7
