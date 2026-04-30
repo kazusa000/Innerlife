@@ -90,6 +90,7 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
         assert.match(input.systemPrompt, /canonical_name/)
         assert.match(input.systemPrompt, /confidence/)
         assert.match(input.systemPrompt, /不要返回数组/)
+        assert.match(input.systemPrompt, /merge 且 local surface/)
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({
             resolutions: [

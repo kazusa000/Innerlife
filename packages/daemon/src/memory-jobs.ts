@@ -735,6 +735,7 @@ export async function runEpisodicConsolidationForAgent(input: {
       '不要使用 global_entity_id/name/description/attributes/aliases 等替代字段。',
       '只有 confidence >= 0.75 才允许 merge。',
       '不确定就 create_new。alias_to_add 只允许在 merge 时填写，且必须是同一实体在原文中的稳定叫法。',
+      'merge 且 local surface 不等于候选 canonical_name/既有 alias 时，应把 local surface 作为 alias_to_add；完全相同则填 null。',
       '同场景、同类别、相似词、相关物都不是 alias；例如海盐焦糖和焦糖咖啡不能互为 alias，安特卫普旧书店和东京旧书店不能互为 alias。',
     ].join('\n'),
     messages: [
