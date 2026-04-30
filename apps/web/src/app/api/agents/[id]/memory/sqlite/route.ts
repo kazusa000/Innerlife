@@ -15,7 +15,7 @@ export async function GET(
   return listSqliteMemories(id, url.searchParams.get('q') ?? undefined, {
     page: Number.isFinite(page) ? page : 1,
     pageSize: Number.isFinite(pageSize) ? pageSize : 20,
-    layer: layer === 'short_term' || layer === 'long_term' || layer === 'fixed' ? layer : undefined,
+    layer: layer === 'short_term' || layer === 'fixed' ? layer : undefined,
   })
 }
 

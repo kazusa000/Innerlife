@@ -3,7 +3,16 @@ import test from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { agentRepo, getDb, getMemoryDb, getRawSqlite, memoryRepo, resetDb, resetMemoryDb } from '@mas/db'
+import {
+  agentRepo,
+  episodicMemoryGraphRepo,
+  getDb,
+  getMemoryDb,
+  getRawSqlite,
+  memoryRepo,
+  resetDb,
+  resetMemoryDb,
+} from '@mas/db'
 import { deleteSqliteMemory, updateSqliteMemory } from './[memoryId]/handler'
 import { clearSqliteMemories, listSqliteMemories, updateSqliteMemorySettings } from './handler'
 
@@ -142,7 +151,7 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
   try {
     bootstrapDb(dbPath, memoryDbPath)
 
-    const latest = addMemory({
+    const legacyLongTerm = addMemory({
       agentId: 'agent-1',
       sessionId: 'session-2',
       summary: '用户偏好午夜后编码',
@@ -178,7 +187,10 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     const listResponse = listSqliteMemories('agent-1', undefined, { page: 1, pageSize: 2 })
     const secondPageResponse = listSqliteMemories('agent-1', undefined, { page: 2, pageSize: 2 })
     const summaryResponse = listSqliteMemories('agent-1', 'WJJ')
-    const retrievalResponse = listSqliteMemories('agent-1', 'night coding')
+    const legacyRetrievalResponse = listSqliteMemories('agent-1', 'night coding')
+    const explicitLegacyResponse = listSqliteMemories('agent-1', 'night coding', {
+      layer: 'long_term',
+    } as never)
 
     assert.equal(listResponse.status, 200)
     const listData = await listResponse.clone().json()
@@ -215,15 +227,112 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.equal(listData.sleep.lastSleepAt, null)
     assert.equal(listData.page, 1)
     assert.equal(listData.pageSize, 2)
-    assert.equal(listData.total, 3)
-    assert.deepEqual(listData.memories.map((memory: { id: string }) => memory.id), [latest.id, older.id])
-    assert.equal(listData.memories[0]?.layer, 'long_term')
-    assert.equal(listData.memories[1]?.layer, 'short_term')
-    assert.equal(listData.memories[1]?.observedStartAt, '2026-04-17T08:55:00.000Z')
-    assert.equal(listData.memories[1]?.observedEndAt, '2026-04-17T09:05:00.000Z')
-    assert.deepEqual((await secondPageResponse.json()).memories.map((memory: { id: string }) => memory.id), [oldest.id])
+    assert.deepEqual(listData.legacyLayers, ['short_term', 'fixed'])
+    assert.equal(listData.total, 2)
+    assert.deepEqual(listData.memories.map((memory: { id: string }) => memory.id), [older.id, oldest.id])
+    assert.equal(listData.memories[0]?.layer, 'short_term')
+    assert.equal(listData.memories[0]?.observedStartAt, '2026-04-17T08:55:00.000Z')
+    assert.equal(listData.memories[0]?.observedEndAt, '2026-04-17T09:05:00.000Z')
+    assert.deepEqual((await secondPageResponse.json()).memories.map((memory: { id: string }) => memory.id), [])
     assert.deepEqual((await summaryResponse.json()).memories.map((memory: { id: string }) => memory.id), [older.id])
-    assert.deepEqual((await retrievalResponse.json()).memories.map((memory: { id: string }) => memory.id), [latest.id])
+    assert.deepEqual((await legacyRetrievalResponse.json()).memories.map((memory: { id: string }) => memory.id), [])
+    assert.deepEqual((await explicitLegacyResponse.json()).memories.map((memory: { id: string }) => memory.id), [legacyLongTerm.id])
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('listSqliteMemories returns read-only episodic memories and entity graph data', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const compass = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '黄铜指南针',
+      description: '放在 MAS Lab 白板旁的道具',
+      confidence: 0.92,
+      aliases: [{ alias: '指南针', confidence: 0.88 }],
+      now: new Date('2026-04-24T10:00:00.000Z'),
+    })
+    const lab = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: 'MAS Lab',
+      description: null,
+      confidence: 0.81,
+      aliases: [],
+      now: new Date('2026-04-24T10:02:00.000Z'),
+    })
+    episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-2',
+      type: 'object',
+      canonicalName: '其他 agent 的指南针',
+      description: null,
+      confidence: 0.9,
+      aliases: [],
+      now: new Date('2026-04-24T10:04:00.000Z'),
+    })
+    episodicMemoryGraphRepo.upsertEntityEdge({
+      agentId: 'agent-1',
+      sourceEntityId: compass.id,
+      targetEntityId: lab.id,
+      delta: 0.42,
+      now: new Date('2026-04-24T10:05:00.000Z'),
+    })
+    const episodic = episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '黄铜指南针被放在 MAS Lab 白板旁。',
+      sourceText: '用户说黄铜指南针在 MAS Lab 白板旁。',
+      sourceQuote: '黄铜指南针在 MAS Lab 白板旁',
+      retrievalText: '黄铜指南针 MAS Lab 白板旁',
+      retrievalEmbedding: [1, 0, 0],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      importance: 0.86,
+      observedStartAt: new Date('2026-04-24T09:55:00.000Z'),
+      observedEndAt: new Date('2026-04-24T10:00:00.000Z'),
+      entityLinks: [
+        { entityId: compass.id, weight: 0.9 },
+        { entityId: lab.id, weight: 0.7 },
+      ],
+      now: new Date('2026-04-24T10:06:00.000Z'),
+    })
+
+    const response = listSqliteMemories('agent-1')
+    const data = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.deepEqual(data.legacyLayers, ['short_term', 'fixed'])
+    assert.equal('activations' in data, false)
+    assert.equal('memory_entity_activations' in data, false)
+    assert.equal(data.episodic.total, 1)
+    assert.equal(data.episodic.memories[0].id, episodic.id)
+    assert.equal(data.episodic.memories[0].summary, '黄铜指南针被放在 MAS Lab 白板旁。')
+    assert.equal(data.episodic.memories[0].retrievalModel, 'qwen/qwen3-embedding-8b')
+    assert.equal(data.episodic.memories[0].hasEmbedding, true)
+    assert.equal(data.episodic.memories[0].embeddingDimensions, 3)
+    assert.deepEqual(
+      data.episodic.memories[0].entities.map((entity: { canonicalName: string; weight: number }) => [entity.canonicalName, entity.weight]),
+      [['黄铜指南针', 0.9], ['MAS Lab', 0.7]],
+    )
+    assert.equal(data.entities.total, 2)
+    assert.deepEqual(
+      data.entities.nodes.map((entity: { canonicalName: string }) => entity.canonicalName).sort(),
+      ['MAS Lab', '黄铜指南针'],
+    )
+    assert.deepEqual(data.entities.nodes.find((entity: { id: string }) => entity.id === compass.id).aliases, ['指南针'])
+    assert.equal(data.entities.nodes.find((entity: { id: string }) => entity.id === compass.id).episodicMemoryCount, 1)
+    assert.equal(data.entities.edges.length, 1)
+    assert.equal(data.entities.edges[0].sourceEntityId, compass.id < lab.id ? compass.id : lab.id)
+    assert.equal(data.entities.edges[0].targetEntityId, compass.id < lab.id ? lab.id : compass.id)
+    assert.equal(data.entities.edges[0].weight, 0.42)
   } finally {
     resetDb()
     resetMemoryDb()

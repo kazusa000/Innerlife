@@ -31,6 +31,31 @@ export interface EpisodicMemoryRecord {
   createdAt: Date
 }
 
+export interface EpisodicMemoryEntityLinkRecord {
+  entity: MemoryEntityRecord
+  weight: number
+}
+
+export interface EpisodicMemoryWithEntitiesRecord extends EpisodicMemoryRecord {
+  entities: EpisodicMemoryEntityLinkRecord[]
+}
+
+export interface MemoryEntityWithStatsRecord extends MemoryEntityRecord {
+  aliases: string[]
+  episodicMemoryCount: number
+}
+
+export interface MemoryEntityEdgeRecord {
+  agentId: string
+  sourceEntityId: string
+  sourceCanonicalName: string
+  targetEntityId: string
+  targetCanonicalName: string
+  weight: number
+  coOccurrenceCount: number
+  lastSeenAt: Date
+}
+
 type EntityRow = {
   id: string
   agent_id: string
@@ -56,6 +81,33 @@ type EpisodicMemoryRow = {
   observed_start_at: number | null
   observed_end_at: number | null
   created_at: number
+}
+
+type AliasRow = {
+  entity_id: string
+  alias: string
+}
+
+type EpisodicLinkRow = {
+  memory_id: string
+  entity_id: string
+  weight: number
+}
+
+type EntityCountRow = {
+  entity_id: string
+  count: number
+}
+
+type EntityEdgeRow = {
+  agent_id: string
+  source_entity_id: string
+  source_canonical_name: string
+  target_entity_id: string
+  target_canonical_name: string
+  weight: number
+  co_occurrence_count: number
+  last_seen_at: number
 }
 
 function normalizeType(type: string): EntityType {
@@ -435,6 +487,157 @@ export function getEpisodicMemory(memoryId: string) {
   `).get(memoryId) as EpisodicMemoryRow | undefined
 
   return row ? mapEpisodicMemory(row) : undefined
+}
+
+export function listEpisodicMemoriesByAgent(input: {
+  agentId: string
+  limit?: number
+}): EpisodicMemoryWithEntitiesRecord[] {
+  const limit = Math.max(1, Math.min(100, Math.floor(input.limit ?? 50)))
+  const sqlite = getMemoryRawSqlite()
+  const rows = sqlite.prepare(`
+    SELECT
+      id,
+      agent_id,
+      session_id,
+      summary,
+      source_text,
+      source_quote,
+      retrieval_text,
+      retrieval_embedding,
+      retrieval_model,
+      importance,
+      observed_start_at,
+      observed_end_at,
+      created_at
+    FROM episodic_memories
+    WHERE agent_id = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(input.agentId, limit) as EpisodicMemoryRow[]
+
+  const memories = rows.map(mapEpisodicMemory)
+  if (memories.length === 0) {
+    return []
+  }
+
+  const memoryIds = memories.map((memory) => memory.id)
+  const placeholders = memoryIds.map(() => '?').join(', ')
+  const links = sqlite.prepare(`
+    SELECT memory_id, entity_id, weight
+    FROM episodic_memory_entities
+    WHERE memory_id IN (${placeholders})
+  `).all(...memoryIds) as EpisodicLinkRow[]
+
+  const entityIds = [...new Set(links.map((link) => link.entity_id))]
+  const entities = new Map<string, MemoryEntityRecord>()
+  for (const entityId of entityIds) {
+    const entity = getEntity(entityId)
+    if (entity) {
+      entities.set(entityId, entity)
+    }
+  }
+
+  const linksByMemory = new Map<string, EpisodicMemoryEntityLinkRecord[]>()
+  for (const link of links) {
+    const entity = entities.get(link.entity_id)
+    if (!entity) {
+      continue
+    }
+    const list = linksByMemory.get(link.memory_id) ?? []
+    list.push({ entity, weight: clip01(link.weight) })
+    linksByMemory.set(link.memory_id, list)
+  }
+
+  return memories.map((memory) => ({
+    ...memory,
+    entities: (linksByMemory.get(memory.id) ?? [])
+      .sort((left, right) => right.weight - left.weight || left.entity.canonicalName.localeCompare(right.entity.canonicalName)),
+  }))
+}
+
+export function listMemoryEntitiesByAgent(agentId: string): MemoryEntityWithStatsRecord[] {
+  const sqlite = getMemoryRawSqlite()
+  const entities = (sqlite.prepare(`
+    SELECT
+      id,
+      agent_id,
+      type,
+      canonical_name,
+      description,
+      confidence,
+      created_at,
+      last_seen_at
+    FROM memory_entities
+    WHERE agent_id = ?
+    ORDER BY COALESCE(last_seen_at, created_at) DESC, canonical_name ASC
+  `).all(agentId) as EntityRow[]).map(mapEntity)
+
+  if (entities.length === 0) {
+    return []
+  }
+
+  const entityIds = entities.map((entity) => entity.id)
+  const placeholders = entityIds.map(() => '?').join(', ')
+  const aliases = sqlite.prepare(`
+    SELECT entity_id, alias
+    FROM memory_entity_aliases
+    WHERE entity_id IN (${placeholders})
+    ORDER BY alias ASC
+  `).all(...entityIds) as AliasRow[]
+  const counts = sqlite.prepare(`
+    SELECT l.entity_id, COUNT(DISTINCT l.memory_id) AS count
+    FROM episodic_memory_entities l
+    JOIN episodic_memories m ON m.id = l.memory_id
+    WHERE m.agent_id = ?
+      AND l.entity_id IN (${placeholders})
+    GROUP BY l.entity_id
+  `).all(agentId, ...entityIds) as EntityCountRow[]
+
+  const aliasesByEntity = new Map<string, string[]>()
+  for (const row of aliases) {
+    const list = aliasesByEntity.get(row.entity_id) ?? []
+    list.push(row.alias)
+    aliasesByEntity.set(row.entity_id, list)
+  }
+
+  const countsByEntity = new Map(counts.map((row) => [row.entity_id, row.count]))
+
+  return entities.map((entity) => ({
+    ...entity,
+    aliases: aliasesByEntity.get(entity.id) ?? [],
+    episodicMemoryCount: countsByEntity.get(entity.id) ?? 0,
+  }))
+}
+
+export function listMemoryEntityEdgesByAgent(agentId: string): MemoryEntityEdgeRecord[] {
+  const rows = getMemoryRawSqlite().prepare(`
+    SELECT
+      edge.agent_id,
+      edge.source_entity_id,
+      source.canonical_name AS source_canonical_name,
+      edge.target_entity_id,
+      target.canonical_name AS target_canonical_name,
+      edge.weight,
+      edge.co_occurrence_count,
+      edge.last_seen_at
+    FROM memory_entity_edges edge
+    JOIN memory_entities source ON source.id = edge.source_entity_id
+    JOIN memory_entities target ON target.id = edge.target_entity_id
+    WHERE edge.agent_id = ?
+    ORDER BY edge.weight DESC, edge.co_occurrence_count DESC, edge.last_seen_at DESC
+  `).all(agentId) as EntityEdgeRow[]
+
+  return rows.map((row) => ({
+    agentId: row.agent_id,
+    sourceEntityId: row.source_entity_id,
+    sourceCanonicalName: row.source_canonical_name,
+    targetEntityId: row.target_entity_id,
+    targetCanonicalName: row.target_canonical_name,
+    weight: clip01(row.weight),
+    coOccurrenceCount: row.co_occurrence_count,
+    lastSeenAt: new Date(row.last_seen_at),
+  }))
 }
 
 export function findRelevantEpisodicMemories(input: {

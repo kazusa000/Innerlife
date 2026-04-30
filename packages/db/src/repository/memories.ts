@@ -208,6 +208,7 @@ export function listSqliteMemoriesPageByAgent(input: {
   agentId: string
   query?: string
   layer?: MemoryLayer | null
+  layers?: MemoryLayer[]
   page: number
   pageSize: number
 }) {
@@ -215,6 +216,11 @@ export function listSqliteMemoriesPageByAgent(input: {
   const normalizedPageSize = Math.max(1, Math.min(100, Math.floor(input.pageSize)))
   const normalizedQuery = input.query?.trim().toLowerCase()
   const normalizedLayer = input.layer ? normalizeLayer(input.layer) : null
+  const normalizedLayers = normalizedLayer
+    ? []
+    : (input.layers ?? [])
+      .map(normalizeLayer)
+      .filter((layer, index, layers) => layers.indexOf(layer) === index)
   const sqlite = getMemoryRawSqlite()
   const offset = (normalizedPage - 1) * normalizedPageSize
 
@@ -224,6 +230,9 @@ export function listSqliteMemoriesPageByAgent(input: {
     if (normalizedLayer) {
       conditions.push('layer = ?')
       values.push(normalizedLayer)
+    } else if (normalizedLayers.length > 0) {
+      conditions.push(`layer IN (${normalizedLayers.map(() => '?').join(', ')})`)
+      values.push(...normalizedLayers)
     }
     const totalRow = sqlite.prepare(`
       SELECT COUNT(*) as total
@@ -250,6 +259,9 @@ export function listSqliteMemoriesPageByAgent(input: {
   if (normalizedLayer) {
     conditions.push('layer = ?')
     values.push(normalizedLayer)
+  } else if (normalizedLayers.length > 0) {
+    conditions.push(`layer IN (${normalizedLayers.map(() => '?').join(', ')})`)
+    values.push(...normalizedLayers)
   }
   conditions.push(`(
     lower(display_summary) LIKE ?

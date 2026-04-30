@@ -29,6 +29,64 @@ interface SqliteMemory {
   createdAt: string
 }
 
+type ManagedSqliteLayer = 'short_term' | 'fixed'
+
+interface EpisodicEntityLink {
+  id: string
+  type: string
+  canonicalName: string
+  weight: number
+}
+
+interface EpisodicMemory {
+  id: string
+  sessionId: string
+  summary: string
+  sourceQuote: string | null
+  retrievalText: string
+  retrievalModel: string
+  hasEmbedding: boolean
+  embeddingDimensions: number
+  importance: number
+  observedStartAt: string | null
+  observedEndAt: string | null
+  createdAt: string
+  entities: EpisodicEntityLink[]
+}
+
+interface EntityNode {
+  id: string
+  type: string
+  canonicalName: string
+  description: string | null
+  confidence: number
+  aliases: string[]
+  episodicMemoryCount: number
+  createdAt: string
+  lastSeenAt: string | null
+}
+
+interface EntityEdge {
+  sourceEntityId: string
+  sourceCanonicalName: string
+  targetEntityId: string
+  targetCanonicalName: string
+  weight: number
+  coOccurrenceCount: number
+  lastSeenAt: string
+}
+
+interface EpisodicSummary {
+  total: number
+  memories: EpisodicMemory[]
+}
+
+interface EntityGraphSummary {
+  total: number
+  nodes: EntityNode[]
+  edges: EntityEdge[]
+}
+
 interface MemorySettings {
   summarizeModel: string
   embeddingModel: string
@@ -88,6 +146,7 @@ interface SleepSummary {
 interface MemoryListResponse {
   memories: SqliteMemory[]
   layer: 'short_term' | 'long_term' | 'fixed' | null
+  legacyLayers?: string[]
   page: number
   pageSize: number
   total: number
@@ -124,12 +183,25 @@ interface MemoryListResponse {
   semanticAnalyzerPromptEffective: string
   context: ContextSummary
   sleep: SleepSummary
+  episodic?: EpisodicSummary
+  entities?: EntityGraphSummary
 }
 
 const MEMORY_LAYER_LABELS: Record<SqliteMemory['layer'], string> = {
   short_term: '短期记忆',
-  long_term: '长期记忆',
+  long_term: '旧长期层',
   fixed: '固化记忆',
+}
+
+const EMPTY_EPISODIC_SUMMARY: EpisodicSummary = {
+  total: 0,
+  memories: [],
+}
+
+const EMPTY_ENTITY_GRAPH_SUMMARY: EntityGraphSummary = {
+  total: 0,
+  nodes: [],
+  edges: [],
 }
 
 function readErrorMessage(value: unknown, fallback: string) {
@@ -226,12 +298,39 @@ function formatOptionalDate(value: string | null | undefined) {
   return DATE_FORMATTER.format(new Date(value))
 }
 
+function formatObservedRange(start: string | null | undefined, end: string | null | undefined) {
+  if (!start || !end) {
+    return '时间未知'
+  }
+
+  return `${formatDateTime(start)} - ${formatDateTime(end)}`
+}
+
+function formatEntityType(type: string) {
+  switch (type) {
+    case 'person':
+      return '人物'
+    case 'place':
+      return '地点'
+    case 'object':
+      return '物品'
+    case 'project':
+      return '项目'
+    case 'event':
+      return '事件'
+    default:
+      return '未知'
+  }
+}
+
 export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
-  const [layerFilter, setLayerFilter] = useState<'all' | SqliteMemory['layer']>('all')
+  const [layerFilter, setLayerFilter] = useState<'all' | ManagedSqliteLayer>('all')
   const [page, setPage] = useState(1)
   const [memories, setMemories] = useState<SqliteMemory[]>([])
+  const [episodicSummary, setEpisodicSummary] = useState<EpisodicSummary>(EMPTY_EPISODIC_SUMMARY)
+  const [entityGraphSummary, setEntityGraphSummary] = useState<EntityGraphSummary>(EMPTY_ENTITY_GRAPH_SUMMARY)
   const [total, setTotal] = useState(0)
   const [savedSettings, setSavedSettings] = useState<MemorySettings>(() => normalizeSettings({}))
   const [draftSettings, setDraftSettings] = useState<MemorySettings>(() => normalizeSettings({}))
@@ -255,7 +354,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     memoryCount: total,
   })
 
-  async function refresh(search = deferredQuery, nextPage = page, nextLayer = layerFilter) {
+  async function refresh(search = deferredQuery, nextPage = page, nextLayer: 'all' | ManagedSqliteLayer = layerFilter) {
     setLoading(true)
     setError(null)
 
@@ -286,6 +385,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         ...effectivePrompts,
       }
       setMemories(Array.isArray(payload.memories) ? payload.memories : [])
+      setEpisodicSummary(payload.episodic ?? EMPTY_EPISODIC_SUMMARY)
+      setEntityGraphSummary(payload.entities ?? EMPTY_ENTITY_GRAPH_SUMMARY)
       setTotal(typeof payload.total === 'number' ? payload.total : 0)
       setPage(typeof payload.page === 'number' ? payload.page : nextPage)
       setSavedSettings(settings)
@@ -337,7 +438,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   }
 
   async function handleClearAllMemories() {
-    if (!window.confirm('要清空当前 persona 的全部 sqlite 记忆吗？这会删除短期记忆、长期记忆和固化记忆，但不会清除聊天上下文或其他 persona 的记忆。')) {
+    if (!window.confirm('要清空当前 persona 的全部 sqlite 记忆吗？这会删除短期记忆、旧长期层和固化记忆，但不会清除聊天上下文、情景记忆或其他 persona 的记忆。')) {
       return
     }
 
@@ -368,7 +469,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     }
   }
 
-  async function handleLayerChange(memoryId: string, layer: SqliteMemory['layer']) {
+  async function handleLayerChange(memoryId: string, layer: ManagedSqliteLayer) {
     setError(null)
     setNotice(null)
 
@@ -427,7 +528,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
 
   async function handleSleep() {
     setError(null)
-    setNotice('正在执行睡眠沉淀，把短期记忆整理进长期记忆…')
+    setNotice('正在执行睡眠沉淀，把短期记忆整理进情景记忆…')
     setIsSleeping(true)
 
     try {
@@ -444,7 +545,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         setNotice(`当前无需执行睡眠沉淀：${result?.reason ?? 'not_sleep_time'}。`)
       } else {
         setNotice(
-          `睡眠完成：沉淀出 ${result.createdCount ?? 0} 条长期记忆，消费 ${result.deletedShortTermCount ?? 0} 条短期记忆。`,
+          `睡眠完成：沉淀出 ${result.createdCount ?? 0} 条情景记忆，消费 ${result.deletedShortTermCount ?? 0} 条短期记忆。`,
         )
       }
       startTransition(() => {
@@ -652,12 +753,12 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             <div className={styles.panelHead}>
               <div>
                 <p className={styles.panelLabel}>语义分析</p>
-                <h4 className={styles.panelTitle}>Semantic / Long-term</h4>
+                <h4 className={styles.panelTitle}>Semantic / Episodic</h4>
               </div>
               <span className={styles.panelPill}>补全 · 深搜默认值</span>
             </div>
             <p className={styles.panelCopy}>
-              这里控制 semantic analyser 看多少历史，以及长期记忆 tool 未显式传参时的默认载入条数。
+              这里控制 semantic analyser 看多少历史，以及情景记忆 tool 未显式传参时的默认载入条数。
             </p>
             <div className={styles.fieldGrid}>
               <label className={styles.field}>
@@ -671,7 +772,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 />
               </label>
               <label className={styles.field}>
-                <span className={styles.fieldLabel}>Long-term Default TopK</span>
+                <span className={styles.fieldLabel}>Episodic Tool Default TopK</span>
                 <input
                   className={styles.input}
                   type="number"
@@ -788,10 +889,10 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               <p className={styles.panelLabel}>运行节奏</p>
               <h4 className={styles.panelTitle}>Sleep</h4>
             </div>
-            <span className={styles.panelPill}>短期沉淀 · 长期记忆</span>
+            <span className={styles.panelPill}>短期沉淀 · 情景记忆</span>
           </div>
           <p className={styles.panelCopy}>
-            固定每天一次“睡觉”，把短期记忆沉淀成长期记忆。第一版先使用固定本地时间和固定间隔天数，后续再做更复杂的睡眠规则。
+            固定每天一次“睡觉”，把短期记忆沉淀成情景记忆和实体图。第一版先使用固定本地时间和固定间隔天数，后续再做更复杂的睡眠规则。
           </p>
           <div className={styles.fieldGrid}>
             <label className={styles.field}>
@@ -868,6 +969,149 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         </div>
 
         <section className={`${styles.panel} ${styles.sectionPanel}`}>
+          <div className={styles.panelHead}>
+            <div>
+              <p className={styles.tableLabel}>情景记忆</p>
+              <h4 className={styles.panelTitle}>Episodic Memories</h4>
+            </div>
+            <span className={styles.panelPill}>{episodicSummary.total} 条</span>
+          </div>
+          <p className={styles.panelCopy}>
+            这里展示 STM 后台沉淀出的情景记忆、检索文本、embedding 状态，以及它们绑定到哪些实体节点。此视图只读，不在聊天时建立 alias 或手动合并实体。
+          </p>
+
+          {episodicSummary.memories.length === 0 ? (
+            <div className={styles.emptyState}>
+              <h3>还没有情景记忆</h3>
+              <p className={styles.emptyCopy}>先让 daemon 把短期记忆沉淀到 episodic memory，再回到这里查看实体绑定。</p>
+            </div>
+          ) : (
+            <div className={styles.tableWrap}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>摘要</th>
+                    <th>实体</th>
+                    <th>检索</th>
+                    <th>时间</th>
+                    <th>重要性</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {episodicSummary.memories.map((memory) => (
+                    <tr key={memory.id}>
+                      <td>
+                        <span className={styles.tablePrimary}>{memory.summary}</span>
+                        <span className={styles.tableSecondary}>
+                          {memory.sourceQuote ? `原句：${memory.sourceQuote}` : memory.id}
+                        </span>
+                      </td>
+                      <td>
+                        <div className={styles.chips}>
+                          {memory.entities.length === 0 ? (
+                            <span className={styles.statusText}>无绑定实体</span>
+                          ) : memory.entities.map((entity) => (
+                            <span key={`${memory.id}-${entity.id}`} className={styles.chip}>
+                              {entity.canonicalName} · {formatEntityType(entity.type)} · {entity.weight.toFixed(2)}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={styles.tableSecondary}>{memory.retrievalText}</span>
+                        <br />
+                        <span className={styles.mono}>
+                          {memory.hasEmbedding ? `${memory.retrievalModel || 'unknown'} · ${memory.embeddingDimensions}d` : '未写入 embedding'}
+                        </span>
+                      </td>
+                      <td className={styles.statusText}>{formatObservedRange(memory.observedStartAt, memory.observedEndAt)}</td>
+                      <td className={styles.mono}>{memory.importance.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className={styles.sectionPanel}>
+          <div className={styles.panelHead}>
+            <div>
+              <p className={styles.tableLabel}>实体图</p>
+              <h4 className={styles.panelTitle}>Entity Graph</h4>
+            </div>
+            <span className={styles.panelPill}>
+              {entityGraphSummary.total} 节点 · {entityGraphSummary.edges.length} 边
+            </span>
+          </div>
+          <p className={styles.panelCopy}>
+            实体节点、alias 和无类型权重边都由后台 merge/consolidation 维护。管理页只用于检查当前图谱形状，不提供手动点亮或持久 activation。
+          </p>
+
+          <div className={styles.controlGrid}>
+            <section className={`${styles.panel} ${styles.sectionPanel}`}>
+              <div className={styles.panelHead}>
+                <div>
+                  <p className={styles.panelLabel}>Nodes</p>
+                  <h4 className={styles.panelTitle}>实体节点</h4>
+                </div>
+              </div>
+              {entityGraphSummary.nodes.length === 0 ? (
+                <p className={styles.statusText}>还没有实体节点。</p>
+              ) : (
+                <div className={styles.historyList}>
+                  {entityGraphSummary.nodes.map((entity) => (
+                    <article key={entity.id} className={styles.historyItem}>
+                      <div className={styles.historyHead}>
+                        <strong>{entity.canonicalName}</strong>
+                        <span className={styles.statusText}>
+                          {formatEntityType(entity.type)} · {entity.confidence.toFixed(2)} · {entity.episodicMemoryCount} 情景
+                        </span>
+                      </div>
+                      {entity.description && <p className={styles.historyCopy}>{entity.description}</p>}
+                      <div className={styles.chips}>
+                        {entity.aliases.length === 0 ? (
+                          <span className={styles.statusText}>无 alias</span>
+                        ) : entity.aliases.map((alias) => (
+                          <span key={`${entity.id}-${alias}`} className={styles.chip}>{alias}</span>
+                        ))}
+                      </div>
+                      <span className={styles.mono}>lastSeen {formatOptionalDate(entity.lastSeenAt)}</span>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className={`${styles.panel} ${styles.sectionPanel}`}>
+              <div className={styles.panelHead}>
+                <div>
+                  <p className={styles.panelLabel}>Edges</p>
+                  <h4 className={styles.panelTitle}>无类型权重边</h4>
+                </div>
+              </div>
+              {entityGraphSummary.edges.length === 0 ? (
+                <p className={styles.statusText}>还没有实体边。</p>
+              ) : (
+                <div className={styles.historyList}>
+                  {entityGraphSummary.edges.map((edge) => (
+                    <article key={`${edge.sourceEntityId}-${edge.targetEntityId}`} className={styles.historyItem}>
+                      <div className={styles.historyHead}>
+                        <strong>{edge.sourceCanonicalName} ↔ {edge.targetCanonicalName}</strong>
+                        <span className={styles.statusText}>
+                          权重 {edge.weight.toFixed(2)} · 共现 {edge.coOccurrenceCount}
+                        </span>
+                      </div>
+                      <span className={styles.mono}>lastSeen {formatDateTime(edge.lastSeenAt)}</span>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </section>
+
+        <section className={`${styles.panel} ${styles.sectionPanel}`}>
         <div className={styles.panelHead}>
           <div>
             <p className={styles.tableLabel}>记忆表</p>
@@ -898,13 +1142,12 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               className={styles.searchInput}
               value={layerFilter}
               onChange={(event) => {
-                setLayerFilter(event.target.value as 'all' | SqliteMemory['layer'])
+                setLayerFilter(event.target.value as 'all' | ManagedSqliteLayer)
                 setPage(1)
               }}
             >
               <option value="all">全部层级</option>
               <option value="short_term">短期记忆</option>
-              <option value="long_term">长期记忆</option>
               <option value="fixed">固化记忆</option>
             </select>
           </label>
@@ -1000,15 +1243,18 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                                   <div>
                                     <dt>层级</dt>
                                     <dd>
-                                      <select
-                                        className={styles.input}
-                                        value={memory.layer}
-                                        onChange={(event) => void handleLayerChange(memory.id, event.target.value as SqliteMemory['layer'])}
-                                      >
-                                        <option value="short_term">短期记忆</option>
-                                        <option value="long_term">长期记忆</option>
-                                        <option value="fixed">固化记忆</option>
-                                      </select>
+                                      {memory.layer === 'long_term' ? (
+                                        <span className={styles.statusText}>旧长期层</span>
+                                      ) : (
+                                        <select
+                                          className={styles.input}
+                                          value={memory.layer}
+                                          onChange={(event) => void handleLayerChange(memory.id, event.target.value as ManagedSqliteLayer)}
+                                        >
+                                          <option value="short_term">短期记忆</option>
+                                          <option value="fixed">固化记忆</option>
+                                        </select>
+                                      )}
                                     </dd>
                                   </div>
                                 </dl>
@@ -1071,8 +1317,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               },
               {
                 key: 'shortTermToLongTermPrompt',
-                label: 'STM → LTM Prompt',
-                helper: '睡眠时把短期记忆沉淀成长久记忆的 prompt。这里控制如何提炼长期记忆，而不是检索逻辑。',
+                label: 'STM → Episodic Prompt',
+                helper: '睡眠时把短期记忆沉淀成情景记忆的 prompt。这里控制如何提炼情景记忆和实体绑定，而不是检索逻辑。',
                 value: draftSettings.shortTermToLongTermPrompt,
                 placeholder: '清空后保存会回退系统默认的 short-term → long-term prompt。',
                 rows: 7,

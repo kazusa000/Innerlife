@@ -1,6 +1,7 @@
 import {
   agentMemorySleepStateRepo,
   agentRepo,
+  episodicMemoryGraphRepo,
   memoryRepo,
   messageRepo,
   sessionContextStateRepo,
@@ -85,6 +86,68 @@ function selectActiveDbMessages(
   return startIndex >= 0 ? dbMessages.slice(startIndex) : dbMessages
 }
 
+function serializeDate(value: Date | null | undefined) {
+  return value ? value.toISOString() : null
+}
+
+function buildEpisodicMemoryConsolePayload(agentId: string) {
+  const episodicMemories = episodicMemoryGraphRepo.listEpisodicMemoriesByAgent({
+    agentId,
+    limit: 50,
+  })
+  const entities = episodicMemoryGraphRepo.listMemoryEntitiesByAgent(agentId)
+  const edges = episodicMemoryGraphRepo.listMemoryEntityEdgesByAgent(agentId)
+
+  return {
+    episodic: {
+      total: episodicMemories.length,
+      memories: episodicMemories.map((memory) => ({
+        id: memory.id,
+        sessionId: memory.sessionId,
+        summary: memory.summary,
+        sourceQuote: memory.sourceQuote,
+        retrievalText: memory.retrievalText,
+        retrievalModel: memory.retrievalModel,
+        hasEmbedding: memory.retrievalEmbedding.length > 0,
+        embeddingDimensions: memory.retrievalEmbedding.length,
+        importance: memory.importance,
+        observedStartAt: serializeDate(memory.observedStartAt),
+        observedEndAt: serializeDate(memory.observedEndAt),
+        createdAt: memory.createdAt.toISOString(),
+        entities: memory.entities.map((link) => ({
+          id: link.entity.id,
+          type: link.entity.type,
+          canonicalName: link.entity.canonicalName,
+          weight: link.weight,
+        })),
+      })),
+    },
+    entities: {
+      total: entities.length,
+      nodes: entities.map((entity) => ({
+        id: entity.id,
+        type: entity.type,
+        canonicalName: entity.canonicalName,
+        description: entity.description,
+        confidence: entity.confidence,
+        aliases: entity.aliases,
+        episodicMemoryCount: entity.episodicMemoryCount,
+        createdAt: entity.createdAt.toISOString(),
+        lastSeenAt: serializeDate(entity.lastSeenAt),
+      })),
+      edges: edges.map((edge) => ({
+        sourceEntityId: edge.sourceEntityId,
+        sourceCanonicalName: edge.sourceCanonicalName,
+        targetEntityId: edge.targetEntityId,
+        targetCanonicalName: edge.targetCanonicalName,
+        weight: edge.weight,
+        coOccurrenceCount: edge.coOccurrenceCount,
+        lastSeenAt: edge.lastSeenAt.toISOString(),
+      })),
+    },
+  }
+}
+
 export function listSqliteMemories(agentId: string, query?: string, options: MemoryListOptions = {}) {
   const agent = agentRepo.getAgent(agentId)
   if (!agent) {
@@ -103,6 +166,7 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     agentId,
     query,
     layer: options.layer,
+    layers: options.layer ? undefined : ['short_term', 'fixed'],
     page,
     pageSize,
   })
@@ -123,6 +187,7 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
   return Response.json({
     agentId,
     scheme: 'sqlite',
+    legacyLayers: ['short_term', 'fixed'],
     query: query?.trim() ?? '',
     layer: options.layer ?? null,
     page: result.page,
@@ -182,6 +247,7 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     sleep: {
       lastSleepAt: sleepState?.lastSleepAt?.toISOString() ?? null,
     },
+    ...buildEpisodicMemoryConsolePayload(agentId),
     memories: result.memories.map((memory) => ({
       id: memory.id,
       sessionId: memory.sessionId,
