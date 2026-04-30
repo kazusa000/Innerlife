@@ -22,6 +22,9 @@ export interface EpisodicMemoryRecord {
   summary: string
   sourceText: string
   sourceQuote: string | null
+  retrievalText: string
+  retrievalEmbedding: number[]
+  retrievalModel: string
   importance: number
   observedStartAt: Date | null
   observedEndAt: Date | null
@@ -46,6 +49,9 @@ type EpisodicMemoryRow = {
   summary: string
   source_text: string
   source_quote: string | null
+  retrieval_text: string
+  retrieval_embedding: string
+  retrieval_model: string
   importance: number
   observed_start_at: number | null
   observed_end_at: number | null
@@ -60,6 +66,17 @@ function normalizeType(type: string): EntityType {
 
 function normalizeText(value: string) {
   return value.trim()
+}
+
+function parseEmbedding(embedding: string): number[] {
+  try {
+    const parsed = JSON.parse(embedding) as unknown
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+      : []
+  } catch {
+    return []
+  }
 }
 
 function normalizeMatchText(value: string) {
@@ -124,6 +141,9 @@ function mapEpisodicMemory(row: EpisodicMemoryRow): EpisodicMemoryRecord {
     summary: row.summary,
     sourceText: row.source_text,
     sourceQuote: row.source_quote,
+    retrievalText: row.retrieval_text,
+    retrievalEmbedding: parseEmbedding(row.retrieval_embedding),
+    retrievalModel: row.retrieval_model,
     importance: row.importance,
     observedStartAt: typeof row.observed_start_at === 'number' ? new Date(row.observed_start_at) : null,
     observedEndAt: typeof row.observed_end_at === 'number' ? new Date(row.observed_end_at) : null,
@@ -332,6 +352,9 @@ export function createEpisodicMemory(input: {
   summary: string
   sourceText: string
   sourceQuote?: string | null
+  retrievalText?: string | null
+  retrievalEmbedding?: number[]
+  retrievalModel?: string | null
   importance: number
   observedStartAt?: Date | null
   observedEndAt?: Date | null
@@ -350,11 +373,14 @@ export function createEpisodicMemory(input: {
       summary,
       source_text,
       source_quote,
+      retrieval_text,
+      retrieval_embedding,
+      retrieval_model,
       importance,
       observed_start_at,
       observed_end_at,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     input.agentId,
@@ -362,6 +388,9 @@ export function createEpisodicMemory(input: {
     normalizeText(input.summary),
     input.sourceText,
     input.sourceQuote?.trim() || null,
+    input.retrievalText?.trim() || normalizeText(input.summary),
+    JSON.stringify(input.retrievalEmbedding?.filter((value) => typeof value === 'number' && Number.isFinite(value)) ?? []),
+    input.retrievalModel?.trim() || '',
     clip01(input.importance),
     input.observedStartAt?.getTime() ?? null,
     input.observedEndAt?.getTime() ?? null,
@@ -394,6 +423,9 @@ export function getEpisodicMemory(memoryId: string) {
       summary,
       source_text,
       source_quote,
+      retrieval_text,
+      retrieval_embedding,
+      retrieval_model,
       importance,
       observed_start_at,
       observed_end_at,
@@ -403,6 +435,102 @@ export function getEpisodicMemory(memoryId: string) {
   `).get(memoryId) as EpisodicMemoryRow | undefined
 
   return row ? mapEpisodicMemory(row) : undefined
+}
+
+export function findRelevantEpisodicMemories(input: {
+  agentId: string
+  queryEmbeddings: number[][]
+  queryWeights?: number[]
+  topK: number
+  minSimilarity?: number
+}) {
+  const weightedQueries = input.queryEmbeddings
+    .map((embedding, index) => ({
+      embedding,
+      weight: input.queryWeights?.[index] ?? 1,
+    }))
+    .filter((item): item is { embedding: number[]; weight: number } =>
+      Array.isArray(item.embedding) && item.embedding.length > 0,
+    )
+    .map(({ embedding, weight }) => ({
+      embedding: embedding.filter((value): value is number => typeof value === 'number' && Number.isFinite(value)),
+      weight: typeof weight === 'number' && Number.isFinite(weight) && weight > 0 ? weight : 1,
+    }))
+    .filter(({ embedding }) => embedding.length > 0)
+
+  if (weightedQueries.length === 0) {
+    return []
+  }
+
+  const rows = getMemoryRawSqlite().prepare(`
+    SELECT
+      id,
+      agent_id,
+      session_id,
+      summary,
+      source_text,
+      source_quote,
+      retrieval_text,
+      retrieval_embedding,
+      retrieval_model,
+      importance,
+      observed_start_at,
+      observed_end_at,
+      created_at
+    FROM episodic_memories
+    WHERE agent_id = ?
+  `).all(input.agentId) as EpisodicMemoryRow[]
+
+  const minSimilarity = typeof input.minSimilarity === 'number' && Number.isFinite(input.minSimilarity)
+    ? Math.min(1, Math.max(0, input.minSimilarity))
+    : 0.6
+  const totalWeight = weightedQueries.reduce((sum, query) => sum + query.weight, 0)
+
+  return rows
+    .map((row) => {
+      const memory = mapEpisodicMemory(row)
+      const similarity = totalWeight > 0
+        ? weightedQueries.reduce(
+          (sum, query) => sum + cosineSimilarity(query.embedding, memory.retrievalEmbedding) * query.weight,
+          0,
+        ) / totalWeight
+        : Math.max(...weightedQueries.map((query) => cosineSimilarity(query.embedding, memory.retrievalEmbedding)))
+      return { memory, similarity }
+    })
+    .filter((hit) => hit.similarity >= minSimilarity)
+    .sort((left, right) => {
+      if (right.similarity !== left.similarity) {
+        return right.similarity - left.similarity
+      }
+      if (right.memory.importance !== left.memory.importance) {
+        return right.memory.importance - left.memory.importance
+      }
+      return right.memory.createdAt.getTime() - left.memory.createdAt.getTime()
+    })
+    .slice(0, Math.max(1, input.topK))
+}
+
+function cosineSimilarity(left: number[], right: number[]): number {
+  if (left.length === 0 || right.length === 0 || left.length !== right.length) {
+    return 0
+  }
+
+  let dot = 0
+  let leftNorm = 0
+  let rightNorm = 0
+  for (let index = 0; index < left.length; index += 1) {
+    const leftValue = left[index]!
+    const rightValue = right[index]!
+    dot += leftValue * rightValue
+    leftNorm += leftValue * leftValue
+    rightNorm += rightValue * rightValue
+  }
+
+  if (leftNorm === 0 || rightNorm === 0) {
+    return 0
+  }
+
+  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm))
 }
 
 export function upsertEntityEdge(input: {

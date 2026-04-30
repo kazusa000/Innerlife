@@ -261,9 +261,131 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
 
     assert.equal(sawMentionPrompt, true)
     assert.equal(result.metadata?.noResults, false)
-    assert.equal(result.metadata?.mode, 'episodic_entity_graph')
+    assert.equal(result.metadata?.mode, 'episodic_hybrid')
     assert.match(result.output, /WJJ 在安特卫普旧书店边喝焦糖咖啡边复盘 memory v2/)
   } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('search_long_term_memory fuses entity graph and episodic text embedding recall', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-search-ltm-tool-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+  const originalFetch = globalThis.fetch
+  const originalApiKey = process.env.OPENROUTER_API_KEY
+
+  try {
+    process.env.OPENROUTER_API_KEY = 'test-key'
+    bootstrap(dbPath, memoryDbPath)
+    const agent = agentRepo.createAgent({
+      name: 'Hazel',
+      provider: 'openrouter',
+      model: 'qwen/qwen3.5-flash-02-23',
+      modules: {
+        memory: {
+          scheme: 'sqlite',
+          embeddingModel: 'qwen/qwen3-embedding-8b',
+        },
+      },
+    })
+    const session = sessionRepo.createSession(agent.id, 'seed')
+    const now = new Date('2026-04-30T09:00:00.000Z')
+    const game = episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: 'object',
+      canonicalName: '游戏',
+      confidence: 0.8,
+      aliases: [],
+      now,
+    })
+    const sc2 = episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: 'object',
+      canonicalName: '星际争霸2',
+      confidence: 0.9,
+      aliases: [{ alias: 'SC2', confidence: 0.9 }],
+      now,
+    })
+    episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: agent.id,
+      sessionId: session.id,
+      summary: 'WJJ 说游戏这个类别不能和喜欢的游戏混成一个实体。',
+      sourceText: '',
+      sourceQuote: '游戏和喜欢的游戏不是同一个实体',
+      retrievalText: '游戏 类别 实体边界',
+      retrievalEmbedding: [0, 1],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      importance: 0.5,
+      observedStartAt: now,
+      observedEndAt: now,
+      entityLinks: [{ entityId: game.id, weight: 1 }],
+      now,
+    })
+    episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: agent.id,
+      sessionId: session.id,
+      summary: 'WJJ 后来说现在最喜欢的游戏是星际争霸2。',
+      sourceText: '',
+      sourceQuote: '现在最喜欢的游戏是星际争霸2',
+      retrievalText: 'WJJ 现在最喜欢的游戏是星际争霸2 SC2',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      importance: 0.9,
+      observedStartAt: now,
+      observedEndAt: now,
+      entityLinks: [{ entityId: sc2.id, weight: 1 }],
+      now,
+    })
+
+    globalThis.fetch = (async (_input, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) as { input?: string[] } : {}
+      const data = (body.input ?? []).map((text, index) => ({
+        index,
+        embedding: text.includes('星际争霸2') ? [1, 0] : [0, 1],
+      }))
+      return Response.json({ data })
+    }) as typeof fetch
+
+    const provider = {
+      async sendMessage(input: { systemPrompt: string }) {
+        if (input.systemPrompt.includes('实体 mention')) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({
+              mentions: [
+                { surface: '游戏', type: 'object', context_hint: '泛化类别词', confidence: 0.85 },
+              ],
+            }) }],
+            stopReason: 'end_turn' as const,
+            usage: { inputTokens: 1, outputTokens: 1 },
+          }
+        }
+        assert.match(input.systemPrompt, /retrieval_query/)
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            retrieval_query: 'WJJ 现在最喜欢的游戏是星际争霸2',
+          }) }],
+          stopReason: 'end_turn' as const,
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+
+    const result = await SearchLongTermMemoryTool.call(
+      { query: '我现在最喜欢的游戏是什么？', top_k: 1 },
+      { agentId: agent.id, sessionId: session.id, provider },
+    )
+
+    assert.equal(result.metadata?.noResults, false)
+    assert.equal(result.metadata?.mode, 'episodic_hybrid')
+    assert.equal(result.metadata?.textQuery, 'WJJ 现在最喜欢的游戏是星际争霸2')
+    assert.match(result.output, /现在最喜欢的游戏是星际争霸2/)
+    assert.doesNotMatch(result.output, /类别不能和喜欢的游戏/)
+  } finally {
+    globalThis.fetch = originalFetch
+    process.env.OPENROUTER_API_KEY = originalApiKey
     resetDb()
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })

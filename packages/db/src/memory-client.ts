@@ -104,6 +104,9 @@ function ensureMemoryDbSchema(sqlite: Database.Database) {
       summary TEXT NOT NULL,
       source_text TEXT NOT NULL,
       source_quote TEXT,
+      retrieval_text TEXT NOT NULL DEFAULT '',
+      retrieval_embedding TEXT NOT NULL DEFAULT '[]',
+      retrieval_model TEXT NOT NULL DEFAULT '',
       importance REAL NOT NULL,
       observed_start_at INTEGER,
       observed_end_at INTEGER,
@@ -133,6 +136,18 @@ function ensureMemoryDbSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_memory_entity_activations_expiry
       ON memory_entity_activations(agent_id, expires_at);
   `)
+
+  const episodicColumns = sqlite.pragma("table_info('episodic_memories')") as Array<{ name: string }>
+  const episodicColumnNames = new Set(episodicColumns.map((column) => column.name))
+  if (!episodicColumnNames.has('retrieval_text')) {
+    sqlite.exec("ALTER TABLE episodic_memories ADD COLUMN retrieval_text TEXT NOT NULL DEFAULT '';")
+  }
+  if (!episodicColumnNames.has('retrieval_embedding')) {
+    sqlite.exec("ALTER TABLE episodic_memories ADD COLUMN retrieval_embedding TEXT NOT NULL DEFAULT '[]';")
+  }
+  if (!episodicColumnNames.has('retrieval_model')) {
+    sqlite.exec("ALTER TABLE episodic_memories ADD COLUMN retrieval_model TEXT NOT NULL DEFAULT '';")
+  }
 }
 
 export function getMemoryDb(dbPath?: string): Database.Database {

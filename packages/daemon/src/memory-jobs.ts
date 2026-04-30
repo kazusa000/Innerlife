@@ -635,6 +635,7 @@ export async function runEpisodicConsolidationForAgent(input: {
   now?: Date
   signal?: AbortSignal
   provider?: Pick<LLMProvider, 'sendMessage'>
+  embedder?: MemoryEmbedder
 }) {
   const agent = agentRepo.getAgent(input.agentId)
   if (!agent || !isSqliteMemoryConfig(agent.modules?.memory)) {
@@ -807,9 +808,7 @@ export async function runEpisodicConsolidationForAgent(input: {
   }
 
   const observedRange = getObservedRangeFromMemories(shortTermMemories)
-  const createdMemories = []
-
-  for (const draft of usableEpisodicDrafts) {
+  const preparedDrafts = usableEpisodicDrafts.flatMap((draft) => {
     const entityLinks = draft.entityLinks
       .map((link) => ({
         entityId: entityIdsByLocalId.get(link.localEntityId),
@@ -819,32 +818,62 @@ export async function runEpisodicConsolidationForAgent(input: {
       .slice(0, 5)
 
     if (entityLinks.length === 0) {
-      continue
+      return []
     }
 
+    const entityNames = entityLinks
+      .map((link) => episodicMemoryGraphRepo.getEntity(link.entityId)?.canonicalName)
+      .filter((name): name is string => typeof name === 'string' && Boolean(name.trim()))
+    const retrievalText = [
+      draft.summary,
+      draft.sourceQuote,
+      entityNames.join(' '),
+    ].filter((line): line is string => typeof line === 'string' && Boolean(line.trim()))
+      .join('\n')
+
+    return [{ draft, entityLinks, retrievalText }]
+  })
+
+  const embedder = input.embedder ?? createOpenRouterMemoryEmbedder()
+  const retrievalModel = memoryConfig.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL
+  const retrievalEmbeddings = preparedDrafts.length > 0
+    ? await embedder.embed(
+      preparedDrafts.map((draft) => draft.retrievalText),
+      {
+        model: retrievalModel,
+        inputType: 'search_document',
+      },
+    )
+    : []
+  const createdMemories = []
+
+  for (const [index, prepared] of preparedDrafts.entries()) {
     const created = episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: agent.id,
       sessionId: shortTermMemories[0]!.sessionId,
-      summary: draft.summary,
+      summary: prepared.draft.summary,
       sourceText,
-      sourceQuote: draft.sourceQuote,
-      importance: draft.importance,
+      sourceQuote: prepared.draft.sourceQuote,
+      retrievalText: prepared.retrievalText,
+      retrievalEmbedding: retrievalEmbeddings[index] ?? [],
+      retrievalModel,
+      importance: prepared.draft.importance,
       observedStartAt: observedRange.observedStartAt,
       observedEndAt: observedRange.observedEndAt,
-      entityLinks,
+      entityLinks: prepared.entityLinks,
       now,
     })
     createdMemories.push(created)
 
-    for (let leftIndex = 0; leftIndex < entityLinks.length; leftIndex += 1) {
-      for (let rightIndex = leftIndex + 1; rightIndex < entityLinks.length; rightIndex += 1) {
-        const left = entityLinks[leftIndex]!
-        const right = entityLinks[rightIndex]!
+    for (let leftIndex = 0; leftIndex < prepared.entityLinks.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < prepared.entityLinks.length; rightIndex += 1) {
+        const left = prepared.entityLinks[leftIndex]!
+        const right = prepared.entityLinks[rightIndex]!
         episodicMemoryGraphRepo.upsertEntityEdge({
           agentId: agent.id,
           sourceEntityId: left.entityId,
           targetEntityId: right.entityId,
-          delta: 0.1 * Math.min(left.weight, right.weight) * draft.importance,
+          delta: 0.1 * Math.min(left.weight, right.weight) * prepared.draft.importance,
           now,
         })
       }

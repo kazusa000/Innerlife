@@ -244,3 +244,53 @@ test('entity activations spread one hop and recall top episodic memories by link
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('episodic memories persist retrieval embeddings and can be ranked by text similarity', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const now = new Date('2026-04-30T09:00:00.000Z')
+    graphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 说最喜欢的游戏从魔兽世界变成星际争霸2。',
+      sourceText: 'WJJ 先说最喜欢魔兽世界，后来改口星际争霸2。',
+      sourceQuote: '现在最喜欢的游戏是星际争霸2',
+      retrievalText: 'WJJ 最喜欢的游戏变化 魔兽世界 星际争霸2',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'test-embed',
+      importance: 0.8,
+      entityLinks: [],
+      now,
+    })
+    graphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 在安特卫普旧书店买海盐焦糖。',
+      sourceText: '旧书店和海盐焦糖。',
+      sourceQuote: '旧书店',
+      retrievalText: '安特卫普旧书店 海盐焦糖',
+      retrievalEmbedding: [0, 1],
+      retrievalModel: 'test-embed',
+      importance: 0.9,
+      entityLinks: [],
+      now,
+    })
+
+    const hits = graphRepo.findRelevantEpisodicMemories({
+      agentId: 'agent-1',
+      queryEmbeddings: [[1, 0]],
+      topK: 2,
+      minSimilarity: 0.1,
+    })
+
+    assert.equal(hits[0]?.memory.summary, 'WJJ 说最喜欢的游戏从魔兽世界变成星际争霸2。')
+    assert.equal(hits[0]?.similarity, 1)
+    assert.equal(hits[0]?.memory.retrievalText, 'WJJ 最喜欢的游戏变化 魔兽世界 星际争霸2')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

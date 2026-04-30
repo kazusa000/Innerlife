@@ -2,6 +2,7 @@ import { agentRepo, episodicMemoryGraphRepo, memoryRepo } from '@mas/db'
 import {
   buildEntityMentionPrompt,
   buildLongTermSearchToolPrompt,
+  buildSemanticAnalyzerPrompt,
   createOpenRouterMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   isSqliteMemoryConfig,
@@ -18,6 +19,9 @@ const SEARCH_LONG_TERM_MEMORY_DESCRIPTION = [
 ].join(' ')
 const SEMANTIC_QUERY_WEIGHT = 0.8
 const TOOL_QUERY_WEIGHT = 0.2
+const EPISODIC_GRAPH_WEIGHT = 0.4
+const EPISODIC_TEXT_WEIGHT = 0.5
+const EPISODIC_IMPORTANCE_WEIGHT = 0.1
 
 function formatOffset(minutesEastOfUtc: number): string {
   const sign = minutesEastOfUtc >= 0 ? '+' : '-'
@@ -78,6 +82,63 @@ async function extractEntityMentions(input: {
       .map((block) => block.type === 'text' ? block.text : '')
       .join('\n'),
   )
+}
+
+function parseRetrievalQuery(text: string) {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  const candidate = fenced?.[1]?.trim() ?? trimmed
+  try {
+    const parsed = JSON.parse(candidate) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return ''
+    }
+    const value = (parsed as { retrieval_query?: unknown }).retrieval_query
+    return typeof value === 'string' && value.trim() ? value.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+async function extractEpisodicTextQuery(input: {
+  text: string
+  fallbackQuery: string
+  model: string
+  provider: Pick<LLMProvider, 'sendMessage'>
+  promptOverride?: string | null
+  signal?: AbortSignal
+}) {
+  if (!input.text.trim()) {
+    return input.fallbackQuery
+  }
+
+  const response = await input.provider.sendMessage({
+    model: input.model,
+    systemPrompt: buildSemanticAnalyzerPrompt(input.promptOverride),
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: input.text }],
+      },
+    ],
+    reasoning: { effort: 'none' },
+    signal: input.signal,
+  })
+  const parsed = parseRetrievalQuery(
+    response.content
+      .map((block) => block.type === 'text' ? block.text : '')
+      .join('\n'),
+  )
+
+  return parsed || input.fallbackQuery
+}
+
+function scoreByRank(index: number) {
+  return Math.max(0, 1 - index * 0.08)
 }
 
 export const SearchLongTermMemoryTool: Tool = {
@@ -146,6 +207,14 @@ export const SearchLongTermMemoryTool: Tool = {
       .filter(Boolean)
       .join('\n')
     const graphProvider = options.provider ?? createProvider(agent.provider)
+    const textQuery = await extractEpisodicTextQuery({
+      text: graphQuery,
+      fallbackQuery: semanticQuery || toolQuery,
+      model: memoryConfig.summarizeModel ?? agent.model,
+      provider: graphProvider,
+      promptOverride: memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt,
+      signal: options.signal,
+    }).catch(() => semanticQuery || toolQuery)
     const mentions = episodicMemoryGraphRepo.hasEntitiesForAgent(agentId)
       ? await extractEntityMentions({
         text: graphQuery,
@@ -167,6 +236,7 @@ export const SearchLongTermMemoryTool: Tool = {
     )
     const graphCandidates = mentionCandidates
 
+    let graphHits: ReturnType<typeof episodicMemoryGraphRepo.recallEpisodicMemories> = []
     if (graphCandidates.length > 0) {
       const activation = graphCandidates.length === 1 ? 1 : 0.7
       episodicMemoryGraphRepo.activateEntities({
@@ -180,32 +250,90 @@ export const SearchLongTermMemoryTool: Tool = {
         maxActive: 20,
         spreadFactor: 0.35,
       })
-      const episodic = episodicMemoryGraphRepo.recallEpisodicMemories({
+      graphHits = episodicMemoryGraphRepo.recallEpisodicMemories({
         agentId,
-        topK,
+        topK: Math.max(5, topK * 3),
       })
+    }
 
-      if (episodic.length > 0) {
-        return {
-          output: [
-            '情景记忆召回结果：',
-            ...episodic.map((memory) => `[情景记忆] ${memory.summary}`),
-          ].join('\n'),
-          metadata: {
-            noResults: false,
-            mode: 'episodic_entity_graph',
-            effectiveQueries,
-            entityMentions: mentions,
-            hits: episodic.map((memory) => ({
-              id: memory.id,
-              sessionId: memory.sessionId,
-              summary: memory.summary,
-              observedStartAt: memory.observedStartAt?.toISOString() ?? null,
-              observedEndAt: memory.observedEndAt?.toISOString() ?? null,
-              importance: memory.importance,
-            })),
-          },
+    const episodicTextHits = textQuery
+      ? await embedder.embed(
+        [textQuery],
+        {
+          model: memoryConfig.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL,
+          inputType: 'search_query',
+        },
+      ).then((queryEmbeddings) => episodicMemoryGraphRepo.findRelevantEpisodicMemories({
+        agentId,
+        queryEmbeddings,
+        topK: Math.max(5, topK * 3),
+      })).catch(() => [])
+      : []
+    const fused = new Map<string, {
+      memory: NonNullable<ReturnType<typeof episodicMemoryGraphRepo.getEpisodicMemory>>
+      graphScore: number
+      textScore: number
+      finalScore: number
+    }>()
+
+    graphHits.forEach((memory, index) => {
+      fused.set(memory.id, {
+        memory,
+        graphScore: scoreByRank(index),
+        textScore: 0,
+        finalScore: 0,
+      })
+    })
+    episodicTextHits.forEach((hit) => {
+      const existing = fused.get(hit.memory.id)
+      fused.set(hit.memory.id, {
+        memory: hit.memory,
+        graphScore: existing?.graphScore ?? 0,
+        textScore: Math.max(existing?.textScore ?? 0, hit.similarity),
+        finalScore: 0,
+      })
+    })
+
+    const episodic = [...fused.values()]
+      .map((hit) => ({
+        ...hit,
+        finalScore:
+          hit.graphScore * EPISODIC_GRAPH_WEIGHT
+          + hit.textScore * EPISODIC_TEXT_WEIGHT
+          + hit.memory.importance * EPISODIC_IMPORTANCE_WEIGHT,
+      }))
+      .sort((left, right) => {
+        if (right.finalScore !== left.finalScore) {
+          return right.finalScore - left.finalScore
         }
+        return right.memory.createdAt.getTime() - left.memory.createdAt.getTime()
+      })
+      .slice(0, topK)
+
+    if (episodic.length > 0) {
+      return {
+        output: [
+          '情景记忆召回结果：',
+          ...episodic.map((hit) => `[情景记忆] ${hit.memory.summary}`),
+        ].join('\n'),
+        metadata: {
+          noResults: false,
+          mode: 'episodic_hybrid',
+          effectiveQueries,
+          textQuery,
+          entityMentions: mentions,
+          hits: episodic.map((hit) => ({
+            id: hit.memory.id,
+            sessionId: hit.memory.sessionId,
+            summary: hit.memory.summary,
+            observedStartAt: hit.memory.observedStartAt?.toISOString() ?? null,
+            observedEndAt: hit.memory.observedEndAt?.toISOString() ?? null,
+            importance: hit.memory.importance,
+            graphScore: hit.graphScore,
+            textScore: hit.textScore,
+            score: hit.finalScore,
+          })),
+        },
       }
     }
 

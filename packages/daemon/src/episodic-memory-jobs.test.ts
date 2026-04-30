@@ -110,12 +110,36 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
     const result = await runEpisodicConsolidationForAgent({
       agentId: agent.id,
       provider,
+      embedder: {
+        async embed(input, options) {
+          assert.deepEqual(options, {
+            model: 'qwen/qwen3-embedding-8b',
+            inputType: 'search_document',
+          })
+          assert.equal(input.length, 1)
+          assert.match(input[0] ?? '', /WJJ 在旧书店提到过海盐焦糖/)
+          assert.match(input[0] ?? '', /旧书店那次我买了海盐焦糖/)
+          assert.match(input[0] ?? '', /海盐焦糖/)
+          return [[1, 0, 0]]
+        },
+      },
       now: new Date('2026-04-30T09:00:00.000Z'),
     })
 
     assert.equal(result.ok, true)
     assert.equal(result.createdEpisodicCount, 1)
     assert.equal(result.createdEntityCount, 3)
+    assert.deepEqual(
+      getMemoryRawSqlite().prepare(`
+        SELECT retrieval_text, retrieval_embedding, retrieval_model
+        FROM episodic_memories
+      `).all(),
+      [{
+        retrieval_text: 'WJJ 在旧书店提到过海盐焦糖。\n旧书店那次我买了海盐焦糖\nWJJ 旧书店 海盐焦糖',
+        retrieval_embedding: '[1,0,0]',
+        retrieval_model: 'qwen/qwen3-embedding-8b',
+      }],
+    )
     assert.deepEqual(
       getMemoryRawSqlite().prepare(`
         SELECT alias
@@ -407,6 +431,11 @@ test('runEpisodicConsolidationForAgent resolves only entities linked by usable e
     const result = await runEpisodicConsolidationForAgent({
       agentId: agent.id,
       provider,
+      embedder: {
+        async embed(input) {
+          return input.map(() => [1, 0])
+        },
+      },
       now: new Date('2026-04-30T09:00:00.000Z'),
     })
     const entityRows = getMemoryRawSqlite().prepare(`
@@ -507,6 +536,11 @@ test('runEpisodicConsolidationForAgent reuses an exact existing entity when reso
     const result = await runEpisodicConsolidationForAgent({
       agentId: agent.id,
       provider,
+      embedder: {
+        async embed(input) {
+          return input.map(() => [1, 0])
+        },
+      },
       now: new Date('2026-04-30T09:00:00.000Z'),
     })
     const entityRows = getMemoryRawSqlite().prepare(`
