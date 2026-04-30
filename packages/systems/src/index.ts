@@ -56,9 +56,13 @@ export {
   buildShortTermToLongTermSourceText,
   createOpenRouterMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
+  buildEntityMentionPrompt,
   isSqliteMemoryConfig,
   MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
   MemorySqliteSystem,
+  parseEntityMentionResponse,
+  parseEntityResolutionResponse,
+  parseEpisodicExtractionResponse,
   parseMemoryBatchWriteResponse,
   parseMemoryWriteResponse,
   parseShortTermToLongTermResponse,
@@ -68,7 +72,15 @@ export {
   serializeMemoryHit,
   SHORT_TERM_TO_LONG_TERM_RESPONSE_FORMAT,
 } from './memory'
-export type { MemoryActorLabels, MemoryEmbedder } from './memory'
+export type {
+  EntityMention,
+  EntityResolution,
+  EpisodicExtractionEntity,
+  EpisodicMemoryDraft,
+  MemoryActorLabels,
+  MemoryEmbedder,
+  MemoryEntityType,
+} from './memory'
 export { NoopSystem, HelloWorldSystem } from './noop'
 export {
   DEFAULT_BASELINE as DEFAULT_RELATIONSHIP_BASELINE,

@@ -27,3 +27,4 @@ export {
 } from './embeddings'
 export type { MemoryEmbedder } from './embeddings'
 export type { MemoryActorLabels } from './sqlite'
+export * from './entity-graph'
