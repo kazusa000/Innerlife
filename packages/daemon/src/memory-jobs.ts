@@ -678,7 +678,26 @@ export async function runEpisodicConsolidationForAgent(input: {
   const extraction = parseEpisodicExtractionResponse(
     extractTextFromContent(extractionResponse.content),
   )
-  const candidatePayload = extraction.entities.map((entity) => ({
+  const usableEpisodicDrafts = extraction.episodicMemories
+    .filter((draft) => draft.entityLinks.length > 0)
+
+  if (usableEpisodicDrafts.length === 0) {
+    return {
+      ok: true as const,
+      createdEntityCount: 0,
+      createdEpisodicCount: 0,
+      deletedShortTermCount: 0,
+    }
+  }
+
+  const referencedLocalEntityIds = new Set(
+    usableEpisodicDrafts.flatMap((draft) =>
+      draft.entityLinks.map((link) => link.localEntityId),
+    ),
+  )
+  const candidatePayload = extraction.entities
+    .filter((entity) => referencedLocalEntityIds.has(entity.localEntityId))
+    .map((entity) => ({
     local_entity_id: entity.localEntityId,
     surface: entity.surface,
     type: entity.type,
@@ -723,6 +742,10 @@ export async function runEpisodicConsolidationForAgent(input: {
   let createdEntityCount = 0
 
   for (const resolution of resolutions) {
+    if (!referencedLocalEntityIds.has(resolution.localEntityId)) {
+      continue
+    }
+
     if (resolution.action === 'merge') {
       entityIdsByLocalId.set(resolution.localEntityId, resolution.entityId)
       if (resolution.aliasToAdd) {
@@ -739,7 +762,9 @@ export async function runEpisodicConsolidationForAgent(input: {
     const sourceEntity = extractionEntitiesById.get(resolution.localEntityId)
     const entity = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
-      type: resolution.type,
+      type: resolution.type === 'unknown' && sourceEntity?.type
+        ? sourceEntity.type
+        : resolution.type,
       canonicalName: resolution.canonicalName || sourceEntity?.surface || 'unknown',
       description: sourceEntity?.contextHint ?? null,
       confidence: resolution.confidence,
@@ -753,7 +778,7 @@ export async function runEpisodicConsolidationForAgent(input: {
   const observedRange = getObservedRangeFromMemories(shortTermMemories)
   const createdMemories = []
 
-  for (const draft of extraction.episodicMemories) {
+  for (const draft of usableEpisodicDrafts) {
     const entityLinks = draft.entityLinks
       .map((link) => ({
         entityId: entityIdsByLocalId.get(link.localEntityId),
