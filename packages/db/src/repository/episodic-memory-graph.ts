@@ -212,6 +212,11 @@ export function addEntityAlias(input: {
     return false
   }
 
+  const entity = getEntity(input.entityId)
+  if (!entity || normalizeMatchText(alias) === normalizeMatchText(entity.canonicalName)) {
+    return false
+  }
+
   const now = input.now ?? new Date()
   const result = getMemoryRawSqlite().prepare(`
     INSERT OR IGNORE INTO memory_entity_aliases (

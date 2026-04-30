@@ -72,6 +72,39 @@ test('entity graph repo creates entities with aliases and matches mention candid
   }
 })
 
+test('entity alias insertion rejects aliases identical to the canonical name', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const entity = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'event',
+      canonicalName: '周末 memory workshop',
+      description: null,
+      confidence: 0.9,
+      aliases: [],
+    })
+
+    assert.equal(graphRepo.addEntityAlias({
+      entityId: entity.id,
+      alias: '周末 memory workshop',
+      confidence: 0.95,
+    }), false)
+
+    const rows = getMemoryRawSqlite().prepare(`
+      SELECT alias
+      FROM memory_entity_aliases
+      WHERE entity_id = ?
+    `).all(entity.id)
+    assert.deepEqual(rows, [])
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('entity candidate matching surfaces shared concrete suffixes without aliases', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
   const dbPath = join(dir, 'memory.db')

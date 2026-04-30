@@ -737,6 +737,7 @@ export async function runEpisodicConsolidationForAgent(input: {
       '只有 confidence >= 0.75 才允许 merge。',
       '不确定就 create_new。alias_to_add 只允许在 merge 时填写，且必须是同一实体在原文中的稳定叫法。',
       'merge 且 local surface 不等于候选 canonical_name/既有 alias 时，应把 local surface 作为 alias_to_add；完全相同则填 null。',
+      '如果 context_hint 明确说明 local entity 和某个候选是同一个实体（例如“就是”“指的是”“简称为”“同一个”），优先 merge 到该候选，不要 create_new。',
       '同场景、同类别、相似词、相关物都不是 alias；例如海盐焦糖和焦糖咖啡不能互为 alias，安特卫普旧书店和东京旧书店不能互为 alias。',
     ].join('\n'),
     messages: [
