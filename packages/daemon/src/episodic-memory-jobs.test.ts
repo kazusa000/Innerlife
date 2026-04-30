@@ -56,6 +56,10 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
     const provider = {
       async sendMessage(input: { systemPrompt: string }) {
         if (input.systemPrompt.includes('阶段 A')) {
+          assert.match(input.systemPrompt, /local_entity_id/)
+          assert.match(input.systemPrompt, /surface/)
+          assert.match(input.systemPrompt, /source_quote/)
+          assert.match(input.systemPrompt, /entity_links/)
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
@@ -80,6 +84,10 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
             usage: { inputTokens: 1, outputTokens: 1 },
           }
         }
+        assert.match(input.systemPrompt, /"resolutions"/)
+        assert.match(input.systemPrompt, /canonical_name/)
+        assert.match(input.systemPrompt, /confidence/)
+        assert.match(input.systemPrompt, /不要返回数组/)
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({
             resolutions: [
