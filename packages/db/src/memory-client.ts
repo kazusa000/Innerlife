@@ -59,6 +59,11 @@ function ensureMemoryDbSchema(sqlite: Database.Database) {
   }
 
   sqlite.exec(`
+    DROP INDEX IF EXISTS idx_memory_entity_activations_expiry;
+    DROP TABLE IF EXISTS memory_entity_activations;
+  `)
+
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS memory_entities (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
@@ -123,18 +128,6 @@ function ensureMemoryDbSchema(sqlite: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_episodic_memory_entities_entity
       ON episodic_memory_entities(entity_id);
-
-    CREATE TABLE IF NOT EXISTS memory_entity_activations (
-      agent_id TEXT NOT NULL,
-      entity_id TEXT NOT NULL,
-      activation REAL NOT NULL,
-      reason TEXT,
-      expires_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      PRIMARY KEY(agent_id, entity_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_memory_entity_activations_expiry
-      ON memory_entity_activations(agent_id, expires_at);
   `)
 
   const episodicColumns = sqlite.pragma("table_info('episodic_memories')") as Array<{ name: string }>

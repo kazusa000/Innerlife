@@ -239,20 +239,14 @@ export const SearchLongTermMemoryTool: Tool = {
     let graphHits: ReturnType<typeof episodicMemoryGraphRepo.recallEpisodicMemories> = []
     if (graphCandidates.length > 0) {
       const activation = graphCandidates.length === 1 ? 1 : 0.7
-      episodicMemoryGraphRepo.activateEntities({
-        agentId,
-        activations: graphCandidates.map((candidate) => ({
-          entityId: candidate.entity.id,
-          activation,
-          reason: 'tool_recall',
-        })),
-        ttlMs: 30 * 60 * 1000,
-        maxActive: 20,
-        spreadFactor: 0.35,
-      })
       graphHits = episodicMemoryGraphRepo.recallEpisodicMemories({
         agentId,
         topK: Math.max(5, topK * 3),
+        activations: graphCandidates.map((candidate) => ({
+          entityId: candidate.entity.id,
+          activation,
+        })),
+        spreadFactor: 0.35,
       })
     }
 

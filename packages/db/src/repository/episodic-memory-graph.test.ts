@@ -3,6 +3,7 @@ import test from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import Database from 'better-sqlite3'
 import { getMemoryDb, getMemoryRawSqlite, resetMemoryDb } from '../memory-client'
 import * as graphRepo from './episodic-memory-graph'
 
@@ -28,7 +29,42 @@ test('memory db bootstrap creates entity graph and episodic memory tables', () =
     assert.ok(tables.includes('memory_entity_edges'))
     assert.ok(tables.includes('episodic_memories'))
     assert.ok(tables.includes('episodic_memory_entities'))
-    assert.ok(tables.includes('memory_entity_activations'))
+    assert.equal(tables.includes('memory_entity_activations'), false)
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('memory db bootstrap removes legacy persistent entity activation table', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    const sqlite = new Database(dbPath)
+    sqlite.exec(`
+      CREATE TABLE memory_entity_activations (
+        agent_id TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        activation REAL NOT NULL,
+        reason TEXT,
+        expires_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY(agent_id, entity_id)
+      );
+      CREATE INDEX idx_memory_entity_activations_expiry
+        ON memory_entity_activations(agent_id, expires_at);
+    `)
+    sqlite.close()
+
+    bootstrap(dbPath)
+    const table = getMemoryRawSqlite().prepare(`
+      SELECT 1 AS value
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'memory_entity_activations'
+    `).get()
+
+    assert.equal(table, undefined)
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
@@ -222,21 +258,19 @@ test('entity activations spread one hop and recall top episodic memories by link
       delta: 0.2,
       now,
     })
-    graphRepo.activateEntities({
+    const noActivationRecall = graphRepo.recallEpisodicMemories({
       agentId: 'agent-1',
-      activations: [{ entityId: bookstore.id, activation: 1, reason: 'exact_single' }],
-      ttlMs: 30 * 60 * 1000,
-      maxActive: 20,
-      spreadFactor: 0.35,
-      now,
+      topK: 5,
     })
 
     const recalled = graphRepo.recallEpisodicMemories({
       agentId: 'agent-1',
       topK: 5,
-      now,
+      activations: [{ entityId: bookstore.id, activation: 1 }],
+      spreadFactor: 0.35,
     })
 
+    assert.deepEqual(noActivationRecall, [])
     assert.equal(recalled[0]?.id, memory.id)
     assert.equal(recalled[0]?.summary, 'WJJ 在安特卫普旧书店提到过海盐焦糖。')
   } finally {

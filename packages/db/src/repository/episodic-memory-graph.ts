@@ -563,109 +563,115 @@ export function upsertEntityEdge(input: {
   `).run(input.agentId, source, target, clip01(input.delta), now.getTime())
 }
 
-export function activateEntities(input: {
+export function recallEpisodicMemories(input: {
   agentId: string
-  activations: Array<{ entityId: string; activation: number; reason: string }>
-  ttlMs: number
-  maxActive: number
-  spreadFactor: number
-  now?: Date
+  topK: number
+  activations?: Array<{ entityId: string; activation: number }>
+  spreadFactor?: number
 }) {
+  const directActivations = new Map<string, number>()
+  for (const item of input.activations ?? []) {
+    const activation = clip01(item.activation)
+    if (activation <= 0) {
+      continue
+    }
+    directActivations.set(
+      item.entityId,
+      clip01((directActivations.get(item.entityId) ?? 0) + activation),
+    )
+  }
+
+  if (directActivations.size === 0) {
+    return []
+  }
+
   const sqlite = getMemoryRawSqlite()
-  const now = input.now ?? new Date()
-  const expiresAt = now.getTime() + input.ttlMs
+  const spreadFactor = typeof input.spreadFactor === 'number' && Number.isFinite(input.spreadFactor)
+    ? Math.max(0, input.spreadFactor)
+    : 0.35
+  const activationScores = new Map(directActivations)
 
-  sqlite.prepare(`
-    DELETE FROM memory_entity_activations
-    WHERE agent_id = ? AND expires_at <= ?
-  `).run(input.agentId, now.getTime())
-
-  const direct = input.activations.map((item) => ({
-    entityId: item.entityId,
-    activation: clip01(item.activation),
-    reason: item.reason,
-  }))
-  const spread = direct.flatMap((item) => {
+  for (const [entityId, activation] of directActivations) {
     const rows = sqlite.prepare(`
       SELECT source_entity_id, target_entity_id, weight
       FROM memory_entity_edges
       WHERE agent_id = ?
         AND (source_entity_id = ? OR target_entity_id = ?)
-    `).all(input.agentId, item.entityId, item.entityId) as Array<{
+    `).all(input.agentId, entityId, entityId) as Array<{
       source_entity_id: string
       target_entity_id: string
       weight: number
     }>
 
-    return rows.map((row) => ({
-      entityId: row.source_entity_id === item.entityId ? row.target_entity_id : row.source_entity_id,
-      activation: clip01(item.activation * row.weight * input.spreadFactor),
-      reason: 'spread',
-    }))
-  })
-
-  for (const item of [...direct, ...spread]) {
-    if (item.activation <= 0) {
-      continue
+    for (const row of rows) {
+      const neighborId = row.source_entity_id === entityId ? row.target_entity_id : row.source_entity_id
+      const spreadActivation = clip01(activation * row.weight * spreadFactor)
+      if (spreadActivation <= 0) {
+        continue
+      }
+      activationScores.set(
+        neighborId,
+        clip01((activationScores.get(neighborId) ?? 0) + spreadActivation),
+      )
     }
-
-    sqlite.prepare(`
-      INSERT INTO memory_entity_activations (
-        agent_id,
-        entity_id,
-        activation,
-        reason,
-        expires_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(agent_id, entity_id) DO UPDATE SET
-        activation = min(1.0, activation + excluded.activation),
-        reason = excluded.reason,
-        expires_at = excluded.expires_at,
-        updated_at = excluded.updated_at
-    `).run(input.agentId, item.entityId, item.activation, item.reason, expiresAt, now.getTime())
   }
 
-  const overflow = sqlite.prepare(`
-    SELECT entity_id
-    FROM memory_entity_activations
-    WHERE agent_id = ?
-    ORDER BY activation DESC, updated_at DESC
-    LIMIT -1 OFFSET ?
-  `).all(input.agentId, input.maxActive) as Array<{ entity_id: string }>
-
-  for (const row of overflow) {
-    sqlite.prepare(`
-      DELETE FROM memory_entity_activations
-      WHERE agent_id = ? AND entity_id = ?
-    `).run(input.agentId, row.entity_id)
+  const entityIds = [...activationScores.keys()]
+  if (entityIds.length === 0) {
+    return []
   }
-}
 
-export function recallEpisodicMemories(input: {
-  agentId: string
-  topK: number
-  now?: Date
-}) {
-  const now = input.now ?? new Date()
-  const rows = getMemoryRawSqlite().prepare(`
+  const placeholders = entityIds.map(() => '?').join(', ')
+  const rows = sqlite.prepare(`
     SELECT
       m.id,
-      sum(a.activation * l.weight)
-        + (0.15 * m.importance)
-        + (0.1 * max(0, count(distinct l.entity_id) - 1)) AS score
-    FROM memory_entity_activations a
-    JOIN episodic_memory_entities l ON l.entity_id = a.entity_id
+      l.entity_id,
+      l.weight,
+      m.importance,
+      m.created_at
+    FROM episodic_memory_entities l
     JOIN episodic_memories m ON m.id = l.memory_id
-    WHERE a.agent_id = ?
-      AND m.agent_id = ?
-      AND a.expires_at > ?
-    GROUP BY m.id
-    ORDER BY score DESC, m.created_at DESC
-    LIMIT ?
-  `).all(input.agentId, input.agentId, now.getTime(), input.topK) as Array<{ id: string }>
+    WHERE m.agent_id = ?
+      AND l.entity_id IN (${placeholders})
+  `).all(input.agentId, ...entityIds) as Array<{
+    id: string
+    entity_id: string
+    weight: number
+    importance: number
+    created_at: number
+  }>
 
-  return rows
+  const scored = new Map<string, {
+    id: string
+    score: number
+    linkedEntityIds: Set<string>
+    createdAt: number
+  }>()
+  for (const row of rows) {
+    const existing = scored.get(row.id) ?? {
+      id: row.id,
+      score: 0.15 * clip01(row.importance),
+      linkedEntityIds: new Set<string>(),
+      createdAt: row.created_at,
+    }
+    existing.score += (activationScores.get(row.entity_id) ?? 0) * clip01(row.weight)
+    existing.linkedEntityIds.add(row.entity_id)
+    scored.set(row.id, existing)
+  }
+
+  return [...scored.values()]
+    .map((item) => ({
+      id: item.id,
+      score: item.score + 0.1 * Math.max(0, item.linkedEntityIds.size - 1),
+      createdAt: item.createdAt,
+    }))
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score
+      }
+      return right.createdAt - left.createdAt
+    })
+    .slice(0, Math.max(1, input.topK))
     .map((row) => getEpisodicMemory(row.id))
     .filter((memory): memory is EpisodicMemoryRecord => Boolean(memory))
 }

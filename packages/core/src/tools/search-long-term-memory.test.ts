@@ -7,6 +7,7 @@ import {
   agentRepo,
   bootstrapAppDatabases,
   episodicMemoryGraphRepo,
+  getMemoryRawSqlite,
   memoryRepo,
   resetDb,
   resetMemoryDb,
@@ -383,6 +384,14 @@ test('search_long_term_memory fuses entity graph and episodic text embedding rec
     assert.equal(result.metadata?.textQuery, 'WJJ 现在最喜欢的游戏是星际争霸2')
     assert.match(result.output, /现在最喜欢的游戏是星际争霸2/)
     assert.doesNotMatch(result.output, /类别不能和喜欢的游戏/)
+    assert.equal(
+      getMemoryRawSqlite().prepare(`
+        SELECT 1 AS value
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'memory_entity_activations'
+      `).get(),
+      undefined,
+    )
   } finally {
     globalThis.fetch = originalFetch
     process.env.OPENROUTER_API_KEY = originalApiKey

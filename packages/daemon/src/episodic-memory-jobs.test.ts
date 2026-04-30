@@ -152,7 +152,6 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
     assert.equal(episodicMemoryGraphRepo.recallEpisodicMemories({
       agentId: agent.id,
       topK: 5,
-      now: new Date('2026-04-30T09:00:00.000Z'),
     }).length, 0)
   } finally {
     resetDb()
