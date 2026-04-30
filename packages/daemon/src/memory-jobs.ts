@@ -669,6 +669,7 @@ export async function runEpisodicConsolidationForAgent(input: {
       'entity_links.local_entity_id 必须引用 entities 中的 local_entity_id。',
       '不要使用 id/name/entity_id/source_stm_id/role/attributes/aliases 等替代字段。',
       '只抽取真实实体 mention：人物、地点、物品、项目、事件；不要把抽象概念、情绪或关系解释作为实体。',
+      'surface 必须保留原文中的实际 mention 文本，不要提前标准化、翻译或改写成你猜测的正式名称。',
       'Stage A 禁止建立 alias；alias 只能在 Stage B merge 既有实体时由 alias_to_add 建立。',
       '每条情景记忆最多 5 个 entity_links；weight < 0.3 不输出。',
       '实体类型只允许 person/place/object/project/event/unknown。',

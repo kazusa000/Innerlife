@@ -62,6 +62,7 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
           assert.match(input.systemPrompt, /entity_links/)
           assert.doesNotMatch(input.systemPrompt, /"aliases":string\[\]/)
           assert.match(input.systemPrompt, /Stage A 禁止建立 alias/)
+          assert.match(input.systemPrompt, /surface 必须保留原文中的实际 mention/)
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
