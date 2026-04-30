@@ -1,4 +1,4 @@
-import { agentRepo, memoryRepo } from '@mas/db'
+import { agentRepo, episodicMemoryGraphRepo, memoryRepo } from '@mas/db'
 import {
   buildLongTermSearchToolPrompt,
   createOpenRouterMemoryEmbedder,
@@ -81,6 +81,11 @@ export const SearchLongTermMemoryTool: Tool = {
     const embedder = createOpenRouterMemoryEmbedder()
     const semanticQuery = readQueryText(options?.memoryRetrievalQuery)
     const toolQuery = readQueryText(input.query)
+    const start = parseDate(input.time_start)
+    const end = parseDate(input.time_end)
+    const topK = typeof input.top_k === 'number' && Number.isFinite(input.top_k)
+      ? Math.max(1, Math.min(5, Math.floor(input.top_k)))
+      : Math.max(1, Math.min(5, memoryConfig.longTermSearchDefaultTopK ?? 3))
     const effectiveQueries = [
       semanticQuery
         ? { source: 'semantic_analyzer', query: semanticQuery, weight: SEMANTIC_QUERY_WEIGHT }
@@ -102,6 +107,56 @@ export const SearchLongTermMemoryTool: Tool = {
       }
     }
 
+    const graphQuery = toolQuery || semanticQuery
+    const graphCandidates = graphQuery
+      ? episodicMemoryGraphRepo.findEntityCandidates({
+        agentId: options.agentId,
+        surface: graphQuery,
+        limit: 10,
+      })
+      : []
+
+    if (graphCandidates.length > 0) {
+      const activation = graphCandidates.length === 1 ? 1 : 0.7
+      episodicMemoryGraphRepo.activateEntities({
+        agentId: options.agentId,
+        activations: graphCandidates.map((candidate) => ({
+          entityId: candidate.entity.id,
+          activation,
+          reason: 'tool_recall',
+        })),
+        ttlMs: 30 * 60 * 1000,
+        maxActive: 20,
+        spreadFactor: 0.35,
+      })
+      const episodic = episodicMemoryGraphRepo.recallEpisodicMemories({
+        agentId: options.agentId,
+        topK,
+      })
+
+      if (episodic.length > 0) {
+        return {
+          output: [
+            '情景记忆召回结果：',
+            ...episodic.map((memory) => `[情景记忆] ${memory.summary}`),
+          ].join('\n'),
+          metadata: {
+            noResults: false,
+            mode: 'episodic_entity_graph',
+            effectiveQueries,
+            hits: episodic.map((memory) => ({
+              id: memory.id,
+              sessionId: memory.sessionId,
+              summary: memory.summary,
+              observedStartAt: memory.observedStartAt?.toISOString() ?? null,
+              observedEndAt: memory.observedEndAt?.toISOString() ?? null,
+              importance: memory.importance,
+            })),
+          },
+        }
+      }
+    }
+
     const queryEmbeddings = await embedder.embed(
       effectiveQueries.map((entry) => entry.query),
       {
@@ -109,12 +164,6 @@ export const SearchLongTermMemoryTool: Tool = {
         inputType: 'search_query',
       },
     )
-
-    const start = parseDate(input.time_start)
-    const end = parseDate(input.time_end)
-    const topK = typeof input.top_k === 'number' && Number.isFinite(input.top_k)
-      ? Math.max(1, Math.min(5, Math.floor(input.top_k)))
-      : Math.max(1, Math.min(5, memoryConfig.longTermSearchDefaultTopK ?? 3))
 
     const hits = memoryRepo.findRelevantMemories({
       agentId: options.agentId,

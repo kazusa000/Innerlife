@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import {
   agentRepo,
   bootstrapAppDatabases,
+  episodicMemoryGraphRepo,
   memoryRepo,
   resetDb,
   resetMemoryDb,
@@ -103,6 +104,77 @@ test('search_long_term_memory prefers semantic analyzer sentence and weighted ma
   } finally {
     globalThis.fetch = originalFetch
     process.env.OPENROUTER_API_KEY = originalApiKey
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('search_long_term_memory recalls episodic memories through entity activation when graph data exists', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-search-ltm-tool-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+    const agent = agentRepo.createAgent({
+      name: 'Hazel',
+      provider: 'openrouter',
+      model: 'qwen/qwen3.5-flash-02-23',
+      modules: { memory: { scheme: 'sqlite' } },
+    })
+    const session = sessionRepo.createSession(agent.id, 'seed')
+    const now = new Date('2026-04-30T09:00:00.000Z')
+    const wjj = episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: 'person',
+      canonicalName: 'WJJ',
+      confidence: 0.95,
+      aliases: [],
+      now,
+    })
+    const bookstore = episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: 'place',
+      canonicalName: '安特卫普旧书店',
+      confidence: 0.9,
+      aliases: [{ alias: '旧书店', confidence: 0.8 }],
+      now,
+    })
+    const caramel = episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: 'object',
+      canonicalName: '海盐焦糖',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+    episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: agent.id,
+      sessionId: session.id,
+      summary: 'WJJ 在安特卫普旧书店提到过海盐焦糖。',
+      sourceText: 'WJJ：旧书店那次我买了海盐焦糖。',
+      sourceQuote: '旧书店那次我买了海盐焦糖',
+      importance: 0.72,
+      observedStartAt: now,
+      observedEndAt: now,
+      entityLinks: [
+        { entityId: wjj.id, weight: 0.8 },
+        { entityId: bookstore.id, weight: 1 },
+        { entityId: caramel.id, weight: 0.7 },
+      ],
+      now,
+    })
+
+    const result = await SearchLongTermMemoryTool.call(
+      { query: '旧书店' },
+      { agentId: agent.id, sessionId: session.id },
+    )
+
+    assert.equal(result.isError, undefined)
+    assert.match(result.output, /情景记忆/)
+    assert.match(result.output, /WJJ 在安特卫普旧书店提到过海盐焦糖/)
+  } finally {
     resetDb()
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
