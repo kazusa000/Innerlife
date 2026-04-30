@@ -664,11 +664,12 @@ export async function runEpisodicConsolidationForAgent(input: {
       '阶段 A：从 STM 抽取实体和情景记忆。',
       '只输出严格 JSON，不要 markdown，不要解释文字。',
       '顶层格式必须是：{"entities":[...],"episodic_memories":[...]}。',
-      'entities 每项格式必须是：{"local_entity_id":string,"surface":string,"type":"person|place|object|project|event|unknown","context_hint":string,"aliases":string[]}。',
+      'entities 每项格式必须是：{"local_entity_id":string,"surface":string,"type":"person|place|object|project|event|unknown","context_hint":string}。',
       'episodic_memories 每项格式必须是：{"summary":string,"source_quote":string,"importance":number,"entity_links":[{"local_entity_id":string,"weight":number}]}。',
       'entity_links.local_entity_id 必须引用 entities 中的 local_entity_id。',
-      '不要使用 id/name/entity_id/source_stm_id/role/attributes 等替代字段。',
+      '不要使用 id/name/entity_id/source_stm_id/role/attributes/aliases 等替代字段。',
       '只抽取真实实体 mention：人物、地点、物品、项目、事件；不要把抽象概念、情绪或关系解释作为实体。',
+      'Stage A 禁止建立 alias；alias 只能在 Stage B merge 既有实体时由 alias_to_add 建立。',
       '每条情景记忆最多 5 个 entity_links；weight < 0.3 不输出。',
       '实体类型只允许 person/place/object/project/event/unknown。',
     ].join('\n'),
@@ -733,7 +734,8 @@ export async function runEpisodicConsolidationForAgent(input: {
       'create_new 格式：{"local_entity_id":string,"action":"create_new","canonical_name":string,"type":"person|place|object|project|event|unknown","confidence":number}。',
       '不要使用 global_entity_id/name/description/attributes/aliases 等替代字段。',
       '只有 confidence >= 0.75 才允许 merge。',
-      '不确定就 create_new。alias_to_add 只能来自原文或稳定叫法。',
+      '不确定就 create_new。alias_to_add 只允许在 merge 时填写，且必须是同一实体在原文中的稳定叫法。',
+      '同场景、同类别、相似词、相关物都不是 alias；例如海盐焦糖和焦糖咖啡不能互为 alias，安特卫普旧书店和东京旧书店不能互为 alias。',
     ].join('\n'),
     messages: [
       {
@@ -780,7 +782,7 @@ export async function runEpisodicConsolidationForAgent(input: {
       canonicalName: resolution.canonicalName || sourceEntity?.surface || 'unknown',
       description: sourceEntity?.contextHint ?? null,
       confidence: resolution.confidence,
-      aliases: sourceEntity?.aliases.map((alias) => ({ alias, confidence: 0.7 })) ?? [],
+      aliases: [],
       now,
     })
     createdEntityCount += 1

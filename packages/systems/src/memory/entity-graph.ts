@@ -12,7 +12,6 @@ export interface EpisodicExtractionEntity {
   surface: string
   type: MemoryEntityType
   contextHint: string
-  aliases: string[]
 }
 
 export interface EpisodicMemoryDraft {
@@ -197,9 +196,6 @@ export function parseEpisodicExtractionResponse(responseText: string): {
       surface,
       type: readEntityType(record.type, 'unknown') ?? 'unknown',
       contextHint: readText(record.context_hint),
-      aliases: Array.isArray(record.aliases)
-        ? record.aliases.map(readText).filter(Boolean)
-        : [],
     }]
   })
 

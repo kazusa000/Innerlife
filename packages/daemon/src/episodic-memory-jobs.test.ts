@@ -60,6 +60,8 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
           assert.match(input.systemPrompt, /surface/)
           assert.match(input.systemPrompt, /source_quote/)
           assert.match(input.systemPrompt, /entity_links/)
+          assert.doesNotMatch(input.systemPrompt, /"aliases":string\[\]/)
+          assert.match(input.systemPrompt, /Stage A 禁止建立 alias/)
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
@@ -111,6 +113,14 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
     assert.equal(result.ok, true)
     assert.equal(result.createdEpisodicCount, 1)
     assert.equal(result.createdEntityCount, 3)
+    assert.deepEqual(
+      getMemoryRawSqlite().prepare(`
+        SELECT alias
+        FROM memory_entity_aliases
+        ORDER BY alias
+      `).all(),
+      [],
+    )
     assert.equal(memoryRepo.getMemory(stm.id), undefined)
     assert.equal(episodicMemoryGraphRepo.recallEpisodicMemories({
       agentId: agent.id,
