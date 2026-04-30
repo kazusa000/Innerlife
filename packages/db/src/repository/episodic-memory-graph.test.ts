@@ -72,6 +72,68 @@ test('entity graph repo creates entities with aliases and matches mention candid
   }
 })
 
+test('entity candidate matching surfaces shared concrete suffixes without aliases', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const antwerpBookstore = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: '安特卫普旧书店',
+      description: 'WJJ 买海盐焦糖的地点',
+      confidence: 0.9,
+      aliases: [],
+    })
+    const tokyoBookstore = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: '东京旧书店',
+      description: 'Nora 买焦糖咖啡的地点',
+      confidence: 0.9,
+      aliases: [],
+    })
+    const seaSaltCaramel = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '海盐焦糖',
+      description: '糖果',
+      confidence: 0.9,
+      aliases: [],
+    })
+
+    const bookstoreCandidates = graphRepo.findEntityCandidates({
+      agentId: 'agent-1',
+      type: 'place',
+      surface: '那家旧书店',
+    })
+
+    assert.deepEqual(
+      bookstoreCandidates.map((candidate) => candidate.entity.id).sort(),
+      [antwerpBookstore.id, tokyoBookstore.id].sort(),
+    )
+    assert.deepEqual(
+      bookstoreCandidates.map((candidate) => candidate.matchKind),
+      ['contains', 'contains'],
+    )
+
+    const caramelCandidates = graphRepo.findEntityCandidates({
+      agentId: 'agent-1',
+      type: 'object',
+      surface: '焦糖咖啡',
+    })
+
+    assert.equal(
+      caramelCandidates.some((candidate) => candidate.entity.id === seaSaltCaramel.id),
+      false,
+    )
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('entity activations spread one hop and recall top episodic memories by linked entity weights', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
   const dbPath = join(dir, 'memory.db')

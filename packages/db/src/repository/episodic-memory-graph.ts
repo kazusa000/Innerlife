@@ -62,6 +62,43 @@ function normalizeText(value: string) {
   return value.trim()
 }
 
+function normalizeMatchText(value: string) {
+  return normalizeText(value).toLowerCase().replace(/\s+/g, ' ')
+}
+
+function hasCjk(value: string) {
+  return /[\u3400-\u9fff]/.test(value)
+}
+
+function longestCommonSubstringLength(left: string, right: string) {
+  let previous = new Array(right.length + 1).fill(0) as number[]
+  let best = 0
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = new Array(right.length + 1).fill(0) as number[]
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      if (left[leftIndex - 1] === right[rightIndex - 1]) {
+        current[rightIndex] = previous[rightIndex - 1]! + 1
+        best = Math.max(best, current[rightIndex]!)
+      }
+    }
+    previous = current
+  }
+
+  return best
+}
+
+function hasSharedConcreteFragment(left: string, right: string) {
+  const normalizedLeft = normalizeMatchText(left)
+  const normalizedRight = normalizeMatchText(right)
+  if (!normalizedLeft || !normalizedRight) {
+    return false
+  }
+
+  const minLength = hasCjk(normalizedLeft) || hasCjk(normalizedRight) ? 3 : 6
+  return longestCommonSubstringLength(normalizedLeft, normalizedRight) >= minLength
+}
+
 function clip01(value: number) {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
 }
@@ -236,49 +273,51 @@ export function findEntityCandidates(input: {
   const rows = sqlite.prepare(`
     SELECT
       e.id,
-      max(
-        CASE
-          WHEN e.canonical_name = ? THEN 2
-          WHEN a.alias = ? THEN 2
-          ELSE 1
-        END
-      ) AS match_score
+      e.canonical_name,
+      a.alias
     FROM memory_entities e
     LEFT JOIN memory_entity_aliases a ON a.entity_id = e.id
     WHERE e.agent_id = ?
       ${typeCondition}
-      AND (
-        e.canonical_name = ?
-        OR a.alias = ?
-        OR instr(?, e.canonical_name) > 0
-        OR instr(e.canonical_name, ?) > 0
-        OR (a.alias IS NOT NULL AND instr(?, a.alias) > 0)
-        OR (a.alias IS NOT NULL AND instr(a.alias, ?) > 0)
-      )
-    GROUP BY e.id
-    ORDER BY match_score DESC
-    LIMIT ?
-  `).all(
-    surface,
-    surface,
-    ...values,
-    surface,
-    surface,
-    surface,
-    surface,
-    surface,
-    surface,
-    input.limit ?? 10,
-  ) as Array<{ id: string; match_score: number }>
+  `).all(...values) as Array<{ id: string; canonical_name: string; alias: string | null }>
 
-  return rows
+  const items = new Map<string, {
+    canonicalName: string
+    aliases: string[]
+    matchScore: number
+  }>()
+  for (const row of rows) {
+    const item = items.get(row.id) ?? {
+      canonicalName: row.canonical_name,
+      aliases: [],
+      matchScore: 0,
+    }
+    if (row.alias) {
+      item.aliases.push(row.alias)
+    }
+    items.set(row.id, item)
+  }
+
+  const scored = [...items.entries()].flatMap(([id, item]) => {
+    const names = [item.canonicalName, ...item.aliases]
+    const exact = names.some((name) => normalizeText(name) === surface)
+    const contains = names.some((name) =>
+      surface.includes(name) || name.includes(surface) || hasSharedConcreteFragment(surface, name),
+    )
+    const matchScore = exact ? 2 : contains ? 1 : 0
+    return matchScore > 0 ? [{ id, matchScore }] : []
+  })
+
+  return scored
+    .sort((left, right) => right.matchScore - left.matchScore)
+    .slice(0, input.limit ?? 10)
     .map((row) => ({ row, entity: getEntity(row.id) }))
-    .filter((item): item is { row: { id: string; match_score: number }; entity: MemoryEntityRecord } =>
+    .filter((item): item is { row: { id: string; matchScore: number }; entity: MemoryEntityRecord } =>
       Boolean(item.entity),
     )
     .map(({ row, entity }) => ({
       entity,
-      matchKind: row.match_score >= 2 ? 'exact' as const : 'contains' as const,
+      matchKind: row.matchScore >= 2 ? 'exact' as const : 'contains' as const,
     }))
 }
 
