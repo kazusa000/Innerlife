@@ -417,13 +417,112 @@ test('runEpisodicConsolidationForAgent resolves only entities linked by usable e
     `).all(agent.id) as Array<{ canonical_name: string; type: string }>
 
     assert.equal(result.ok, true)
-    assert.equal(result.createdEntityCount, 1)
+    assert.equal(result.createdEntityCount, 0)
     assert.equal(result.createdEpisodicCount, 1)
     assert.doesNotMatch(stageBInput, /怀念/)
     assert.deepEqual(entityRows, [
       { canonical_name: '海盐焦糖', type: 'object' },
-      { canonical_name: '焦糖', type: 'object' },
     ])
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('runEpisodicConsolidationForAgent reuses an exact existing entity when resolution says create_new', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-episodic-memory-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+    const agent = agentRepo.createAgent({
+      name: 'Amadeus',
+      description: '',
+      model: 'claude-sonnet-4-6',
+      provider: 'openrouter',
+      modules: { memory: { scheme: 'sqlite' } },
+    })
+    const existing = episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: 'place',
+      canonicalName: '东京旧书店',
+      description: '已存在的地点节点',
+      confidence: 0.9,
+      aliases: [],
+    })
+    memoryRepo.addMemory({
+      agentId: agent.id,
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'Nora 今天又提到东京旧书店。',
+      displaySummary: 'Nora 提到东京旧书店。',
+      retrievalText: 'Nora 提到东京旧书店。',
+      retrievalEmbedding: [],
+      retrievalModel: 'none',
+      tags: [],
+      importance: 0.7,
+    })
+
+    const provider = {
+      async sendMessage(input: { systemPrompt: string }) {
+        if (input.systemPrompt.includes('阶段 A')) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({
+              entities: [
+                { local_entity_id: 'tokyo', surface: '东京旧书店', type: 'place', context_hint: 'Nora 提到的地点' },
+              ],
+              episodic_memories: [
+                {
+                  summary: 'Nora 又提到东京旧书店。',
+                  source_quote: 'Nora 今天又提到东京旧书店',
+                  importance: 0.7,
+                  entity_links: [{ local_entity_id: 'tokyo', weight: 1 }],
+                },
+              ],
+            }) }],
+            stopReason: 'end_turn' as const,
+            usage: { inputTokens: 1, outputTokens: 1 },
+          }
+        }
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            resolutions: [
+              {
+                local_entity_id: 'tokyo',
+                action: 'create_new',
+                canonical_name: '东京旧书店',
+                type: 'place',
+                confidence: 0.9,
+              },
+            ],
+          }) }],
+          stopReason: 'end_turn' as const,
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+
+    const result = await runEpisodicConsolidationForAgent({
+      agentId: agent.id,
+      provider,
+      now: new Date('2026-04-30T09:00:00.000Z'),
+    })
+    const entityRows = getMemoryRawSqlite().prepare(`
+      SELECT id, canonical_name
+      FROM memory_entities
+      WHERE agent_id = ?
+    `).all(agent.id) as Array<{ id: string; canonical_name: string }>
+    const linkRows = getMemoryRawSqlite().prepare(`
+      SELECT entity_id
+      FROM episodic_memory_entities
+    `).all() as Array<{ entity_id: string }>
+
+    assert.equal(result.ok, true)
+    assert.equal(result.createdEntityCount, 0)
+    assert.deepEqual(entityRows, [{ id: existing.id, canonical_name: '东京旧书店' }])
+    assert.deepEqual(linkRows, [{ entity_id: existing.id }])
   } finally {
     resetDb()
     resetMemoryDb()

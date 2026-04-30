@@ -777,12 +777,26 @@ export async function runEpisodicConsolidationForAgent(input: {
     }
 
     const sourceEntity = extractionEntitiesById.get(resolution.localEntityId)
+    const canonicalName = resolution.canonicalName || sourceEntity?.surface || 'unknown'
+    const exactExisting = episodicMemoryGraphRepo.findEntityCandidates({
+      agentId: agent.id,
+      type: resolution.type === 'unknown' && sourceEntity?.type
+        ? sourceEntity.type
+        : resolution.type,
+      surface: canonicalName,
+      limit: 1,
+    }).find((candidate) => candidate.matchKind === 'exact')
+    if (exactExisting) {
+      entityIdsByLocalId.set(resolution.localEntityId, exactExisting.entity.id)
+      continue
+    }
+
     const entity = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
       type: resolution.type === 'unknown' && sourceEntity?.type
         ? sourceEntity.type
         : resolution.type,
-      canonicalName: resolution.canonicalName || sourceEntity?.surface || 'unknown',
+      canonicalName,
       description: sourceEntity?.contextHint ?? null,
       confidence: resolution.confidence,
       aliases: [],
