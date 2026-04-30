@@ -181,6 +181,86 @@ test('search_long_term_memory recalls episodic memories through entity activatio
   }
 })
 
+test('search_long_term_memory extracts entity mentions before graph recall', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-search-ltm-tool-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+    const agent = agentRepo.createAgent({
+      name: 'Hazel',
+      provider: 'openrouter',
+      model: 'qwen/qwen3.5-flash-02-23',
+      modules: { memory: { scheme: 'sqlite' } },
+    })
+    const session = sessionRepo.createSession(agent.id, 'seed')
+    const now = new Date('2026-04-30T09:00:00.000Z')
+    const bookstore = episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: 'place',
+      canonicalName: '安特卫普旧书店',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+    const coffee = episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: 'object',
+      canonicalName: '焦糖咖啡',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+    episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: agent.id,
+      sessionId: session.id,
+      summary: 'WJJ 在安特卫普旧书店边喝焦糖咖啡边复盘 memory v2。',
+      sourceText: '',
+      sourceQuote: null,
+      importance: 0.8,
+      observedStartAt: now,
+      observedEndAt: now,
+      entityLinks: [
+        { entityId: bookstore.id, weight: 1 },
+        { entityId: coffee.id, weight: 0.8 },
+      ],
+      now,
+    })
+
+    let sawMentionPrompt = false
+    const provider = {
+      async sendMessage(input: { systemPrompt: string }) {
+        sawMentionPrompt = input.systemPrompt.includes('实体 mention')
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            mentions: [
+              { surface: '安特卫普旧书店', type: 'place', context_hint: '旧书店地点', confidence: 0.9 },
+              { surface: '焦糖咖啡', type: 'object', context_hint: '饮品', confidence: 0.9 },
+            ],
+          }) }],
+          stopReason: 'end_turn' as const,
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+
+    const result = await SearchLongTermMemoryTool.call(
+      { query: '那家店和焦糖饮料有什么关系？' },
+      { agentId: agent.id, sessionId: session.id, provider },
+    )
+
+    assert.equal(sawMentionPrompt, true)
+    assert.equal(result.metadata?.noResults, false)
+    assert.equal(result.metadata?.mode, 'episodic_entity_graph')
+    assert.match(result.output, /WJJ 在安特卫普旧书店边喝焦糖咖啡边复盘 memory v2/)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('search_long_term_memory uses persona default top_k when the tool input omits it', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-search-ltm-tool-'))
   const dbPath = join(dir, 'data.db')

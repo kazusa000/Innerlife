@@ -1,12 +1,16 @@
 import { agentRepo, episodicMemoryGraphRepo, memoryRepo } from '@mas/db'
 import {
+  buildEntityMentionPrompt,
   buildLongTermSearchToolPrompt,
   createOpenRouterMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   isSqliteMemoryConfig,
+  parseEntityMentionResponse,
   resolveMemorySqliteConfig,
 } from '@mas/systems'
 import type { Tool } from './types'
+import { createProvider } from '../provider/factory'
+import type { LLMProvider } from '../provider/types'
 
 const SEARCH_LONG_TERM_MEMORY_DESCRIPTION = [
   buildLongTermSearchToolPrompt(),
@@ -46,6 +50,36 @@ function readQueryText(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : ''
 }
 
+async function extractEntityMentions(input: {
+  text: string
+  model: string
+  provider: Pick<LLMProvider, 'sendMessage'>
+  signal?: AbortSignal
+}) {
+  if (!input.text.trim()) {
+    return []
+  }
+
+  const response = await input.provider.sendMessage({
+    model: input.model,
+    systemPrompt: buildEntityMentionPrompt(),
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: input.text }],
+      },
+    ],
+    reasoning: { effort: 'none' },
+    signal: input.signal,
+  })
+
+  return parseEntityMentionResponse(
+    response.content
+      .map((block) => block.type === 'text' ? block.text : '')
+      .join('\n'),
+  )
+}
+
 export const SearchLongTermMemoryTool: Tool = {
   name: 'search_long_term_memory',
   description: SEARCH_LONG_TERM_MEMORY_DESCRIPTION,
@@ -78,6 +112,7 @@ export const SearchLongTermMemoryTool: Tool = {
     }
 
     const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+    const agentId = options.agentId
     const embedder = createOpenRouterMemoryEmbedder()
     const semanticQuery = readQueryText(options?.memoryRetrievalQuery)
     const toolQuery = readQueryText(input.query)
@@ -107,19 +142,45 @@ export const SearchLongTermMemoryTool: Tool = {
       }
     }
 
-    const graphQuery = toolQuery || semanticQuery
-    const graphCandidates = graphQuery
+    const graphQuery = [toolQuery, semanticQuery]
+      .filter(Boolean)
+      .join('\n')
+    const graphProvider = options.provider ?? createProvider(agent.provider)
+    const mentions = episodicMemoryGraphRepo.hasEntitiesForAgent(agentId)
+      ? await extractEntityMentions({
+        text: graphQuery,
+        model: memoryConfig.summarizeModel ?? agent.model,
+        provider: graphProvider,
+        signal: options.signal,
+      }).catch(() => [])
+      : []
+    const mentionCandidates = mentions.flatMap((mention) =>
+      episodicMemoryGraphRepo.findEntityCandidates({
+        agentId,
+        type: mention.type,
+        surface: mention.surface,
+        limit: 10,
+      }).map((candidate) => ({
+        ...candidate,
+        mention,
+      })),
+    )
+    const directCandidates = mentions.length === 0 && graphQuery
       ? episodicMemoryGraphRepo.findEntityCandidates({
-        agentId: options.agentId,
+        agentId,
         surface: graphQuery,
         limit: 10,
-      })
+      }).map((candidate) => ({
+        ...candidate,
+        mention: null,
+      }))
       : []
+    const graphCandidates = mentionCandidates.length > 0 ? mentionCandidates : directCandidates
 
     if (graphCandidates.length > 0) {
       const activation = graphCandidates.length === 1 ? 1 : 0.7
       episodicMemoryGraphRepo.activateEntities({
-        agentId: options.agentId,
+        agentId,
         activations: graphCandidates.map((candidate) => ({
           entityId: candidate.entity.id,
           activation,
@@ -130,7 +191,7 @@ export const SearchLongTermMemoryTool: Tool = {
         spreadFactor: 0.35,
       })
       const episodic = episodicMemoryGraphRepo.recallEpisodicMemories({
-        agentId: options.agentId,
+        agentId,
         topK,
       })
 
@@ -144,6 +205,7 @@ export const SearchLongTermMemoryTool: Tool = {
             noResults: false,
             mode: 'episodic_entity_graph',
             effectiveQueries,
+            entityMentions: mentions,
             hits: episodic.map((memory) => ({
               id: memory.id,
               sessionId: memory.sessionId,
@@ -166,7 +228,7 @@ export const SearchLongTermMemoryTool: Tool = {
     )
 
     const hits = memoryRepo.findRelevantMemories({
-      agentId: options.agentId,
+      agentId,
       queryEmbeddings,
       queryWeights: effectiveQueries.map((entry) => entry.weight),
       topK,

@@ -520,7 +520,7 @@ test('runAgent records embedding retrieval metadata without writing a short-term
   }
 })
 
-test('runner executes entity mention recall before composing the main turn prompt', async () => {
+test('runner does not execute entity mention recall before composing the main turn prompt', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
   const dbPath = join(dir, 'data.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -570,8 +570,10 @@ test('runner executes entity mention recall before composing the main turn promp
     })
 
     const seenSystemPrompts: string[] = []
+    let sawEntityMentionCall = false
     const provider = new FakeProvider(async function* (params) {
       if (params.systemPrompt.includes('实体 mention')) {
+        sawEntityMentionCall = true
         yield {
           type: 'message_complete',
           response: {
@@ -589,7 +591,7 @@ test('runner executes entity mention recall before composing the main turn promp
         yield {
           type: 'message_complete',
           response: {
-            content: [{ type: 'text', text: JSON.stringify({ retrieval_query: null }) }],
+            content: [{ type: 'text', text: JSON.stringify({ retrieval_query: '那家旧书店后来怎么样了' }) }],
             stopReason: 'end_turn',
             usage: { inputTokens: 1, outputTokens: 1 },
           },
@@ -625,8 +627,9 @@ test('runner executes entity mention recall before composing the main turn promp
     }
 
     assert.equal(events.some((event) => event.type === 'system_error'), false)
-    assert.match(seenSystemPrompts[0] ?? '', /此刻自然浮现的情景记忆/)
-    assert.match(seenSystemPrompts[0] ?? '', /WJJ 在安特卫普旧书店提到过海盐焦糖/)
+    assert.equal(sawEntityMentionCall, false)
+    assert.doesNotMatch(seenSystemPrompts[0] ?? '', /此刻自然浮现的情景记忆/)
+    assert.doesNotMatch(seenSystemPrompts[0] ?? '', /WJJ 在安特卫普旧书店提到过海盐焦糖/)
   } finally {
     resetDb()
     resetMemoryDb()

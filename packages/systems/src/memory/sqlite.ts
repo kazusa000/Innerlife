@@ -1,6 +1,5 @@
 import {
   agentRepo,
-  episodicMemoryGraphRepo,
   memoryRepo,
   relationshipCounterpartRepo,
   sessionRelationshipBindingRepo,
@@ -25,10 +24,6 @@ import {
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   type MemoryEmbedder,
 } from './embeddings'
-import {
-  buildEntityMentionPrompt,
-  parseEntityMentionResponse,
-} from './entity-graph'
 import { analyzeMemoryTimeText } from './time-parser'
 
 const DEFAULT_RETRIEVE_TOP_K = 5
@@ -1115,7 +1110,6 @@ export class MemorySqliteSystem implements AgentSystem {
       semanticAnalyzerPrompt: this.semanticAnalyzerPrompt,
       retrievePrompt: this.legacyRetrievePrompt,
     })
-    const hasEpisodicGraph = episodicMemoryGraphRepo.hasEntitiesForAgent(ctx.agentId)
     const pending: PendingMemoryQuery = {
       kind: 'sqlite',
       system: this.name,
@@ -1140,16 +1134,6 @@ export class MemorySqliteSystem implements AgentSystem {
           parseSemanticAnalyzerResponse(responseText),
         ),
       },
-      ...(hasEpisodicGraph
-        ? {
-            entityMentionAnalyzer: {
-              kind: 'llm',
-              prompt: buildEntityMentionPrompt(),
-              inputText: ctx.input.text,
-              parse: parseEntityMentionResponse,
-            },
-          }
-        : {}),
       merge: ({ time, semantic }) => {
         const merged = {
           retrievalQuery: semantic.retrievalQuery,
@@ -1194,42 +1178,6 @@ export class MemorySqliteSystem implements AgentSystem {
 
         return { shortTerm, fixed }
       },
-      ...(hasEpisodicGraph
-        ? {
-            activateAndRecallEpisodic: async (mentions) => {
-              const activations = mentions.flatMap((mention) => {
-                const candidates = episodicMemoryGraphRepo.findEntityCandidates({
-                  agentId: ctx.agentId,
-                  type: mention.type,
-                  surface: mention.surface,
-                })
-                const exactMatches = candidates.filter((candidate) => candidate.matchKind === 'exact')
-                const activation = candidates.length === 1
-                  ? (exactMatches.length === 1 ? 1 : 0.8)
-                  : (exactMatches.length > 0 ? 0.7 : 0.5)
-
-                return candidates.map((candidate) => ({
-                  entityId: candidate.entity.id,
-                  activation,
-                  reason: candidate.matchKind === 'exact' ? 'exact' : 'contains',
-                }))
-              })
-
-              episodicMemoryGraphRepo.activateEntities({
-                agentId: ctx.agentId,
-                activations,
-                ttlMs: 30 * 60 * 1000,
-                maxActive: 20,
-                spreadFactor: 0.35,
-              })
-
-              return episodicMemoryGraphRepo.recallEpisodicMemories({
-                agentId: ctx.agentId,
-                topK: 5,
-              })
-            },
-          }
-        : {}),
     }
 
     ctx.pendingMemoryQuery = pending

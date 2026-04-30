@@ -277,6 +277,7 @@ export async function* runAgent(
               signal,
               agentId: config.id,
               sessionId: config.sessionId,
+              provider,
               memoryRetrievalQuery:
                 typeof ctx.state.memoryRetrievalQuery === 'string'
                   ? ctx.state.memoryRetrievalQuery
@@ -288,6 +289,7 @@ export async function* runAgent(
             signal,
             agentId: config.id,
             sessionId: config.sessionId,
+            provider,
             memoryRetrievalQuery:
               typeof ctx.state.memoryRetrievalQuery === 'string'
                 ? ctx.state.memoryRetrievalQuery

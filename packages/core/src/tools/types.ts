@@ -1,3 +1,5 @@
+import type { LLMProvider } from '../provider/types'
+
 export interface ToolResult {
   output: string
   isError?: boolean
@@ -18,6 +20,7 @@ export interface ToolCallOptions {
   agentId?: string
   sessionId?: string
   memoryRetrievalQuery?: string | null
+  provider?: Pick<LLMProvider, 'sendMessage'>
 }
 
 export interface Tool {
