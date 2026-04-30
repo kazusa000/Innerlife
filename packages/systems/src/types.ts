@@ -1,3 +1,5 @@
+import type { EntityMention } from './memory/entity-graph'
+
 export interface PromptFragment {
   source: string
   priority: number
@@ -142,11 +144,13 @@ export interface PendingMemoryQuery {
   reasoning?: MemoryReasoningConfig
   timeAnalyzer: PendingMemoryQueryAnalyzer<MemoryTimeAnalysisResult>
   semanticAnalyzer: PendingMemoryQueryAnalyzer<MemorySemanticAnalysisResult>
+  entityMentionAnalyzer?: PendingMemoryQueryAnalyzer<EntityMention[]>
   merge(input: {
     time: MemoryTimeAnalysisResult | null
     semantic: MemorySemanticAnalysisResult
   }): MemoryQueryResult
   retrieve(query: MemoryQueryResult): Promise<MemoryLayeredRetrieveResult> | MemoryLayeredRetrieveResult
+  activateAndRecallEpisodic?: (mentions: EntityMention[]) => Promise<unknown[]> | unknown[]
 }
 
 export interface EmotionStateVector {
@@ -236,6 +240,7 @@ export interface TurnContext {
     memories?: MemoryRecord[]
     shortTermMemories?: MemoryRecord[]
     fixedMemories?: MemoryRecord[]
+    episodicMemories?: unknown[]
     [key: string]: unknown
   }
   turnMetadata: Record<string, unknown>

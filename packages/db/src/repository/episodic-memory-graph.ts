@@ -199,6 +199,17 @@ export function addEntityAlias(input: {
   return result.changes > 0
 }
 
+export function hasEntitiesForAgent(agentId: string) {
+  const row = getMemoryRawSqlite().prepare(`
+    SELECT 1 AS value
+    FROM memory_entities
+    WHERE agent_id = ?
+    LIMIT 1
+  `).get(agentId) as { value: number } | undefined
+
+  return Boolean(row)
+}
+
 export function findEntityCandidates(input: {
   agentId: string
   type?: EntityType

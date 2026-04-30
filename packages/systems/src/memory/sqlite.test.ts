@@ -216,6 +216,31 @@ test('memory sqlite system keeps no-hit short-term and fixed fragments non-empty
   }
 })
 
+test('memory sqlite injects recalled episodic memories as natural surfaced memories', async () => {
+  const system = new MemorySqliteSystem({ scheme: 'sqlite' })
+  const ctx = createContext('那家旧书店后来怎么样了？')
+  ;(ctx.state as Record<string, unknown>).episodicMemories = [
+    {
+      id: 'memory-1',
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 在安特卫普旧书店提到过海盐焦糖。',
+      sourceText: '',
+      sourceQuote: null,
+      importance: 0.7,
+      observedStartAt: new Date('2026-04-24T18:00:00.000Z'),
+      observedEndAt: new Date('2026-04-24T18:20:00.000Z'),
+      createdAt: new Date('2026-04-24T18:20:00.000Z'),
+    },
+  ]
+
+  await system.beforeLLM(ctx)
+
+  const content = ctx.promptFragments.map((fragment) => fragment.content).join('\n')
+  assert.match(content, /此刻自然浮现的情景记忆/)
+  assert.match(content, /WJJ 在安特卫普旧书店提到过海盐焦糖/)
+})
+
 test('memory sqlite retrieval skips semantic embeddings for pure time recall and keeps newest hits first in range', { concurrency: false }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
   const dbPath = join(dir, 'data.db')

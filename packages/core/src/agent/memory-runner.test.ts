@@ -7,6 +7,7 @@ import {
   getDb,
   getMemoryDb,
   getRawSqlite,
+  episodicMemoryGraphRepo,
   memoryRepo,
   resetDb,
   resetMemoryDb,
@@ -512,6 +513,120 @@ test('runAgent records embedding retrieval metadata without writing a short-term
     assert.equal(rows[0]!.retrievalText, '用户曾告诉我，他养了一只名叫橘子的猫')
     assert.deepEqual(rows[0]!.retrievalEmbedding, [1, 0])
     assert.equal(rows[0]!.layer, 'short_term')
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('runner executes entity mention recall before composing the main turn prompt', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+    const now = new Date('2026-04-30T09:00:00.000Z')
+    const wjj = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'person',
+      canonicalName: 'WJJ',
+      confidence: 0.95,
+      aliases: [],
+      now,
+    })
+    const bookstore = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: '安特卫普旧书店',
+      confidence: 0.9,
+      aliases: [{ alias: '旧书店', confidence: 0.8 }],
+      now,
+    })
+    const caramel = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '海盐焦糖',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+    episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 在安特卫普旧书店提到过海盐焦糖。',
+      sourceText: 'WJJ：旧书店那次我买了海盐焦糖。',
+      sourceQuote: '旧书店那次我买了海盐焦糖',
+      importance: 0.72,
+      observedStartAt: now,
+      observedEndAt: now,
+      entityLinks: [
+        { entityId: wjj.id, weight: 0.8 },
+        { entityId: bookstore.id, weight: 1 },
+        { entityId: caramel.id, weight: 0.7 },
+      ],
+      now,
+    })
+
+    const seenSystemPrompts: string[] = []
+    const provider = new FakeProvider(async function* (params) {
+      if (params.systemPrompt.includes('实体 mention')) {
+        yield {
+          type: 'message_complete',
+          response: {
+            content: [{ type: 'text', text: JSON.stringify({
+              mentions: [{ surface: '旧书店', type: 'place', context_hint: '旧书店地点', confidence: 0.9 }],
+            }) }],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 1, outputTokens: 1 },
+          },
+        }
+        return
+      }
+
+      if (isMemorySemanticPrompt(params.systemPrompt)) {
+        yield {
+          type: 'message_complete',
+          response: {
+            content: [{ type: 'text', text: JSON.stringify({ retrieval_query: null }) }],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 1, outputTokens: 1 },
+          },
+        }
+        return
+      }
+
+      seenSystemPrompts.push(params.systemPrompt)
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: 'ok' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1 },
+        },
+      }
+    })
+
+    const events = []
+    for await (const event of runAgent(
+      createConfig(),
+      [createTextMessage('user', '那家旧书店后来怎么样了？')],
+      provider,
+      createSystems({
+        memory: {
+          scheme: 'sqlite',
+          embedder: createEmbedder({}),
+        },
+      }),
+    )) {
+      events.push(event)
+      assert.notEqual(event.type, 'error')
+    }
+
+    assert.equal(events.some((event) => event.type === 'system_error'), false)
+    assert.match(seenSystemPrompts[0] ?? '', /此刻自然浮现的情景记忆/)
+    assert.match(seenSystemPrompts[0] ?? '', /WJJ 在安特卫普旧书店提到过海盐焦糖/)
   } finally {
     resetDb()
     resetMemoryDb()

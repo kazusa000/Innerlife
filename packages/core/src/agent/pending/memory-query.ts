@@ -1,5 +1,6 @@
 import { serializeMemoryHit } from '@mas/systems'
 import type {
+  EntityMention,
   MemoryResponseFormat,
   MemorySemanticAnalysisResult,
   PendingMemoryQuery,
@@ -9,6 +10,18 @@ import type { AgentConfig, AgentEvent, RunAgentObserver } from '../types'
 import type { LLMProvider, LLMResponse } from '../../provider/types'
 import type { Message } from '../../types'
 import { cloneMessages, extractContentText } from '../message-utils'
+
+function serializeEpisodicHit(memory: unknown) {
+  if (!memory || typeof memory !== 'object' || Array.isArray(memory)) {
+    return null
+  }
+  const record = memory as { id?: unknown; summary?: unknown; importance?: unknown }
+  return {
+    id: typeof record.id === 'string' ? record.id : '',
+    summary: typeof record.summary === 'string' ? record.summary : '',
+    importance: typeof record.importance === 'number' ? record.importance : 0,
+  }
+}
 
 export async function runPendingMemoryQuery(
   pending: PendingMemoryQuery | undefined,
@@ -55,14 +68,17 @@ export async function runPendingMemoryQuery(
   let semanticResponse: LLMResponse | undefined
   let timeError: Error | undefined
   let semanticError: Error | undefined
+  let entityMentionError: Error | undefined
   let queryError: Error | undefined
   let retrieveError: Error | undefined
   const timeAnalyzer = pending.timeAnalyzer
   const semanticAnalyzer = pending.semanticAnalyzer
+  const entityMentionAnalyzer = pending.entityMentionAnalyzer
   let timeResult = { timeRange: null as null | { start: Date; end: Date } }
   let semanticResult: MemorySemanticAnalysisResult = {
     retrievalQuery: null as string | null,
   }
+  let entityMentions: EntityMention[] = []
   let query = { retrievalQuery: null as string | null, timeRange: null as null | { start: Date; end: Date } }
   let memoryResult = {
     shortTerm: [] as NonNullable<TurnContext['state']['shortTermMemories']>,
@@ -94,7 +110,7 @@ export async function runPendingMemoryQuery(
     }
   }
 
-  const [timeOutcome, semanticOutcome] = await Promise.all([
+  const [timeOutcome, semanticOutcome, entityMentionOutcome] = await Promise.all([
     (timeAnalyzer.kind === 'local'
       ? Promise.resolve().then(async () => ({ parsed: await timeAnalyzer.analyze() }))
       : Promise.reject(new Error('Memory time analyzer must be local')))
@@ -105,6 +121,19 @@ export async function runPendingMemoryQuery(
       semanticAnalyzer.responseFormat,
       semanticAnalyzer.parse,
     ).catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) })),
+    (entityMentionAnalyzer
+      ? (
+          entityMentionAnalyzer.kind === 'llm'
+            ? runLlmAnalyzer(
+                entityMentionAnalyzer.prompt,
+                entityMentionAnalyzer.inputText,
+                entityMentionAnalyzer.responseFormat,
+                entityMentionAnalyzer.parse,
+              )
+            : Promise.resolve().then(async () => ({ parsed: await entityMentionAnalyzer.analyze() }))
+        )
+      : Promise.resolve({ parsed: [] as EntityMention[] }))
+      .catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) })),
   ])
 
   if ('error' in timeOutcome) {
@@ -118,6 +147,14 @@ export async function runPendingMemoryQuery(
   } else {
     semanticResponse = 'response' in semanticOutcome ? semanticOutcome.response : undefined
     semanticResult = semanticOutcome.parsed
+  }
+
+  if ('error' in entityMentionOutcome) {
+    entityMentionError = entityMentionOutcome.error
+  } else {
+    entityMentions = Array.isArray(entityMentionOutcome.parsed)
+      ? entityMentionOutcome.parsed as EntityMention[]
+      : []
   }
 
   try {
@@ -134,6 +171,34 @@ export async function runPendingMemoryQuery(
   ctx.state.memories = []
   ctx.state.shortTermMemories = []
   ctx.state.fixedMemories = []
+  ctx.state.episodicMemories = []
+
+  if (pending.activateAndRecallEpisodic && entityMentions.length > 0) {
+    try {
+      ctx.state.episodicMemories = await pending.activateAndRecallEpisodic(entityMentions)
+    } catch (err) {
+      entityMentionError = err instanceof Error ? err : new Error(String(err))
+    }
+  }
+  const episodicHits = (ctx.state.episodicMemories ?? [])
+    .map(serializeEpisodicHit)
+    .filter((hit): hit is { id: string; summary: string; importance: number } => Boolean(hit?.id))
+  const includeEntityMentionMetadata = Boolean(entityMentionAnalyzer)
+    || entityMentions.length > 0
+    || Boolean(entityMentionError)
+    || episodicHits.length > 0
+  const entityMentionMetadata = includeEntityMentionMetadata
+    ? {
+        entityMentionAnalyzer: {
+          mode: entityMentionAnalyzer?.kind ?? null,
+          mentionCount: entityMentions.length,
+          error: entityMentionError?.message ?? null,
+        },
+        episodicHitCount: episodicHits.length,
+        episodicMemoryIds: episodicHits.map((memory) => memory.id),
+        episodicHits,
+      }
+    : {}
 
   if (query.retrievalQuery || query.timeRange) {
     try {
@@ -185,6 +250,7 @@ export async function runPendingMemoryQuery(
         fixedHits,
         memoryIds: [...memoryResult.shortTerm, ...memoryResult.fixed].map((memory) => memory.id),
         hits,
+        ...entityMentionMetadata,
       }
     } catch (err) {
       retrieveError = err instanceof Error ? err : new Error(String(err))
@@ -192,7 +258,15 @@ export async function runPendingMemoryQuery(
   }
 
   const analyzerErrors = [timeError?.message, semanticError?.message].filter(Boolean) as string[]
-  if (!query.retrievalQuery && !query.timeRange) {
+  if (
+    episodicHits.length > 0
+    && !timeError
+    && !semanticError
+    && queryError?.message === 'Memory query analyzers returned neither retrieval_query nor time_range'
+  ) {
+    queryError = undefined
+  }
+  if (!query.retrievalQuery && !query.timeRange && episodicHits.length === 0) {
     if (analyzerErrors.length > 0) {
       queryError = new Error(analyzerErrors.join('; '))
     } else if (!queryError) {
@@ -237,6 +311,7 @@ export async function runPendingMemoryQuery(
         }
       : null,
   }
+  Object.assign(metadata, entityMentionMetadata)
 
   if (query.retrievalQuery || query.timeRange) {
     const shortTermHits = memoryResult.shortTerm.map((memory) => serializeMemoryHit(memory))
