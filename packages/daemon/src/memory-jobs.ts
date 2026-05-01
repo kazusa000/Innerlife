@@ -35,6 +35,17 @@ import type { MemoryRecord, ShortTermToLongTermMemoryWriteResult } from '@mas/sy
 
 type DbMessage = ReturnType<typeof messageRepo.getSessionMessages>[number]
 
+const EPISODIC_STAGE_B_LOCAL_ENTITY_BATCH_SIZE = 5
+const EPISODIC_STAGE_B_CANDIDATE_LIMIT = 5
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size))
+  }
+  return chunks
+}
+
 function extractTextFromContent(content: Array<{ type: string; text?: string }>) {
   return content
     .map((block) => block.type === 'text' ? block.text ?? '' : '')
@@ -693,90 +704,92 @@ export async function runEpisodicConsolidationForAgent(input: {
       draft.entityLinks.map((link) => link.localEntityId),
     ),
   )
-  const candidatePayload = extraction.entities
+  const candidatePayloads = extraction.entities
     .filter((entity) => referencedLocalEntityIds.has(entity.localEntityId))
     .map((entity) => ({
-    local_entity_id: entity.localEntityId,
-    surface: entity.surface,
-    type: entity.type,
-    context_hint: entity.contextHint,
-    candidates: episodicMemoryGraphRepo.findEntityCandidates({
-      agentId: agent.id,
-      type: entity.type,
+      local_entity_id: entity.localEntityId,
       surface: entity.surface,
-      limit: 10,
-    }).map((candidate) => ({
-      entity_id: candidate.entity.id,
-      canonical_name: candidate.entity.canonicalName,
-      type: candidate.entity.type,
-      description: candidate.entity.description,
-      match_kind: candidate.matchKind,
-    })),
-  }))
-
-  const resolutionResponse = await provider.sendMessage({
-    model: memoryConfig.summarizeModel ?? agent.model,
-    systemPrompt: buildEntityResolutionPrompt(memoryConfig.entityResolutionPrompt),
-    messages: [
-      {
-        role: 'user',
-        content: [{ type: 'text', text: JSON.stringify(candidatePayload, null, 2) }],
-      },
-    ],
-    reasoning: { effort: 'none' },
-    signal: input.signal,
-  })
-  const resolutions = parseEntityResolutionResponse(
-    extractTextFromContent(resolutionResponse.content),
-  )
+      type: entity.type,
+      context_hint: entity.contextHint,
+      candidates: episodicMemoryGraphRepo.findEntityCandidates({
+        agentId: agent.id,
+        type: entity.type,
+        surface: entity.surface,
+        limit: EPISODIC_STAGE_B_CANDIDATE_LIMIT,
+      }).map((candidate) => ({
+        entity_id: candidate.entity.id,
+        canonical_name: candidate.entity.canonicalName,
+        type: candidate.entity.type,
+        description: candidate.entity.description,
+      })),
+    }))
   const extractionEntitiesById = new Map(
     extraction.entities.map((entity) => [entity.localEntityId, entity]),
   )
   const entityIdsByLocalId = new Map<string, string>()
   let createdEntityCount = 0
 
-  for (const resolution of resolutions) {
-    if (!referencedLocalEntityIds.has(resolution.localEntityId)) {
-      continue
-    }
-
-    if (resolution.action === 'merge') {
-      entityIdsByLocalId.set(resolution.localEntityId, resolution.entityId)
-      if (resolution.aliasToAdd) {
-        episodicMemoryGraphRepo.addEntityAlias({
-          entityId: resolution.entityId,
-          alias: resolution.aliasToAdd,
-          confidence: resolution.confidence,
-          now,
-        })
-      }
-      continue
-    }
-
-    const sourceEntity = extractionEntitiesById.get(resolution.localEntityId)
-    const canonicalName = resolution.canonicalName || sourceEntity?.surface || resolution.localEntityId
-    const exactExisting = episodicMemoryGraphRepo.findEntityCandidates({
-      agentId: agent.id,
-      type: resolution.type,
-      surface: canonicalName,
-      limit: 1,
-    }).find((candidate) => candidate.matchKind === 'exact')
-    if (exactExisting) {
-      entityIdsByLocalId.set(resolution.localEntityId, exactExisting.entity.id)
-      continue
-    }
-
-    const entity = episodicMemoryGraphRepo.createEntity({
-      agentId: agent.id,
-      type: resolution.type,
-      canonicalName,
-      description: sourceEntity?.contextHint ?? null,
-      confidence: resolution.confidence,
-      aliases: [],
-      now,
+  for (const candidateBatch of chunkArray(candidatePayloads, EPISODIC_STAGE_B_LOCAL_ENTITY_BATCH_SIZE)) {
+    const batchLocalEntityIds = new Set(candidateBatch.map((candidate) => candidate.local_entity_id))
+    const resolutionResponse = await provider.sendMessage({
+      model: memoryConfig.summarizeModel ?? agent.model,
+      systemPrompt: buildEntityResolutionPrompt(memoryConfig.entityResolutionPrompt),
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: JSON.stringify(candidateBatch, null, 2) }],
+        },
+      ],
+      reasoning: { effort: 'none' },
+      signal: input.signal,
     })
-    createdEntityCount += 1
-    entityIdsByLocalId.set(resolution.localEntityId, entity.id)
+    const resolutions = parseEntityResolutionResponse(
+      extractTextFromContent(resolutionResponse.content),
+    )
+
+    for (const resolution of resolutions) {
+      if (!batchLocalEntityIds.has(resolution.localEntityId)) {
+        continue
+      }
+
+      if (resolution.action === 'merge') {
+        entityIdsByLocalId.set(resolution.localEntityId, resolution.entityId)
+        if (resolution.aliasToAdd) {
+          episodicMemoryGraphRepo.addEntityAlias({
+            entityId: resolution.entityId,
+            alias: resolution.aliasToAdd,
+            confidence: resolution.confidence,
+            now,
+          })
+        }
+        continue
+      }
+
+      const sourceEntity = extractionEntitiesById.get(resolution.localEntityId)
+      const canonicalName = resolution.canonicalName || sourceEntity?.surface || resolution.localEntityId
+      const exactExisting = episodicMemoryGraphRepo.findEntityCandidates({
+        agentId: agent.id,
+        type: resolution.type,
+        surface: canonicalName,
+        limit: 1,
+      }).find((candidate) => candidate.matchKind === 'exact')
+      if (exactExisting) {
+        entityIdsByLocalId.set(resolution.localEntityId, exactExisting.entity.id)
+        continue
+      }
+
+      const entity = episodicMemoryGraphRepo.createEntity({
+        agentId: agent.id,
+        type: resolution.type,
+        canonicalName,
+        description: sourceEntity?.contextHint ?? null,
+        confidence: resolution.confidence,
+        aliases: [],
+        now,
+      })
+      createdEntityCount += 1
+      entityIdsByLocalId.set(resolution.localEntityId, entity.id)
+    }
   }
 
   const observedRange = getObservedRangeFromMemories(shortTermMemories)

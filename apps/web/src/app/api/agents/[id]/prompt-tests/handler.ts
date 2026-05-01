@@ -173,7 +173,6 @@ export function buildDefaultPromptTestInputs(agent: AgentRecord) {
               canonical_name: '星际争霸2',
               type: 'object',
               description: '用户喜欢的游戏',
-              match_kind: 'alias',
             },
           ],
         },
@@ -669,7 +668,6 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
         canonical_name: '星际争霸2',
         type: 'object',
         description: '用户喜欢的游戏',
-        match_kind: 'alias',
       }],
     }], null, 2)
     return runLlmTest({

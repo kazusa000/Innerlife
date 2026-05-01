@@ -3,6 +3,7 @@ import test from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import type { LLMRequest } from '@mas/core'
 import {
   agentRepo,
   bootstrapAppDatabases,
@@ -153,6 +154,157 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
       agentId: agent.id,
       topK: 5,
     }).length, 0)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('runEpisodicConsolidationForAgent resolves local entities in batches of five with five candidates each', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-episodic-job-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+    const agent = agentRepo.createAgent({
+      name: 'Amadeus',
+      description: '',
+      model: 'claude-sonnet-4-6',
+      provider: 'openrouter',
+      modules: { memory: { scheme: 'sqlite' } },
+    })
+    memoryRepo.addMemory({
+      agentId: agent.id,
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'WJJ：最近整理了一批游戏、地点和工具记忆。',
+      displaySummary: 'WJJ 提到一批需要沉淀的实体。',
+      retrievalText: 'WJJ 提到一批需要沉淀的实体。',
+      retrievalEmbedding: [],
+      retrievalModel: 'none',
+      tags: [],
+      importance: 0.7,
+      observedStartAt: new Date('2026-04-30T08:00:00.000Z'),
+      observedEndAt: new Date('2026-04-30T08:05:00.000Z'),
+    })
+
+    for (let index = 1; index <= 7; index += 1) {
+      episodicMemoryGraphRepo.createEntity({
+        agentId: agent.id,
+        type: 'object',
+        canonicalName: `候选游戏${index}`,
+        description: `候选游戏 ${index}`,
+        confidence: 0.8,
+        aliases: [{ alias: '共享游戏', confidence: 0.8 }],
+        now: new Date('2026-04-30T07:00:00.000Z'),
+      })
+    }
+
+    const stageBPayloadSizes: number[] = []
+    const stageBCandidateSizes: number[] = []
+    const stageBLocalIds: string[][] = []
+    const provider = {
+      async sendMessage(input: LLMRequest) {
+        if (input.systemPrompt.includes('阶段 A')) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({
+              entities: Array.from({ length: 12 }, (_, index) => ({
+                local_entity_id: `e${index + 1}`,
+                surface: index === 0 ? '共享游戏' : `局部实体${index + 1}`,
+                type: 'object',
+                context_hint: `第 ${index + 1} 个局部实体`,
+              })),
+              episodic_memories: [
+                {
+                  summary: '第一批局部实体需要沉淀。',
+                  source_quote: '第一批',
+                  importance: 0.8,
+                  entity_links: Array.from({ length: 5 }, (_, index) => ({
+                    local_entity_id: `e${index + 1}`,
+                    weight: 0.9,
+                  })),
+                },
+                {
+                  summary: '第二批局部实体需要沉淀。',
+                  source_quote: '第二批',
+                  importance: 0.8,
+                  entity_links: Array.from({ length: 5 }, (_, index) => ({
+                    local_entity_id: `e${index + 6}`,
+                    weight: 0.9,
+                  })),
+                },
+                {
+                  summary: '第三批局部实体需要沉淀。',
+                  source_quote: '第三批',
+                  importance: 0.8,
+                  entity_links: [
+                    { local_entity_id: 'e11', weight: 0.9 },
+                    { local_entity_id: 'e12', weight: 0.9 },
+                  ],
+                },
+              ],
+            }) }],
+            stopReason: 'end_turn' as const,
+            usage: { inputTokens: 1, outputTokens: 1 },
+          }
+        }
+
+        const content = input.messages[0]?.content
+        const text = Array.isArray(content) && content[0]?.type === 'text' ? content[0].text : '[]'
+        const payload = JSON.parse(text) as Array<{
+          local_entity_id: string
+          candidates: Array<Record<string, unknown>>
+        }>
+        stageBPayloadSizes.push(payload.length)
+        stageBLocalIds.push(payload.map((item) => item.local_entity_id))
+        for (const item of payload) {
+          assert.ok(item.candidates.length <= 5)
+          stageBCandidateSizes.push(item.candidates.length)
+          for (const candidate of item.candidates) {
+            assert.equal('match_kind' in candidate, false)
+          }
+        }
+
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            resolutions: payload.map((item) => ({
+              local_entity_id: item.local_entity_id,
+              action: 'create_new',
+              canonical_name: `节点-${item.local_entity_id}`,
+              type: 'object',
+              confidence: 0.86,
+            })),
+          }) }],
+          stopReason: 'end_turn' as const,
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+
+    const result = await runEpisodicConsolidationForAgent({
+      agentId: agent.id,
+      provider,
+      embedder: {
+        async embed(input) {
+          assert.equal(input.length, 3)
+          return input.map((_, index) => [index + 1, 0, 0])
+        },
+      },
+      now: new Date('2026-04-30T09:00:00.000Z'),
+    })
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(stageBPayloadSizes, [5, 5, 2])
+    assert.deepEqual(stageBLocalIds, [
+      ['e1', 'e2', 'e3', 'e4', 'e5'],
+      ['e6', 'e7', 'e8', 'e9', 'e10'],
+      ['e11', 'e12'],
+    ])
+    assert.equal(stageBCandidateSizes[0], 5)
+    assert.equal(result.createdEntityCount, 12)
+    assert.equal(result.createdEpisodicCount, 3)
   } finally {
     resetDb()
     resetMemoryDb()
