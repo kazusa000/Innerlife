@@ -57,6 +57,8 @@ export {
   createOpenRouterMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   buildEntityMentionPrompt,
+  buildEntityResolutionPrompt,
+  buildEpisodicExtractionPrompt,
   isSqliteMemoryConfig,
   MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
   MemorySqliteSystem,

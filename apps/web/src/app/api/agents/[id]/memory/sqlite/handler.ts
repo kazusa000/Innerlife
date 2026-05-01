@@ -9,11 +9,13 @@ import {
 } from '@mas/db'
 import {
   buildContextToShortTermPrompt,
+  buildEntityMentionPrompt,
+  buildEntityResolutionPrompt,
+  buildEpisodicExtractionPrompt,
   buildFixedMemoryFragmentPrompt,
   buildMemoryFragmentPrompt,
   buildSemanticAnalyzerPrompt,
   buildShortTermFragmentPrompt,
-  buildShortTermToLongTermPrompt,
   isSqliteMemoryConfig,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
@@ -213,7 +215,9 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
       readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.semanticAnalyzerPrompt)
       ?? readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.retrievePrompt),
     contextToShortTermPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.contextToShortTermPrompt),
-    shortTermToLongTermPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.shortTermToLongTermPrompt),
+    entityMentionPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.entityMentionPrompt),
+    episodicExtractionPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.episodicExtractionPrompt),
+    entityResolutionPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.entityResolutionPrompt),
     fragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fragmentPrompt),
     shortTermFragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.shortTermFragmentPrompt),
     fixedFragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fixedFragmentPrompt),
@@ -224,11 +228,12 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
       memoryConfig.contextToShortTermPrompt,
       pipelineSettings.maxShortTermMemoriesPerFlush,
     ),
-    shortTermToLongTermPromptDefault: buildShortTermToLongTermPrompt(null, pipelineSettings.maxShortTermMemoriesPerFlush),
-    shortTermToLongTermPromptEffective: buildShortTermToLongTermPrompt(
-      memoryConfig.shortTermToLongTermPrompt,
-      pipelineSettings.maxShortTermMemoriesPerFlush,
-    ),
+    entityMentionPromptDefault: buildEntityMentionPrompt(),
+    entityMentionPromptEffective: buildEntityMentionPrompt(memoryConfig.entityMentionPrompt),
+    episodicExtractionPromptDefault: buildEpisodicExtractionPrompt(),
+    episodicExtractionPromptEffective: buildEpisodicExtractionPrompt(memoryConfig.episodicExtractionPrompt),
+    entityResolutionPromptDefault: buildEntityResolutionPrompt(),
+    entityResolutionPromptEffective: buildEntityResolutionPrompt(memoryConfig.entityResolutionPrompt),
     fragmentPromptDefault: buildMemoryFragmentPrompt(),
     fragmentPromptEffective: buildMemoryFragmentPrompt(memoryConfig.fragmentPrompt),
     shortTermFragmentPromptDefault: buildShortTermFragmentPrompt(),
@@ -296,7 +301,9 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     'embeddingModel',
     'semanticAnalyzerPrompt',
     'contextToShortTermPrompt',
-    'shortTermToLongTermPrompt',
+    'entityMentionPrompt',
+    'episodicExtractionPrompt',
+    'entityResolutionPrompt',
     'fragmentPrompt',
     'shortTermFragmentPrompt',
     'fixedFragmentPrompt',
@@ -336,7 +343,9 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     sleepIntervalDays: hasOwn(body, 'sleepIntervalDays') ? readOptionalInt(body.sleepIntervalDays) : undefined,
     semanticAnalyzerPrompt: hasOwn(body, 'semanticAnalyzerPrompt') ? readOptionalText(body.semanticAnalyzerPrompt) : undefined,
     contextToShortTermPrompt: hasOwn(body, 'contextToShortTermPrompt') ? readOptionalText(body.contextToShortTermPrompt) : undefined,
-    shortTermToLongTermPrompt: hasOwn(body, 'shortTermToLongTermPrompt') ? readOptionalText(body.shortTermToLongTermPrompt) : undefined,
+    entityMentionPrompt: hasOwn(body, 'entityMentionPrompt') ? readOptionalText(body.entityMentionPrompt) : undefined,
+    episodicExtractionPrompt: hasOwn(body, 'episodicExtractionPrompt') ? readOptionalText(body.episodicExtractionPrompt) : undefined,
+    entityResolutionPrompt: hasOwn(body, 'entityResolutionPrompt') ? readOptionalText(body.entityResolutionPrompt) : undefined,
     fragmentPrompt: hasOwn(body, 'fragmentPrompt') ? readOptionalText(body.fragmentPrompt) : undefined,
     shortTermFragmentPrompt: hasOwn(body, 'shortTermFragmentPrompt') ? readOptionalText(body.shortTermFragmentPrompt) : undefined,
     fixedFragmentPrompt: hasOwn(body, 'fixedFragmentPrompt') ? readOptionalText(body.fixedFragmentPrompt) : undefined,
@@ -348,6 +357,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   delete nextMemory.semanticAnalyzerMode
   delete nextMemory.summarizePrompt
   delete nextMemory.consolidatePrompt
+  delete nextMemory.shortTermToLongTermPrompt
   for (const [key, value] of Object.entries(nextValues)) {
     if (value === undefined) {
       continue
@@ -385,7 +395,9 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     sleepIntervalDays: resolvedPipeline.sleepIntervalDays,
     semanticAnalyzerPrompt: resolvedMemory.semanticAnalyzerPrompt ?? resolvedMemory.retrievePrompt,
     contextToShortTermPrompt: resolvedMemory.contextToShortTermPrompt,
-    shortTermToLongTermPrompt: resolvedMemory.shortTermToLongTermPrompt,
+    entityMentionPrompt: resolvedMemory.entityMentionPrompt,
+    episodicExtractionPrompt: resolvedMemory.episodicExtractionPrompt,
+    entityResolutionPrompt: resolvedMemory.entityResolutionPrompt,
     fragmentPrompt: resolvedMemory.fragmentPrompt,
     shortTermFragmentPrompt: resolvedMemory.shortTermFragmentPrompt ?? resolvedMemory.fragmentPrompt,
     fixedFragmentPrompt: resolvedMemory.fixedFragmentPrompt ?? resolvedMemory.fragmentPrompt,
@@ -396,11 +408,12 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
       resolvedMemory.contextToShortTermPrompt,
       resolvedPipeline.maxShortTermMemoriesPerFlush,
     ),
-    shortTermToLongTermPromptDefault: buildShortTermToLongTermPrompt(null, resolvedPipeline.maxShortTermMemoriesPerFlush),
-    shortTermToLongTermPromptEffective: buildShortTermToLongTermPrompt(
-      resolvedMemory.shortTermToLongTermPrompt,
-      resolvedPipeline.maxShortTermMemoriesPerFlush,
-    ),
+    entityMentionPromptDefault: buildEntityMentionPrompt(),
+    entityMentionPromptEffective: buildEntityMentionPrompt(resolvedMemory.entityMentionPrompt),
+    episodicExtractionPromptDefault: buildEpisodicExtractionPrompt(),
+    episodicExtractionPromptEffective: buildEpisodicExtractionPrompt(resolvedMemory.episodicExtractionPrompt),
+    entityResolutionPromptDefault: buildEntityResolutionPrompt(),
+    entityResolutionPromptEffective: buildEntityResolutionPrompt(resolvedMemory.entityResolutionPrompt),
     fragmentPromptDefault: buildMemoryFragmentPrompt(),
     fragmentPromptEffective: buildMemoryFragmentPrompt(resolvedMemory.fragmentPrompt),
     shortTermFragmentPromptDefault: buildShortTermFragmentPrompt(),

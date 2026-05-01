@@ -128,7 +128,7 @@ test('search_long_term_memory does not graph recall without extracted entity men
       name: 'Hazel',
       provider: 'openrouter',
       model: 'qwen/qwen3.5-flash-02-23',
-      modules: { memory: { scheme: 'sqlite' } },
+      modules: { memory: { scheme: 'sqlite', entityMentionPrompt: '自定义实体 mention prompt' } },
     })
     const session = sessionRepo.createSession(agent.id, 'seed')
     const now = new Date('2026-04-30T09:00:00.000Z')
@@ -202,7 +202,7 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
       name: 'Hazel',
       provider: 'openrouter',
       model: 'qwen/qwen3.5-flash-02-23',
-      modules: { memory: { scheme: 'sqlite' } },
+      modules: { memory: { scheme: 'sqlite', entityMentionPrompt: '自定义实体 mention prompt' } },
     })
     const session = sessionRepo.createSession(agent.id, 'seed')
     const now = new Date('2026-04-30T09:00:00.000Z')
@@ -241,7 +241,7 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
     let sawMentionPrompt = false
     const provider = {
       async sendMessage(input: { systemPrompt: string }) {
-        sawMentionPrompt = input.systemPrompt.includes('实体 mention')
+        sawMentionPrompt = input.systemPrompt === '自定义实体 mention prompt'
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({
             mentions: [

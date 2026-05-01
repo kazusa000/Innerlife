@@ -1,4 +1,4 @@
-export type MemoryEntityType = 'person' | 'place' | 'object' | 'project' | 'event' | 'unknown'
+export type MemoryEntityType = 'person' | 'place' | 'object' | 'event'
 
 export interface EntityMention {
   surface: string
@@ -37,7 +37,7 @@ export type EntityResolution =
       confidence: number
     }
 
-const ENTITY_TYPES = new Set(['person', 'place', 'object', 'project', 'event', 'unknown'])
+const ENTITY_TYPES = new Set(['person', 'place', 'object', 'event'])
 const MERGE_CONFIDENCE_THRESHOLD = 0.75
 
 function extractJsonCandidate(text: string): string {
@@ -122,21 +122,81 @@ function readEntityType(value: unknown, fallback: MemoryEntityType | null): Memo
   if (ENTITY_TYPES.has(raw)) {
     return raw as MemoryEntityType
   }
+  if (raw === 'project') {
+    return 'object'
+  }
+  if (raw === 'unknown') {
+    return fallback
+  }
   return fallback
 }
 
-export function buildEntityMentionPrompt() {
+export function buildEntityMentionPrompt(promptOverride?: string | null) {
+  const override = promptOverride?.trim()
+  if (override) {
+    return override
+  }
+
   return [
     '你是实体 mention 提取器，只服务当前聊天召回。',
-    '请从当前用户消息中提取真实实体 mention：person/place/object/project/event/unknown。',
-    '泛称也可以是 mention：如果“旧书店”“那家店”“这个项目”等词可能指向记忆节点，也要输出。',
+    '请从当前用户消息中提取真实实体 mention：person/place/object/event。',
+    'object 包含物品、游戏、软件、书、电影、网站、系统名、项目名和其他可被指代的具体对象。',
+    'event 只用于某次具体发生过的事情，例如某次测试、旅行、聚会或争吵。',
+    '泛称也可以是 mention：如果“旧书店”“那家店”“这个游戏”等词可能指向记忆节点，也要输出。',
     '不要提取抽象概念、情绪标签、关系解释或心理分析。',
     '不要创建实体、不要合并实体、不要新增 alias；你只输出当前文本中的 mention。',
     '只输出严格 JSON，不要 markdown，不要解释文字。',
-    '顶层格式必须是：{"mentions":[{"surface":string,"type":"person|place|object|project|event|unknown","context_hint":string,"confidence":number}]}。',
+    '顶层格式必须是：{"mentions":[{"surface":string,"type":"person|place|object|event","context_hint":string,"confidence":number}]}。',
     '最多 5 个 mention，按和当前问题的相关性排序。',
     'surface 必须来自原文或原文里的稳定称呼；context_hint 用一句话说明这个 mention 在当前语境里指什么。',
     '如果没有实体，返回 {"mentions":[]}。',
+  ].join('\n')
+}
+
+export function buildEpisodicExtractionPrompt(promptOverride?: string | null) {
+  const override = promptOverride?.trim()
+  if (override) {
+    return override
+  }
+
+  return [
+    '阶段 A：从 STM 抽取实体和情景记忆。',
+    '只输出严格 JSON，不要 markdown，不要解释文字。',
+    '顶层格式必须是：{"entities":[...],"episodic_memories":[...]}。',
+    'entities 每项格式必须是：{"local_entity_id":string,"surface":string,"type":"person|place|object|event","context_hint":string}。',
+    'episodic_memories 每项格式必须是：{"summary":string,"source_quote":string,"importance":number,"entity_links":[{"local_entity_id":string,"weight":number}]}。',
+    'entity_links.local_entity_id 必须引用 entities 中的 local_entity_id。',
+    '不要使用 id/name/entity_id/source_stm_id/role/attributes/aliases 等替代字段。',
+    '只抽取真实实体 mention：人物、地点、物品/作品/游戏/软件/系统名/项目名、具体事件；不要把抽象概念、情绪或关系解释作为实体。',
+    '游戏、软件、书、电影、网站、系统名和项目名统一标为 object。',
+    'event 只用于具体发生过的一次事情；普通作品名、游戏名、软件名不是 event。',
+    'surface 必须保留原文中的实际 mention 文本，不要提前标准化、翻译或改写成你猜测的正式名称。',
+    'Stage A 禁止建立 alias；alias 只能在 Stage B merge 既有实体时由 alias_to_add 建立。',
+    '每条情景记忆最多 5 个 entity_links；weight < 0.3 不输出。',
+    '实体类型只允许 person/place/object/event。',
+  ].join('\n')
+}
+
+export function buildEntityResolutionPrompt(promptOverride?: string | null) {
+  const override = promptOverride?.trim()
+  if (override) {
+    return override
+  }
+
+  return [
+    '阶段 B：判断 local entity 是否应 merge 到候选实体，或 create_new。',
+    '只输出严格 JSON，不要 markdown，不要解释文字。',
+    '顶层格式必须是：{"resolutions":[...]}，不要返回数组。',
+    '每个 resolution 必须是 merge 或 create_new。',
+    'merge 格式：{"local_entity_id":string,"action":"merge","entity_id":string,"confidence":number,"alias_to_add":string|null}。',
+    'create_new 格式：{"local_entity_id":string,"action":"create_new","canonical_name":string,"type":"person|place|object|event","confidence":number}。',
+    '不要使用 global_entity_id/name/description/attributes/aliases 等替代字段。',
+    '只有 confidence >= 0.75 才允许 merge。',
+    '不确定就 create_new。alias_to_add 只允许在 merge 时填写，且必须是同一实体在原文中的稳定叫法。',
+    'merge 且 local surface 不等于候选 canonical_name/既有 alias 时，应把 local surface 作为 alias_to_add；完全相同则填 null。',
+    '如果 context_hint 明确说明 local entity 和某个候选是同一个实体（例如“就是”“指的是”“简称为”“同一个”），优先 merge 到该候选，不要 create_new。',
+    '同场景、同类别、相似词、相关物都不是 alias；例如海盐焦糖和焦糖咖啡不能互为 alias，安特卫普旧书店和东京旧书店不能互为 alias。',
+    '游戏、软件、书、电影、网站、系统名和项目名统一标为 object。',
   ].join('\n')
 }
 
@@ -194,7 +254,7 @@ export function parseEpisodicExtractionResponse(responseText: string): {
     return [{
       localEntityId,
       surface,
-      type: readEntityType(record.type, 'unknown') ?? 'unknown',
+      type: readEntityType(record.type, 'object') ?? 'object',
       contextHint: readText(record.context_hint),
     }]
   })
@@ -281,7 +341,7 @@ export function parseEntityResolutionResponse(responseText: string): EntityResol
       localEntityId,
       action: 'create_new' as const,
       canonicalName: readText(record.canonical_name) || readText(record.global_entity_id),
-      type: readEntityType(record.type, 'unknown') ?? 'unknown',
+      type: readEntityType(record.type, 'object') ?? 'object',
       confidence: score,
     })
   }

@@ -198,6 +198,18 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.equal(listData.embeddingModel, 'memory-embed')
     assert.equal(listData.semanticAnalyzerPrompt, '提炼检索查询')
     assert.equal(listData.fragmentPrompt, '把这些记忆当作回忆来回答')
+    assert.equal(listData.entityMentionPrompt, null)
+    assert.equal(listData.episodicExtractionPrompt, null)
+    assert.equal(listData.entityResolutionPrompt, null)
+    assert.equal(typeof listData.entityMentionPromptDefault, 'string')
+    assert.equal(typeof listData.episodicExtractionPromptDefault, 'string')
+    assert.equal(typeof listData.entityResolutionPromptDefault, 'string')
+    assert.equal(listData.entityMentionPromptEffective, listData.entityMentionPromptDefault)
+    assert.equal(listData.episodicExtractionPromptEffective, listData.episodicExtractionPromptDefault)
+    assert.equal(listData.entityResolutionPromptEffective, listData.entityResolutionPromptDefault)
+    assert.equal('shortTermToLongTermPrompt' in listData, false)
+    assert.equal('shortTermToLongTermPromptDefault' in listData, false)
+    assert.equal('shortTermToLongTermPromptEffective' in listData, false)
     assert.equal(typeof listData.semanticAnalyzerPromptDefault, 'string')
     assert.equal(listData.semanticAnalyzerPromptEffective, '提炼检索查询')
     assert.equal(listData.fragmentPromptEffective, '把这些记忆当作回忆来回答')
@@ -410,7 +422,10 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
       sleepIntervalDays: 2,
       fragmentPrompt: '  把这些记忆当作回忆来回答  ',
       contextToShortTermPrompt: '  整理旧上下文为短期记忆  ',
-      shortTermToLongTermPrompt: '  把短期记忆沉淀成长期记忆  ',
+      shortTermToLongTermPrompt: '  旧字段应该被清掉  ',
+      entityMentionPrompt: '  抽取实体 mention  ',
+      episodicExtractionPrompt: '  抽取实体和情景记忆  ',
+      entityResolutionPrompt: '  合并实体或创建新实体  ',
       shortTermFragmentPrompt: '  这些是近期记忆  ',
       fixedFragmentPrompt: '  这些是稳定事实  ',
     })
@@ -438,15 +453,21 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal(data.semanticAnalyzerPrompt, '生成检索锚点')
     assert.equal(data.fragmentPrompt, '把这些记忆当作回忆来回答')
     assert.equal(data.contextToShortTermPrompt, '整理旧上下文为短期记忆')
-    assert.equal(data.shortTermToLongTermPrompt, '把短期记忆沉淀成长期记忆')
+    assert.equal(data.entityMentionPrompt, '抽取实体 mention')
+    assert.equal(data.episodicExtractionPrompt, '抽取实体和情景记忆')
+    assert.equal(data.entityResolutionPrompt, '合并实体或创建新实体')
     assert.equal(data.shortTermFragmentPrompt, '这些是近期记忆')
     assert.equal(data.fixedFragmentPrompt, '这些是稳定事实')
     assert.equal(typeof data.semanticAnalyzerPromptDefault, 'string')
     assert.equal(data.semanticAnalyzerPromptEffective, '生成检索锚点')
     assert.equal(typeof data.contextToShortTermPromptDefault, 'string')
     assert.equal(data.contextToShortTermPromptEffective, '整理旧上下文为短期记忆')
-    assert.equal(typeof data.shortTermToLongTermPromptDefault, 'string')
-    assert.equal(data.shortTermToLongTermPromptEffective, '把短期记忆沉淀成长期记忆')
+    assert.equal(typeof data.entityMentionPromptDefault, 'string')
+    assert.equal(data.entityMentionPromptEffective, '抽取实体 mention')
+    assert.equal(typeof data.episodicExtractionPromptDefault, 'string')
+    assert.equal(data.episodicExtractionPromptEffective, '抽取实体和情景记忆')
+    assert.equal(typeof data.entityResolutionPromptDefault, 'string')
+    assert.equal(data.entityResolutionPromptEffective, '合并实体或创建新实体')
     assert.equal(typeof data.fragmentPromptDefault, 'string')
     assert.equal(data.fragmentPromptEffective, '把这些记忆当作回忆来回答')
     assert.equal(typeof data.shortTermFragmentPromptDefault, 'string')
@@ -459,6 +480,9 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal('consolidatePrompt' in data, false)
     assert.equal('consolidatePromptDefault' in data, false)
     assert.equal('consolidatePromptEffective' in data, false)
+    assert.equal('shortTermToLongTermPrompt' in data, false)
+    assert.equal('shortTermToLongTermPromptDefault' in data, false)
+    assert.equal('shortTermToLongTermPromptEffective' in data, false)
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       memory: {
         scheme: 'sqlite',
@@ -482,7 +506,9 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
         semanticAnalyzerPrompt: '生成检索锚点',
         fragmentPrompt: '把这些记忆当作回忆来回答',
         contextToShortTermPrompt: '整理旧上下文为短期记忆',
-        shortTermToLongTermPrompt: '把短期记忆沉淀成长期记忆',
+        entityMentionPrompt: '抽取实体 mention',
+        episodicExtractionPrompt: '抽取实体和情景记忆',
+        entityResolutionPrompt: '合并实体或创建新实体',
         shortTermFragmentPrompt: '这些是近期记忆',
         fixedFragmentPrompt: '这些是稳定事实',
       },
@@ -522,7 +548,9 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
       semanticAnalyzerPrompt: '   ',
       fragmentPrompt: '   ',
       contextToShortTermPrompt: '   ',
-      shortTermToLongTermPrompt: '   ',
+      entityMentionPrompt: '   ',
+      episodicExtractionPrompt: '   ',
+      entityResolutionPrompt: '   ',
       shortTermFragmentPrompt: '   ',
       fixedFragmentPrompt: '   ',
     })
@@ -550,15 +578,21 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
     assert.equal(data.semanticAnalyzerPrompt, null)
     assert.equal(data.fragmentPrompt, null)
     assert.equal(data.contextToShortTermPrompt, null)
-    assert.equal(data.shortTermToLongTermPrompt, null)
+    assert.equal(data.entityMentionPrompt, null)
+    assert.equal(data.episodicExtractionPrompt, null)
+    assert.equal(data.entityResolutionPrompt, null)
     assert.equal(data.shortTermFragmentPrompt, null)
     assert.equal(data.fixedFragmentPrompt, null)
     assert.equal(typeof data.semanticAnalyzerPromptDefault, 'string')
     assert.equal(data.semanticAnalyzerPromptEffective, data.semanticAnalyzerPromptDefault)
     assert.equal(typeof data.contextToShortTermPromptDefault, 'string')
     assert.equal(data.contextToShortTermPromptEffective, data.contextToShortTermPromptDefault)
-    assert.equal(typeof data.shortTermToLongTermPromptDefault, 'string')
-    assert.equal(data.shortTermToLongTermPromptEffective, data.shortTermToLongTermPromptDefault)
+    assert.equal(typeof data.entityMentionPromptDefault, 'string')
+    assert.equal(data.entityMentionPromptEffective, data.entityMentionPromptDefault)
+    assert.equal(typeof data.episodicExtractionPromptDefault, 'string')
+    assert.equal(data.episodicExtractionPromptEffective, data.episodicExtractionPromptDefault)
+    assert.equal(typeof data.entityResolutionPromptDefault, 'string')
+    assert.equal(data.entityResolutionPromptEffective, data.entityResolutionPromptDefault)
     assert.equal(typeof data.shortTermFragmentPromptDefault, 'string')
     assert.equal(data.shortTermFragmentPromptEffective, data.shortTermFragmentPromptDefault)
     assert.equal(typeof data.fixedFragmentPromptDefault, 'string')

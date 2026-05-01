@@ -14,6 +14,9 @@ test('entity mention prompt forbids graph mutation during chat recall', () => {
   assert.match(prompt, /不要新增 alias/)
   assert.match(prompt, /最多 5 个/)
   assert.match(prompt, /可能指向记忆节点/)
+  assert.match(prompt, /person\/place\/object\/event/)
+  assert.doesNotMatch(prompt, /project/)
+  assert.doesNotMatch(prompt, /unknown/)
 })
 
 test('parseEntityMentionResponse accepts typed mentions with context hints', () => {
@@ -73,11 +76,59 @@ test('parseEntityMentionResponse tolerates top-level arrays and common real-mode
     },
     {
       surface: 'memory v2',
-      type: 'project',
+      type: 'object',
       contextHint: '用户追问的项目名',
       confidence: 0.8,
     },
   ])
+})
+
+test('entity parsers narrow obsolete project and unknown types away', () => {
+  const mentions = parseEntityMentionResponse(JSON.stringify({
+    mentions: [
+      { surface: '星际争霸2', type: 'project', context_hint: '游戏名', confidence: 0.9 },
+      { surface: '含糊对象', type: 'unknown', context_hint: '不应保留 unknown', confidence: 0.9 },
+    ],
+  }))
+  const extraction = parseEpisodicExtractionResponse(JSON.stringify({
+    entities: [
+      { local_entity_id: 'e1', surface: '魔兽世界', type: 'project', context_hint: '游戏名' },
+      { local_entity_id: 'e2', surface: '上周测试', type: 'unknown', context_hint: '事件' },
+    ],
+    episodic_memories: [
+      {
+        summary: '用户提到魔兽世界和上周测试。',
+        source_quote: '魔兽世界和上周测试',
+        importance: 0.7,
+        entity_links: [
+          { local_entity_id: 'e1', weight: 0.9 },
+          { local_entity_id: 'e2', weight: 0.8 },
+        ],
+      },
+    ],
+  }))
+  const resolutions = parseEntityResolutionResponse(JSON.stringify({
+    resolutions: [
+      {
+        local_entity_id: 'e1',
+        action: 'create_new',
+        canonical_name: 'memory v2',
+        type: 'project',
+        confidence: 0.8,
+      },
+      {
+        local_entity_id: 'e2',
+        action: 'create_new',
+        canonical_name: '模糊实体',
+        type: 'unknown',
+        confidence: 0.8,
+      },
+    ],
+  }))
+
+  assert.deepEqual(mentions.map((mention) => mention.type), ['object'])
+  assert.deepEqual(extraction.entities.map((entity) => entity.type), ['object', 'object'])
+  assert.deepEqual(resolutions.map((resolution) => resolution.action === 'create_new' ? resolution.type : null), ['object', 'object'])
 })
 
 test('parseEpisodicExtractionResponse enforces max links and drops weak links', () => {

@@ -106,7 +106,9 @@ interface MemorySettings {
   sleepIntervalDays: number
   semanticAnalyzerPrompt: string
   contextToShortTermPrompt: string
-  shortTermToLongTermPrompt: string
+  entityMentionPrompt: string
+  episodicExtractionPrompt: string
+  entityResolutionPrompt: string
   shortTermFragmentPrompt: string
   fixedFragmentPrompt: string
 }
@@ -116,6 +118,8 @@ interface MemoryActionResponse {
     ok?: boolean
     reason?: string
     createdCount?: number
+    createdEntityCount?: number
+    createdEpisodicCount?: number
     memoryIds?: string[]
     nextActiveStartMessageId?: string | null
     flushedMessageCount?: number
@@ -168,13 +172,19 @@ interface MemoryListResponse {
   sleepIntervalDays: number
   semanticAnalyzerPrompt: string | null
   contextToShortTermPrompt: string | null
-  shortTermToLongTermPrompt: string | null
+  entityMentionPrompt: string | null
+  episodicExtractionPrompt: string | null
+  entityResolutionPrompt: string | null
   shortTermFragmentPrompt: string | null
   fixedFragmentPrompt: string | null
   contextToShortTermPromptDefault: string
   contextToShortTermPromptEffective: string
-  shortTermToLongTermPromptDefault: string
-  shortTermToLongTermPromptEffective: string
+  entityMentionPromptDefault: string
+  entityMentionPromptEffective: string
+  episodicExtractionPromptDefault: string
+  episodicExtractionPromptEffective: string
+  entityResolutionPromptDefault: string
+  entityResolutionPromptEffective: string
   shortTermFragmentPromptDefault: string
   shortTermFragmentPromptEffective: string
   fixedFragmentPromptDefault: string
@@ -263,7 +273,9 @@ function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySet
     sleepIntervalDays: typeof data.sleepIntervalDays === 'number' ? data.sleepIntervalDays : 1,
     semanticAnalyzerPrompt: typeof data.semanticAnalyzerPrompt === 'string' ? data.semanticAnalyzerPrompt : '',
     contextToShortTermPrompt: typeof data.contextToShortTermPrompt === 'string' ? data.contextToShortTermPrompt : '',
-    shortTermToLongTermPrompt: typeof data.shortTermToLongTermPrompt === 'string' ? data.shortTermToLongTermPrompt : '',
+    entityMentionPrompt: typeof data.entityMentionPrompt === 'string' ? data.entityMentionPrompt : '',
+    episodicExtractionPrompt: typeof data.episodicExtractionPrompt === 'string' ? data.episodicExtractionPrompt : '',
+    entityResolutionPrompt: typeof data.entityResolutionPrompt === 'string' ? data.entityResolutionPrompt : '',
     shortTermFragmentPrompt: typeof data.shortTermFragmentPrompt === 'string' ? data.shortTermFragmentPrompt : '',
     fixedFragmentPrompt: typeof data.fixedFragmentPrompt === 'string' ? data.fixedFragmentPrompt : '',
   }
@@ -273,14 +285,18 @@ function normalizeEffectivePrompts(data: Partial<MemoryListResponse>): Pick<
   MemorySettings,
   'semanticAnalyzerPrompt'
   | 'contextToShortTermPrompt'
-  | 'shortTermToLongTermPrompt'
+  | 'entityMentionPrompt'
+  | 'episodicExtractionPrompt'
+  | 'entityResolutionPrompt'
   | 'shortTermFragmentPrompt'
   | 'fixedFragmentPrompt'
 > {
   return {
     semanticAnalyzerPrompt: typeof data.semanticAnalyzerPromptEffective === 'string' ? data.semanticAnalyzerPromptEffective : '',
     contextToShortTermPrompt: typeof data.contextToShortTermPromptEffective === 'string' ? data.contextToShortTermPromptEffective : '',
-    shortTermToLongTermPrompt: typeof data.shortTermToLongTermPromptEffective === 'string' ? data.shortTermToLongTermPromptEffective : '',
+    entityMentionPrompt: typeof data.entityMentionPromptEffective === 'string' ? data.entityMentionPromptEffective : '',
+    episodicExtractionPrompt: typeof data.episodicExtractionPromptEffective === 'string' ? data.episodicExtractionPromptEffective : '',
+    entityResolutionPrompt: typeof data.entityResolutionPromptEffective === 'string' ? data.entityResolutionPromptEffective : '',
     shortTermFragmentPrompt: typeof data.shortTermFragmentPromptEffective === 'string' ? data.shortTermFragmentPromptEffective : '',
     fixedFragmentPrompt: typeof data.fixedFragmentPromptEffective === 'string' ? data.fixedFragmentPromptEffective : '',
   }
@@ -314,12 +330,10 @@ function formatEntityType(type: string) {
       return '地点'
     case 'object':
       return '物品'
-    case 'project':
-      return '项目'
     case 'event':
       return '事件'
     default:
-      return '未知'
+      return '物品'
   }
 }
 
@@ -545,7 +559,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         setNotice(`当前无需执行睡眠沉淀：${result?.reason ?? 'not_sleep_time'}。`)
       } else {
         setNotice(
-          `睡眠完成：沉淀出 ${result.createdCount ?? 0} 条情景记忆，消费 ${result.deletedShortTermCount ?? 0} 条短期记忆。`,
+          `睡眠完成：沉淀出 ${result.createdEpisodicCount ?? result.createdCount ?? 0} 条情景记忆，新增 ${result.createdEntityCount ?? 0} 个实体，消费 ${result.deletedShortTermCount ?? 0} 条短期记忆。`,
         )
       }
       startTransition(() => {
@@ -586,7 +600,9 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           sleepIntervalDays: draftSettings.sleepIntervalDays,
           semanticAnalyzerPrompt: draftSettings.semanticAnalyzerPrompt.trim() || null,
           contextToShortTermPrompt: draftSettings.contextToShortTermPrompt.trim() || null,
-          shortTermToLongTermPrompt: draftSettings.shortTermToLongTermPrompt.trim() || null,
+          entityMentionPrompt: draftSettings.entityMentionPrompt.trim() || null,
+          episodicExtractionPrompt: draftSettings.episodicExtractionPrompt.trim() || null,
+          entityResolutionPrompt: draftSettings.entityResolutionPrompt.trim() || null,
           shortTermFragmentPrompt: draftSettings.shortTermFragmentPrompt.trim() || null,
           fixedFragmentPrompt: draftSettings.fixedFragmentPrompt.trim() || null,
         }),
@@ -597,8 +613,12 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         semanticAnalyzerPromptEffective?: string
         contextToShortTermPromptDefault?: string
         contextToShortTermPromptEffective?: string
-        shortTermToLongTermPromptDefault?: string
-        shortTermToLongTermPromptEffective?: string
+        entityMentionPromptDefault?: string
+        entityMentionPromptEffective?: string
+        episodicExtractionPromptDefault?: string
+        episodicExtractionPromptEffective?: string
+        entityResolutionPromptDefault?: string
+        entityResolutionPromptEffective?: string
         shortTermFragmentPromptDefault?: string
         shortTermFragmentPromptEffective?: string
         fixedFragmentPromptDefault?: string
@@ -1316,11 +1336,27 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 rows: 7,
               },
               {
-                key: 'shortTermToLongTermPrompt',
-                label: 'STM → Episodic Prompt',
-                helper: '睡眠时把短期记忆沉淀成情景记忆的 prompt。这里控制如何提炼情景记忆和实体绑定，而不是检索逻辑。',
-                value: draftSettings.shortTermToLongTermPrompt,
-                placeholder: '清空后保存会回退系统默认的 short-term → long-term prompt。',
+                key: 'entityMentionPrompt',
+                label: 'Entity Mention Prompt',
+                helper: '长期记忆 tool 召回前使用，只从当前问题提取实体 mention；不得创建实体、合并实体或新增 alias。',
+                value: draftSettings.entityMentionPrompt,
+                placeholder: '清空后保存会回退系统默认的 entity mention prompt。',
+                rows: 7,
+              },
+              {
+                key: 'episodicExtractionPrompt',
+                label: 'Episodic Extraction Prompt',
+                helper: '后台整合 STM 的阶段 A，负责抽取实体和情景记忆；alias 和 merge 不在这一阶段发生。',
+                value: draftSettings.episodicExtractionPrompt,
+                placeholder: '清空后保存会回退系统默认的 episodic extraction prompt。',
+                rows: 7,
+              },
+              {
+                key: 'entityResolutionPrompt',
+                label: 'Entity Resolution Prompt',
+                helper: '后台整合 STM 的阶段 B，负责 merge/create_new，并且只允许在 merge 时通过 alias_to_add 建立 alias。',
+                value: draftSettings.entityResolutionPrompt,
+                placeholder: '清空后保存会回退系统默认的 entity resolution prompt。',
                 rows: 7,
               },
               {

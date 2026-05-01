@@ -158,6 +158,9 @@ interface MemoryModuleConfig {
   semanticAnalyzerPrompt: string | null
   contextToShortTermPrompt: string | null
   shortTermToLongTermPrompt: string | null
+  entityMentionPrompt: string | null
+  episodicExtractionPrompt: string | null
+  entityResolutionPrompt: string | null
   fragmentPrompt: string | null
   shortTermFragmentPrompt: string | null
   fixedFragmentPrompt: string | null
@@ -335,6 +338,9 @@ function readConfig(config: unknown): MemoryModuleConfig {
       semanticAnalyzerPrompt: null,
       contextToShortTermPrompt: null,
       shortTermToLongTermPrompt: null,
+      entityMentionPrompt: null,
+      episodicExtractionPrompt: null,
+      entityResolutionPrompt: null,
       fragmentPrompt: null,
       shortTermFragmentPrompt: null,
       fixedFragmentPrompt: null,
@@ -384,6 +390,9 @@ function readConfig(config: unknown): MemoryModuleConfig {
     semanticAnalyzerPrompt: readOptionalText(record.semanticAnalyzerPrompt),
     contextToShortTermPrompt: readOptionalText(record.contextToShortTermPrompt),
     shortTermToLongTermPrompt: readOptionalText(record.shortTermToLongTermPrompt),
+    entityMentionPrompt: readOptionalText(record.entityMentionPrompt),
+    episodicExtractionPrompt: readOptionalText(record.episodicExtractionPrompt),
+    entityResolutionPrompt: readOptionalText(record.entityResolutionPrompt),
     fragmentPrompt: readOptionalText(record.fragmentPrompt),
     shortTermFragmentPrompt: readOptionalText(record.shortTermFragmentPrompt),
     fixedFragmentPrompt: readOptionalText(record.fixedFragmentPrompt),
@@ -414,6 +423,9 @@ export function resolveMemorySqliteConfig(config: unknown) {
     semanticAnalyzerPrompt: resolved.semanticAnalyzerPrompt,
     contextToShortTermPrompt: resolved.contextToShortTermPrompt,
     shortTermToLongTermPrompt: resolved.shortTermToLongTermPrompt,
+    entityMentionPrompt: resolved.entityMentionPrompt,
+    episodicExtractionPrompt: resolved.episodicExtractionPrompt,
+    entityResolutionPrompt: resolved.entityResolutionPrompt,
     fragmentPrompt: resolved.fragmentPrompt,
     shortTermFragmentPrompt: resolved.shortTermFragmentPrompt,
     fixedFragmentPrompt: resolved.fixedFragmentPrompt,

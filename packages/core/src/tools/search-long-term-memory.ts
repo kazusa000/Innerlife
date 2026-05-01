@@ -58,6 +58,7 @@ async function extractEntityMentions(input: {
   text: string
   model: string
   provider: Pick<LLMProvider, 'sendMessage'>
+  promptOverride?: string | null
   signal?: AbortSignal
 }) {
   if (!input.text.trim()) {
@@ -66,7 +67,7 @@ async function extractEntityMentions(input: {
 
   const response = await input.provider.sendMessage({
     model: input.model,
-    systemPrompt: buildEntityMentionPrompt(),
+    systemPrompt: buildEntityMentionPrompt(input.promptOverride),
     messages: [
       {
         role: 'user',
@@ -220,6 +221,7 @@ export const SearchLongTermMemoryTool: Tool = {
         text: graphQuery,
         model: memoryConfig.summarizeModel ?? agent.model,
         provider: graphProvider,
+        promptOverride: memoryConfig.entityMentionPrompt,
         signal: options.signal,
       }).catch(() => [])
       : []

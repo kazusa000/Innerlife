@@ -458,6 +458,101 @@ test('runEpisodicConsolidationForAgent resolves only entities linked by usable e
   }
 })
 
+test('runEpisodicConsolidationForAgent uses editable episodic extraction and resolution prompts', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-episodic-prompts-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+    const agent = agentRepo.createAgent({
+      name: 'Amadeus',
+      description: '',
+      model: 'claude-sonnet-4-6',
+      provider: 'openrouter',
+      modules: {
+        memory: {
+          scheme: 'sqlite',
+          episodicExtractionPrompt: '自定义情景抽取 prompt',
+          entityResolutionPrompt: '自定义实体合并 prompt',
+        },
+      },
+    })
+    memoryRepo.addMemory({
+      agentId: agent.id,
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'WJJ 说星际2就是星际争霸2。',
+      displaySummary: 'WJJ 提到星际2。',
+      retrievalText: 'WJJ 星际2 星际争霸2',
+      retrievalEmbedding: [],
+      retrievalModel: 'none',
+      tags: [],
+      importance: 0.8,
+    })
+
+    const seenPrompts: string[] = []
+    const provider = {
+      async sendMessage(input: { systemPrompt: string }) {
+        seenPrompts.push(input.systemPrompt)
+        if (input.systemPrompt === '自定义情景抽取 prompt') {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({
+              entities: [
+                { local_entity_id: 'sc2', surface: '星际2', type: 'object', context_hint: '星际争霸2简称' },
+              ],
+              episodic_memories: [
+                {
+                  summary: 'WJJ 说星际2就是星际争霸2。',
+                  source_quote: '星际2就是星际争霸2',
+                  importance: 0.8,
+                  entity_links: [{ local_entity_id: 'sc2', weight: 1 }],
+                },
+              ],
+            }) }],
+            stopReason: 'end_turn' as const,
+            usage: { inputTokens: 1, outputTokens: 1 },
+          }
+        }
+
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            resolutions: [
+              {
+                local_entity_id: 'sc2',
+                action: 'create_new',
+                canonical_name: '星际争霸2',
+                type: 'object',
+                confidence: 0.9,
+              },
+            ],
+          }) }],
+          stopReason: 'end_turn' as const,
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+
+    const result = await runEpisodicConsolidationForAgent({
+      agentId: agent.id,
+      provider,
+      embedder: {
+        async embed(input) {
+          return input.map(() => [1, 0])
+        },
+      },
+      now: new Date('2026-04-30T09:00:00.000Z'),
+    })
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(seenPrompts, ['自定义情景抽取 prompt', '自定义实体合并 prompt'])
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('runEpisodicConsolidationForAgent reuses an exact existing entity when resolution says create_new', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-episodic-memory-'))
   const dbPath = join(dir, 'data.db')

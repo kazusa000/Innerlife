@@ -18,6 +18,8 @@ import {
   type MemoryEmbedder,
   createOpenRouterMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
+  buildEntityResolutionPrompt,
+  buildEpisodicExtractionPrompt,
   isSqliteMemoryConfig,
   MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
   parseMemoryBatchWriteResponse,
@@ -661,20 +663,7 @@ export async function runEpisodicConsolidationForAgent(input: {
   const sourceText = buildShortTermToLongTermSourceText(shortTermMemories)
   const extractionResponse = await provider.sendMessage({
     model: memoryConfig.summarizeModel ?? agent.model,
-    systemPrompt: [
-      '阶段 A：从 STM 抽取实体和情景记忆。',
-      '只输出严格 JSON，不要 markdown，不要解释文字。',
-      '顶层格式必须是：{"entities":[...],"episodic_memories":[...]}。',
-      'entities 每项格式必须是：{"local_entity_id":string,"surface":string,"type":"person|place|object|project|event|unknown","context_hint":string}。',
-      'episodic_memories 每项格式必须是：{"summary":string,"source_quote":string,"importance":number,"entity_links":[{"local_entity_id":string,"weight":number}]}。',
-      'entity_links.local_entity_id 必须引用 entities 中的 local_entity_id。',
-      '不要使用 id/name/entity_id/source_stm_id/role/attributes/aliases 等替代字段。',
-      '只抽取真实实体 mention：人物、地点、物品、项目、事件；不要把抽象概念、情绪或关系解释作为实体。',
-      'surface 必须保留原文中的实际 mention 文本，不要提前标准化、翻译或改写成你猜测的正式名称。',
-      'Stage A 禁止建立 alias；alias 只能在 Stage B merge 既有实体时由 alias_to_add 建立。',
-      '每条情景记忆最多 5 个 entity_links；weight < 0.3 不输出。',
-      '实体类型只允许 person/place/object/project/event/unknown。',
-    ].join('\n'),
+    systemPrompt: buildEpisodicExtractionPrompt(memoryConfig.episodicExtractionPrompt),
     messages: [
       {
         role: 'user',
@@ -727,20 +716,7 @@ export async function runEpisodicConsolidationForAgent(input: {
 
   const resolutionResponse = await provider.sendMessage({
     model: memoryConfig.summarizeModel ?? agent.model,
-    systemPrompt: [
-      '阶段 B：判断 local entity 是否应 merge 到候选实体，或 create_new。',
-      '只输出严格 JSON，不要 markdown，不要解释文字。',
-      '顶层格式必须是：{"resolutions":[...]}，不要返回数组。',
-      '每个 resolution 必须是 merge 或 create_new。',
-      'merge 格式：{"local_entity_id":string,"action":"merge","entity_id":string,"confidence":number,"alias_to_add":string|null}。',
-      'create_new 格式：{"local_entity_id":string,"action":"create_new","canonical_name":string,"type":"person|place|object|project|event|unknown","confidence":number}。',
-      '不要使用 global_entity_id/name/description/attributes/aliases 等替代字段。',
-      '只有 confidence >= 0.75 才允许 merge。',
-      '不确定就 create_new。alias_to_add 只允许在 merge 时填写，且必须是同一实体在原文中的稳定叫法。',
-      'merge 且 local surface 不等于候选 canonical_name/既有 alias 时，应把 local surface 作为 alias_to_add；完全相同则填 null。',
-      '如果 context_hint 明确说明 local entity 和某个候选是同一个实体（例如“就是”“指的是”“简称为”“同一个”），优先 merge 到该候选，不要 create_new。',
-      '同场景、同类别、相似词、相关物都不是 alias；例如海盐焦糖和焦糖咖啡不能互为 alias，安特卫普旧书店和东京旧书店不能互为 alias。',
-    ].join('\n'),
+    systemPrompt: buildEntityResolutionPrompt(memoryConfig.entityResolutionPrompt),
     messages: [
       {
         role: 'user',
@@ -778,12 +754,10 @@ export async function runEpisodicConsolidationForAgent(input: {
     }
 
     const sourceEntity = extractionEntitiesById.get(resolution.localEntityId)
-    const canonicalName = resolution.canonicalName || sourceEntity?.surface || 'unknown'
+    const canonicalName = resolution.canonicalName || sourceEntity?.surface || resolution.localEntityId
     const exactExisting = episodicMemoryGraphRepo.findEntityCandidates({
       agentId: agent.id,
-      type: resolution.type === 'unknown' && sourceEntity?.type
-        ? sourceEntity.type
-        : resolution.type,
+      type: resolution.type,
       surface: canonicalName,
       limit: 1,
     }).find((candidate) => candidate.matchKind === 'exact')
@@ -794,9 +768,7 @@ export async function runEpisodicConsolidationForAgent(input: {
 
     const entity = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
-      type: resolution.type === 'unknown' && sourceEntity?.type
-        ? sourceEntity.type
-        : resolution.type,
+      type: resolution.type,
       canonicalName,
       description: sourceEntity?.contextHint ?? null,
       confidence: resolution.confidence,

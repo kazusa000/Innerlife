@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { getMemoryRawSqlite } from '../memory-client'
 
-export type EntityType = 'person' | 'place' | 'object' | 'project' | 'event' | 'unknown'
+export type EntityType = 'person' | 'place' | 'object' | 'event'
 export type MatchKind = 'exact' | 'contains'
 
 export interface MemoryEntityRecord {
@@ -111,9 +111,9 @@ type EntityEdgeRow = {
 }
 
 function normalizeType(type: string): EntityType {
-  return type === 'person' || type === 'place' || type === 'object' || type === 'project' || type === 'event'
+  return type === 'person' || type === 'place' || type === 'object' || type === 'event'
     ? type
-    : 'unknown'
+    : 'object'
 }
 
 function normalizeText(value: string) {
@@ -336,38 +336,31 @@ export function findEntityCandidates(input: {
   }
 
   const sqlite = getMemoryRawSqlite()
-  const values: unknown[] = [input.agentId]
-  const typeCondition = input.type
-    ? `AND e.type IN (${input.type === 'unknown' ? '?' : '?, ?'})`
-    : ''
-
-  if (input.type === 'unknown') {
-    values.push('unknown')
-  } else if (input.type) {
-    values.push(input.type, 'unknown')
-  }
+  const requestedType = input.type ? normalizeType(input.type) : null
 
   const rows = sqlite.prepare(`
     SELECT
       e.id,
+      e.type,
       e.canonical_name,
       a.alias
     FROM memory_entities e
     LEFT JOIN memory_entity_aliases a ON a.entity_id = e.id
     WHERE e.agent_id = ?
-      ${typeCondition}
-  `).all(...values) as Array<{ id: string; canonical_name: string; alias: string | null }>
+  `).all(input.agentId) as Array<{ id: string; type: string; canonical_name: string; alias: string | null }>
 
   const items = new Map<string, {
     canonicalName: string
     aliases: string[]
     matchScore: number
+    typeScore: number
   }>()
   for (const row of rows) {
     const item = items.get(row.id) ?? {
       canonicalName: row.canonical_name,
       aliases: [],
       matchScore: 0,
+      typeScore: requestedType && normalizeType(row.type) === requestedType ? 1 : 0,
     }
     if (row.alias) {
       item.aliases.push(row.alias)
@@ -382,14 +375,19 @@ export function findEntityCandidates(input: {
       surface.includes(name) || name.includes(surface) || hasSharedConcreteFragment(surface, name),
     )
     const matchScore = exact ? 2 : contains ? 1 : 0
-    return matchScore > 0 ? [{ id, matchScore }] : []
+    return matchScore > 0 ? [{ id, matchScore, typeScore: item.typeScore }] : []
   })
 
   return scored
-    .sort((left, right) => right.matchScore - left.matchScore)
+    .sort((left, right) => {
+      if (right.matchScore !== left.matchScore) {
+        return right.matchScore - left.matchScore
+      }
+      return right.typeScore - left.typeScore
+    })
     .slice(0, input.limit ?? 10)
     .map((row) => ({ row, entity: getEntity(row.id) }))
-    .filter((item): item is { row: { id: string; matchScore: number }; entity: MemoryEntityRecord } =>
+    .filter((item): item is { row: { id: string; matchScore: number; typeScore: number }; entity: MemoryEntityRecord } =>
       Boolean(item.entity),
     )
     .map(({ row, entity }) => ({
