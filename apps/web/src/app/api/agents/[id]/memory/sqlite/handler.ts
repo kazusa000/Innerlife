@@ -28,7 +28,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 type MemoryListOptions = {
   page?: number
   pageSize?: number
-  layer?: 'short_term' | 'long_term' | 'fixed'
+  layer?: 'short_term' | 'long_term' | 'fixed' | 'episodic'
+  graphQuery?: string
+  nodePage?: number
+  edgePage?: number
+  graphPageSize?: number
 }
 
 type SessionMessageRecord = ReturnType<typeof messageRepo.getSessionMessages>[number]
@@ -92,15 +96,78 @@ function serializeDate(value: Date | null | undefined) {
   return value ? value.toISOString() : null
 }
 
-function buildEpisodicMemoryConsolePayload(agentId: string) {
+function serializeEntityNode(entity: ReturnType<typeof episodicMemoryGraphRepo.listMemoryEntitiesByAgent>[number]) {
+  return {
+    id: entity.id,
+    type: entity.type,
+    canonicalName: entity.canonicalName,
+    description: entity.description,
+    confidence: entity.confidence,
+    aliases: entity.aliases,
+    episodicMemoryCount: entity.episodicMemoryCount,
+    createdAt: entity.createdAt.toISOString(),
+    lastSeenAt: serializeDate(entity.lastSeenAt),
+  }
+}
+
+function serializeEntityEdge(edge: ReturnType<typeof episodicMemoryGraphRepo.listMemoryEntityEdgesByAgent>[number]) {
+  return {
+    sourceEntityId: edge.sourceEntityId,
+    sourceCanonicalName: edge.sourceCanonicalName,
+    targetEntityId: edge.targetEntityId,
+    targetCanonicalName: edge.targetCanonicalName,
+    weight: edge.weight,
+    coOccurrenceCount: edge.coOccurrenceCount,
+    lastSeenAt: edge.lastSeenAt.toISOString(),
+  }
+}
+
+function serializeMemoryRow(row: ReturnType<typeof episodicMemoryGraphRepo.listManagedMemoryRowsByAgent>['items'][number]) {
+  return {
+    kind: row.kind,
+    id: row.id,
+    sessionId: row.sessionId,
+    layer: row.layer,
+    summary: row.summary,
+    retrievalText: row.retrievalText,
+    sourceQuote: row.sourceQuote,
+    retrievalModel: row.retrievalModel,
+    hasEmbedding: row.retrievalEmbedding.length > 0,
+    embeddingDimensions: row.retrievalEmbedding.length,
+    importance: row.importance,
+    observedStartAt: serializeDate(row.observedStartAt),
+    observedEndAt: serializeDate(row.observedEndAt),
+    createdAt: row.createdAt.toISOString(),
+    entities: row.entities.map((link) => ({
+      id: link.entity.id,
+      type: link.entity.type,
+      canonicalName: link.entity.canonicalName,
+      weight: link.weight,
+    })),
+  }
+}
+
+function buildEpisodicMemoryConsolePayload(agentId: string, options: MemoryListOptions = {}) {
   const episodicMemories = episodicMemoryGraphRepo.listEpisodicMemoriesByAgent({
     agentId,
-    limit: 50,
+    limit: 10,
   })
-  const entities = episodicMemoryGraphRepo.listMemoryEntitiesByAgent(agentId)
-  const edges = episodicMemoryGraphRepo.listMemoryEntityEdgesByAgent(agentId)
+  const graphQuery = options.graphQuery?.trim() ?? ''
+  const nodes = episodicMemoryGraphRepo.listMemoryEntitiesPageByAgent({
+    agentId,
+    query: graphQuery,
+    page: typeof options.nodePage === 'number' ? options.nodePage : 1,
+    pageSize: typeof options.graphPageSize === 'number' ? options.graphPageSize : 10,
+  })
+  const edges = episodicMemoryGraphRepo.listMemoryEntityEdgesPageByAgent({
+    agentId,
+    query: graphQuery,
+    page: typeof options.edgePage === 'number' ? options.edgePage : 1,
+    pageSize: typeof options.graphPageSize === 'number' ? options.graphPageSize : 10,
+  })
 
   return {
+    graphQuery,
     episodic: {
       total: episodicMemories.length,
       memories: episodicMemories.map((memory) => ({
@@ -125,27 +192,19 @@ function buildEpisodicMemoryConsolePayload(agentId: string) {
       })),
     },
     entities: {
-      total: entities.length,
-      nodes: entities.map((entity) => ({
-        id: entity.id,
-        type: entity.type,
-        canonicalName: entity.canonicalName,
-        description: entity.description,
-        confidence: entity.confidence,
-        aliases: entity.aliases,
-        episodicMemoryCount: entity.episodicMemoryCount,
-        createdAt: entity.createdAt.toISOString(),
-        lastSeenAt: serializeDate(entity.lastSeenAt),
-      })),
-      edges: edges.map((edge) => ({
-        sourceEntityId: edge.sourceEntityId,
-        sourceCanonicalName: edge.sourceCanonicalName,
-        targetEntityId: edge.targetEntityId,
-        targetCanonicalName: edge.targetCanonicalName,
-        weight: edge.weight,
-        coOccurrenceCount: edge.coOccurrenceCount,
-        lastSeenAt: edge.lastSeenAt.toISOString(),
-      })),
+      total: nodes.total,
+      nodes: {
+        total: nodes.total,
+        page: nodes.page,
+        pageSize: nodes.pageSize,
+        items: nodes.items.map(serializeEntityNode),
+      },
+      edges: {
+        total: edges.total,
+        page: edges.page,
+        pageSize: edges.pageSize,
+        items: edges.items.map(serializeEntityEdge),
+      },
     },
   }
 }
@@ -164,10 +223,17 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
   const pipelineSettings = resolveMemoryPipelineSettings(agent.modules?.memory)
   const page = typeof options.page === 'number' ? options.page : 1
   const pageSize = typeof options.pageSize === 'number' ? options.pageSize : 20
-  const result = memoryRepo.listSqliteMemoriesPageByAgent({
+  const rowsResult = episodicMemoryGraphRepo.listManagedMemoryRowsByAgent({
     agentId,
     query,
     layer: options.layer,
+    page,
+    pageSize,
+  })
+  const result = memoryRepo.listSqliteMemoriesPageByAgent({
+    agentId,
+    query,
+    layer: options.layer === 'episodic' ? undefined : options.layer,
     layers: options.layer ? undefined : ['short_term', 'fixed'],
     page,
     pageSize,
@@ -192,9 +258,9 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     legacyLayers: ['short_term', 'fixed'],
     query: query?.trim() ?? '',
     layer: options.layer ?? null,
-    page: result.page,
-    pageSize: result.pageSize,
-    total: result.total,
+    page: rowsResult.page,
+    pageSize: rowsResult.pageSize,
+    total: rowsResult.total,
     summarizeModel: memoryConfig.summarizeModel,
     embeddingModel: memoryConfig.embeddingModel,
     shortTermRetrieveTopK: memoryConfig.shortTermRetrieveTopK,
@@ -252,7 +318,8 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     sleep: {
       lastSleepAt: sleepState?.lastSleepAt?.toISOString() ?? null,
     },
-    ...buildEpisodicMemoryConsolePayload(agentId),
+    ...buildEpisodicMemoryConsolePayload(agentId, options),
+    rows: rowsResult.items.map(serializeMemoryRow),
     memories: result.memories.map((memory) => ({
       id: memory.id,
       sessionId: memory.sessionId,

@@ -17,33 +17,14 @@ interface MemoryManagerProps {
   meta: AgentMemoryMeta
 }
 
-interface SqliteMemory {
+interface MemoryRow {
+  kind: 'sqlite' | 'episodic'
   id: string
   sessionId: string
-  layer: 'short_term' | 'long_term' | 'fixed'
+  layer: 'short_term' | 'long_term' | 'fixed' | 'episodic'
   summary: string
   retrievalText: string
-  importance: number
-  observedStartAt: string | null
-  observedEndAt: string | null
-  createdAt: string
-}
-
-type ManagedSqliteLayer = 'short_term' | 'fixed'
-
-interface EpisodicEntityLink {
-  id: string
-  type: string
-  canonicalName: string
-  weight: number
-}
-
-interface EpisodicMemory {
-  id: string
-  sessionId: string
-  summary: string
   sourceQuote: string | null
-  retrievalText: string
   retrievalModel: string
   hasEmbedding: boolean
   embeddingDimensions: number
@@ -52,6 +33,16 @@ interface EpisodicMemory {
   observedEndAt: string | null
   createdAt: string
   entities: EpisodicEntityLink[]
+}
+
+type ManagedSqliteLayer = 'short_term' | 'fixed' | 'episodic'
+type EditableMemoryLayer = 'short_term' | 'fixed'
+
+interface EpisodicEntityLink {
+  id: string
+  type: string
+  canonicalName: string
+  weight: number
 }
 
 interface EntityNode {
@@ -76,15 +67,17 @@ interface EntityEdge {
   lastSeenAt: string
 }
 
-interface EpisodicSummary {
+interface PageSlice<T> {
   total: number
-  memories: EpisodicMemory[]
+  page: number
+  pageSize: number
+  items: T[]
 }
 
 interface EntityGraphSummary {
   total: number
-  nodes: EntityNode[]
-  edges: EntityEdge[]
+  nodes: PageSlice<EntityNode>
+  edges: PageSlice<EntityEdge>
 }
 
 interface MemorySettings {
@@ -148,8 +141,9 @@ interface SleepSummary {
 }
 
 interface MemoryListResponse {
-  memories: SqliteMemory[]
-  layer: 'short_term' | 'long_term' | 'fixed' | null
+  rows: MemoryRow[]
+  memories?: MemoryRow[]
+  layer: 'short_term' | 'long_term' | 'fixed' | 'episodic' | null
   legacyLayers?: string[]
   page: number
   pageSize: number
@@ -193,25 +187,20 @@ interface MemoryListResponse {
   semanticAnalyzerPromptEffective: string
   context: ContextSummary
   sleep: SleepSummary
-  episodic?: EpisodicSummary
   entities?: EntityGraphSummary
 }
 
-const MEMORY_LAYER_LABELS: Record<SqliteMemory['layer'], string> = {
+const MEMORY_LAYER_LABELS: Record<MemoryRow['layer'], string> = {
   short_term: '短期记忆',
   long_term: '旧长期层',
   fixed: '固化记忆',
-}
-
-const EMPTY_EPISODIC_SUMMARY: EpisodicSummary = {
-  total: 0,
-  memories: [],
+  episodic: '情景记忆',
 }
 
 const EMPTY_ENTITY_GRAPH_SUMMARY: EntityGraphSummary = {
   total: 0,
-  nodes: [],
-  edges: [],
+  nodes: { total: 0, page: 1, pageSize: 10, items: [] },
+  edges: { total: 0, page: 1, pageSize: 10, items: [] },
 }
 
 function readErrorMessage(value: unknown, fallback: string) {
@@ -229,6 +218,7 @@ function readErrorMessage(value: unknown, fallback: string) {
 }
 
 const PAGE_SIZE = 10
+const GRAPH_PAGE_SIZE = 10
 const DATE_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
   year: 'numeric',
   month: '2-digit',
@@ -241,7 +231,10 @@ function formatDateTime(value: string) {
   return DATE_FORMATTER.format(new Date(value))
 }
 
-function formatSqliteMemoryTime(memory: SqliteMemory) {
+function formatSqliteMemoryTime(memory: MemoryRow) {
+  if (memory.layer === 'episodic') {
+    return formatObservedRange(memory.observedStartAt, memory.observedEndAt)
+  }
   if (memory.layer === 'short_term') {
     if (!memory.observedStartAt || !memory.observedEndAt) {
       return '时间未知'
@@ -340,10 +333,13 @@ function formatEntityType(type: string) {
 export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const [graphQuery, setGraphQuery] = useState('')
+  const deferredGraphQuery = useDeferredValue(graphQuery)
   const [layerFilter, setLayerFilter] = useState<'all' | ManagedSqliteLayer>('all')
   const [page, setPage] = useState(1)
-  const [memories, setMemories] = useState<SqliteMemory[]>([])
-  const [episodicSummary, setEpisodicSummary] = useState<EpisodicSummary>(EMPTY_EPISODIC_SUMMARY)
+  const [nodePage, setNodePage] = useState(1)
+  const [edgePage, setEdgePage] = useState(1)
+  const [memoryRows, setMemoryRows] = useState<MemoryRow[]>([])
   const [entityGraphSummary, setEntityGraphSummary] = useState<EntityGraphSummary>(EMPTY_ENTITY_GRAPH_SUMMARY)
   const [total, setTotal] = useState(0)
   const [savedSettings, setSavedSettings] = useState<MemorySettings>(() => normalizeSettings({}))
@@ -368,7 +364,14 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     memoryCount: total,
   })
 
-  async function refresh(search = deferredQuery, nextPage = page, nextLayer: 'all' | ManagedSqliteLayer = layerFilter) {
+  async function refresh(
+    search = deferredQuery,
+    nextPage = page,
+    nextLayer: 'all' | ManagedSqliteLayer = layerFilter,
+    nextGraphQuery = deferredGraphQuery,
+    nextNodePage = nodePage,
+    nextEdgePage = edgePage,
+  ) {
     setLoading(true)
     setError(null)
 
@@ -382,6 +385,12 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       }
       params.set('page', String(nextPage))
       params.set('pageSize', String(PAGE_SIZE))
+      if (nextGraphQuery.trim()) {
+        params.set('graphQ', nextGraphQuery.trim())
+      }
+      params.set('nodePage', String(nextNodePage))
+      params.set('edgePage', String(nextEdgePage))
+      params.set('graphPageSize', String(GRAPH_PAGE_SIZE))
 
       const response = await fetch(`/api/agents/${agentId}/memory/sqlite?${params.toString()}`, {
         cache: 'no-store',
@@ -398,8 +407,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         ...rawSettings,
         ...effectivePrompts,
       }
-      setMemories(Array.isArray(payload.memories) ? payload.memories : [])
-      setEpisodicSummary(payload.episodic ?? EMPTY_EPISODIC_SUMMARY)
+      setMemoryRows(Array.isArray(payload.rows) ? payload.rows : (Array.isArray(payload.memories) ? payload.memories : []))
       setEntityGraphSummary(payload.entities ?? EMPTY_ENTITY_GRAPH_SUMMARY)
       setTotal(typeof payload.total === 'number' ? payload.total : 0)
       setPage(typeof payload.page === 'number' ? payload.page : nextPage)
@@ -409,7 +417,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       if (!settingsDirtyRef.current) {
         setDraftSettings(settings)
       }
-      if (expandedId && !(payload.memories ?? []).some((memory) => memory.id === expandedId)) {
+      if (expandedId && !(payload.rows ?? payload.memories ?? []).some((memory) => memory.id === expandedId)) {
         setExpandedId(null)
       }
     } catch (err) {
@@ -420,8 +428,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   }
 
   useEffect(() => {
-    void refresh(deferredQuery, page, layerFilter)
-  }, [agentId, deferredQuery, page, layerFilter])
+    void refresh(deferredQuery, page, layerFilter, deferredGraphQuery, nodePage, edgePage)
+  }, [agentId, deferredQuery, page, layerFilter, deferredGraphQuery, nodePage, edgePage])
 
   function updateSetting<K extends keyof MemorySettings>(key: K, value: MemorySettings[K]) {
     settingsDirtyRef.current = true
@@ -483,7 +491,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     }
   }
 
-  async function handleLayerChange(memoryId: string, layer: ManagedSqliteLayer) {
+  async function handleLayerChange(memoryId: string, layer: EditableMemoryLayer) {
     setError(null)
     setNotice(null)
 
@@ -988,72 +996,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </section>
         </div>
 
-        <section className={`${styles.panel} ${styles.sectionPanel}`}>
-          <div className={styles.panelHead}>
-            <div>
-              <p className={styles.tableLabel}>情景记忆</p>
-              <h4 className={styles.panelTitle}>Episodic Memories</h4>
-            </div>
-            <span className={styles.panelPill}>{episodicSummary.total} 条</span>
-          </div>
-          <p className={styles.panelCopy}>
-            这里展示 STM 后台沉淀出的情景记忆、检索文本、embedding 状态，以及它们绑定到哪些实体节点。此视图只读，不在聊天时建立 alias 或手动合并实体。
-          </p>
-
-          {episodicSummary.memories.length === 0 ? (
-            <div className={styles.emptyState}>
-              <h3>还没有情景记忆</h3>
-              <p className={styles.emptyCopy}>先让 daemon 把短期记忆沉淀到 episodic memory，再回到这里查看实体绑定。</p>
-            </div>
-          ) : (
-            <div className={styles.tableWrap}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>摘要</th>
-                    <th>实体</th>
-                    <th>检索</th>
-                    <th>时间</th>
-                    <th>重要性</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {episodicSummary.memories.map((memory) => (
-                    <tr key={memory.id}>
-                      <td>
-                        <span className={styles.tablePrimary}>{memory.summary}</span>
-                        <span className={styles.tableSecondary}>
-                          {memory.sourceQuote ? `原句：${memory.sourceQuote}` : memory.id}
-                        </span>
-                      </td>
-                      <td>
-                        <div className={styles.chips}>
-                          {memory.entities.length === 0 ? (
-                            <span className={styles.statusText}>无绑定实体</span>
-                          ) : memory.entities.map((entity) => (
-                            <span key={`${memory.id}-${entity.id}`} className={styles.chip}>
-                              {entity.canonicalName} · {formatEntityType(entity.type)} · {entity.weight.toFixed(2)}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td>
-                        <span className={styles.tableSecondary}>{memory.retrievalText}</span>
-                        <br />
-                        <span className={styles.mono}>
-                          {memory.hasEmbedding ? `${memory.retrievalModel || 'unknown'} · ${memory.embeddingDimensions}d` : '未写入 embedding'}
-                        </span>
-                      </td>
-                      <td className={styles.statusText}>{formatObservedRange(memory.observedStartAt, memory.observedEndAt)}</td>
-                      <td className={styles.mono}>{memory.importance.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
         <section className={styles.sectionPanel}>
           <div className={styles.panelHead}>
             <div>
@@ -1061,12 +1003,30 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               <h4 className={styles.panelTitle}>Entity Graph</h4>
             </div>
             <span className={styles.panelPill}>
-              {entityGraphSummary.total} 节点 · {entityGraphSummary.edges.length} 边
+              {entityGraphSummary.nodes.total} 节点 · {entityGraphSummary.edges.total} 边
             </span>
           </div>
           <p className={styles.panelCopy}>
-            实体节点、alias 和无类型权重边都由后台 merge/consolidation 维护。管理页只用于检查当前图谱形状，不提供手动点亮或持久 activation。
+            实体节点、alias 和无类型权重边都由后台 merge/consolidation 维护。这里单独查询和分页，不再一次性渲染整张图。
           </p>
+          <div className={styles.tableToolbar}>
+            <label className={styles.searchField}>
+              <span className={styles.fieldLabel}>查询节点和边</span>
+              <input
+                className={styles.searchInput}
+                value={graphQuery}
+                onChange={(event) => {
+                  setGraphQuery(event.target.value)
+                  setNodePage(1)
+                  setEdgePage(1)
+                }}
+                placeholder="按实体名、alias 或边两端搜索"
+              />
+            </label>
+            <span className={styles.statusText}>
+              {deferredGraphQuery.trim() ? `图谱搜索：${deferredGraphQuery.trim()}` : '显示最近节点和最高权重边'}
+            </span>
+          </div>
 
           <div className={styles.controlGrid}>
             <section className={`${styles.panel} ${styles.sectionPanel}`}>
@@ -1075,12 +1035,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                   <p className={styles.panelLabel}>Nodes</p>
                   <h4 className={styles.panelTitle}>实体节点</h4>
                 </div>
+                <span className={styles.panelPill}>第 {entityGraphSummary.nodes.page} / {Math.max(1, Math.ceil(entityGraphSummary.nodes.total / entityGraphSummary.nodes.pageSize))} 页</span>
               </div>
-              {entityGraphSummary.nodes.length === 0 ? (
-                <p className={styles.statusText}>还没有实体节点。</p>
+              {entityGraphSummary.nodes.items.length === 0 ? (
+                <p className={styles.statusText}>{deferredGraphQuery.trim() ? '当前查询没有实体节点。' : '还没有实体节点。'}</p>
               ) : (
                 <div className={styles.historyList}>
-                  {entityGraphSummary.nodes.map((entity) => (
+                  {entityGraphSummary.nodes.items.map((entity) => (
                     <article key={entity.id} className={styles.historyItem}>
                       <div className={styles.historyHead}>
                         <strong>{entity.canonicalName}</strong>
@@ -1101,6 +1062,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                   ))}
                 </div>
               )}
+              <div className={styles.pagination}>
+                <span className={styles.statusText}>共 {entityGraphSummary.nodes.total} 个节点</span>
+                <div className={styles.pagerGroup}>
+                  <button type="button" className={styles.pagerButton} onClick={() => setNodePage((current) => Math.max(1, current - 1))} disabled={nodePage <= 1 || loading}>上一页</button>
+                  <button type="button" className={styles.pagerButton} onClick={() => setNodePage((current) => current + 1)} disabled={nodePage >= Math.max(1, Math.ceil(entityGraphSummary.nodes.total / entityGraphSummary.nodes.pageSize)) || loading}>下一页</button>
+                </div>
+              </div>
             </section>
 
             <section className={`${styles.panel} ${styles.sectionPanel}`}>
@@ -1109,12 +1077,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                   <p className={styles.panelLabel}>Edges</p>
                   <h4 className={styles.panelTitle}>无类型权重边</h4>
                 </div>
+                <span className={styles.panelPill}>第 {entityGraphSummary.edges.page} / {Math.max(1, Math.ceil(entityGraphSummary.edges.total / entityGraphSummary.edges.pageSize))} 页</span>
               </div>
-              {entityGraphSummary.edges.length === 0 ? (
-                <p className={styles.statusText}>还没有实体边。</p>
+              {entityGraphSummary.edges.items.length === 0 ? (
+                <p className={styles.statusText}>{deferredGraphQuery.trim() ? '当前查询没有实体边。' : '还没有实体边。'}</p>
               ) : (
                 <div className={styles.historyList}>
-                  {entityGraphSummary.edges.map((edge) => (
+                  {entityGraphSummary.edges.items.map((edge) => (
                     <article key={`${edge.sourceEntityId}-${edge.targetEntityId}`} className={styles.historyItem}>
                       <div className={styles.historyHead}>
                         <strong>{edge.sourceCanonicalName} ↔ {edge.targetCanonicalName}</strong>
@@ -1127,6 +1096,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                   ))}
                 </div>
               )}
+              <div className={styles.pagination}>
+                <span className={styles.statusText}>共 {entityGraphSummary.edges.total} 条边</span>
+                <div className={styles.pagerGroup}>
+                  <button type="button" className={styles.pagerButton} onClick={() => setEdgePage((current) => Math.max(1, current - 1))} disabled={edgePage <= 1 || loading}>上一页</button>
+                  <button type="button" className={styles.pagerButton} onClick={() => setEdgePage((current) => current + 1)} disabled={edgePage >= Math.max(1, Math.ceil(entityGraphSummary.edges.total / entityGraphSummary.edges.pageSize)) || loading}>下一页</button>
+                </div>
+              </div>
             </section>
           </div>
         </section>
@@ -1169,12 +1145,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               <option value="all">全部层级</option>
               <option value="short_term">短期记忆</option>
               <option value="fixed">固化记忆</option>
+              <option value="episodic">情景记忆</option>
             </select>
           </label>
 
           <div className={styles.toolbarActions}>
             <span className={styles.statusText}>
-              当前结果 {memories.length} / 总数 {total}
+              当前结果 {memoryRows.length} / 总数 {total}
               {deferredQuery.trim() ? ` · 搜索词：${deferredQuery.trim()}` : ''}
               {layerFilter !== 'all' ? ` · 层级：${MEMORY_LAYER_LABELS[layerFilter]}` : ''}
             </span>
@@ -1189,13 +1166,13 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </div>
         </div>
 
-        {loading && memories.length === 0 ? (
+        {loading && memoryRows.length === 0 ? (
           <div className={styles.emptyState}>
-            <h3>正在加载 sqlite 记忆…</h3>
+            <h3>正在加载记忆…</h3>
           </div>
-        ) : memories.length === 0 ? (
+        ) : memoryRows.length === 0 ? (
           <div className={styles.emptyState}>
-            <h3>还没有可管理的 sqlite 记忆</h3>
+            <h3>还没有可管理的记忆</h3>
             <p className={styles.emptyCopy}>先去聊天几轮让系统写入 memory，或者清空搜索词查看全部结果。</p>
           </div>
         ) : (
@@ -1213,8 +1190,9 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {memories.map((memory) => {
+                  {memoryRows.map((memory) => {
                     const expanded = expandedId === memory.id
+                    const isEditableSqlite = memory.kind === 'sqlite' && memory.layer !== 'long_term'
                     return (
                       <Fragment key={memory.id}>
                         <tr key={memory.id}>
@@ -1233,25 +1211,45 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                           <td className={styles.mono}>{memory.sessionId}</td>
                           <td className={styles.mono}>{memory.importance.toFixed(2)}</td>
                           <td>
-                            <button
-                              type="button"
-                              className={styles.dangerButton}
-                              onClick={() => void handleDelete(memory.id)}
-                              disabled={toolbarState.deleteDisabled || isClearingMemories}
-                            >
-                              删除
-                            </button>
+                            {memory.kind === 'sqlite' ? (
+                              <button
+                                type="button"
+                                className={styles.dangerButton}
+                                onClick={() => void handleDelete(memory.id)}
+                                disabled={toolbarState.deleteDisabled || isClearingMemories}
+                              >
+                                删除
+                              </button>
+                            ) : (
+                              <span className={styles.statusText}>只读</span>
+                            )}
                           </td>
                         </tr>
                         {expanded && (
                           <tr className={styles.expandedRow}>
                             <td colSpan={6}>
-                              <div className={styles.expandedGrid}>
-                                <div>
-                                  <p className={styles.fieldLabel}>retrieval_text</p>
-                                  <p className={styles.panelCopy}>{memory.retrievalText}</p>
-                                </div>
-                                <dl className={styles.metaList}>
+	                              <div className={styles.expandedGrid}>
+	                                <div>
+	                                  <p className={styles.fieldLabel}>retrieval_text</p>
+	                                  <p className={styles.panelCopy}>{memory.retrievalText}</p>
+                                    {memory.kind === 'episodic' && (
+                                      <>
+                                        <p className={styles.fieldLabel}>source_quote</p>
+                                        <p className={styles.panelCopy}>{memory.sourceQuote ?? '无'}</p>
+                                        <p className={styles.fieldLabel}>entities</p>
+                                        <div className={styles.chips}>
+                                          {memory.entities.length === 0 ? (
+                                            <span className={styles.statusText}>无绑定实体</span>
+                                          ) : memory.entities.map((entity) => (
+                                            <span key={`${memory.id}-${entity.id}`} className={styles.chip}>
+                                              {entity.canonicalName} · {formatEntityType(entity.type)} · {entity.weight.toFixed(2)}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </>
+                                    )}
+	                                </div>
+	                                <dl className={styles.metaList}>
                                   <div>
                                     <dt>ID</dt>
                                     <dd className={styles.mono}>{memory.id}</dd>
@@ -1260,25 +1258,39 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                                     <dt>生成时间</dt>
                                     <dd className={styles.statusText}>{formatDateTime(memory.createdAt)}</dd>
                                   </div>
-                                  <div>
-                                    <dt>层级</dt>
-                                    <dd>
-                                      {memory.layer === 'long_term' ? (
-                                        <span className={styles.statusText}>旧长期层</span>
-                                      ) : (
-                                        <select
-                                          className={styles.input}
-                                          value={memory.layer}
-                                          onChange={(event) => void handleLayerChange(memory.id, event.target.value as ManagedSqliteLayer)}
-                                        >
-                                          <option value="short_term">短期记忆</option>
-                                          <option value="fixed">固化记忆</option>
-                                        </select>
-                                      )}
-                                    </dd>
-                                  </div>
-                                </dl>
-                              </div>
+	                                  <div>
+	                                    <dt>层级</dt>
+	                                    <dd>
+	                                      {!isEditableSqlite ? (
+	                                        <span className={styles.statusText}>{MEMORY_LAYER_LABELS[memory.layer]}</span>
+	                                      ) : (
+	                                        <select
+	                                          className={styles.input}
+	                                          value={memory.layer}
+	                                          onChange={(event) => void handleLayerChange(memory.id, event.target.value as EditableMemoryLayer)}
+	                                        >
+	                                          <option value="short_term">短期记忆</option>
+	                                          <option value="fixed">固化记忆</option>
+	                                        </select>
+	                                      )}
+	                                    </dd>
+	                                  </div>
+                                    {memory.kind === 'episodic' && (
+                                      <>
+                                        <div>
+                                          <dt>embedding</dt>
+                                          <dd className={styles.statusText}>
+                                            {memory.hasEmbedding ? `${memory.retrievalModel || 'unknown'} · ${memory.embeddingDimensions}d` : '未写入 embedding'}
+                                          </dd>
+                                        </div>
+                                        <div>
+                                          <dt>观测时间</dt>
+                                          <dd className={styles.statusText}>{formatObservedRange(memory.observedStartAt, memory.observedEndAt)}</dd>
+                                        </div>
+                                      </>
+                                    )}
+	                                </dl>
+	                              </div>
                             </td>
                           </tr>
                         )}

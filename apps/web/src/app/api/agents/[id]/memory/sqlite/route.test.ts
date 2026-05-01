@@ -336,15 +336,152 @@ test('listSqliteMemories returns read-only episodic memories and entity graph da
     )
     assert.equal(data.entities.total, 2)
     assert.deepEqual(
-      data.entities.nodes.map((entity: { canonicalName: string }) => entity.canonicalName).sort(),
+      data.entities.nodes.items.map((entity: { canonicalName: string }) => entity.canonicalName).sort(),
       ['MAS Lab', '黄铜指南针'],
     )
-    assert.deepEqual(data.entities.nodes.find((entity: { id: string }) => entity.id === compass.id).aliases, ['指南针'])
-    assert.equal(data.entities.nodes.find((entity: { id: string }) => entity.id === compass.id).episodicMemoryCount, 1)
-    assert.equal(data.entities.edges.length, 1)
-    assert.equal(data.entities.edges[0].sourceEntityId, compass.id < lab.id ? compass.id : lab.id)
-    assert.equal(data.entities.edges[0].targetEntityId, compass.id < lab.id ? lab.id : compass.id)
-    assert.equal(data.entities.edges[0].weight, 0.42)
+    assert.deepEqual(data.entities.nodes.items.find((entity: { id: string }) => entity.id === compass.id).aliases, ['指南针'])
+    assert.equal(data.entities.nodes.items.find((entity: { id: string }) => entity.id === compass.id).episodicMemoryCount, 1)
+    assert.equal(data.entities.edges.items.length, 1)
+    assert.equal(data.entities.edges.items[0].sourceEntityId, compass.id < lab.id ? compass.id : lab.id)
+    assert.equal(data.entities.edges.items[0].targetEntityId, compass.id < lab.id ? lab.id : compass.id)
+    assert.equal(data.entities.edges.items[0].weight, 0.42)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('listSqliteMemories returns unified memory rows and paginated graph query results', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const shortTerm = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 提到短期蓝色雨伞',
+      retrievalText: '短期 蓝色雨伞',
+      tags: ['雨伞'],
+      createdAt: '2026-04-24T10:00:00.000Z',
+      layer: 'short_term',
+    })
+    const fixed = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 固化偏好旧书店',
+      retrievalText: '固化 旧书店',
+      tags: ['旧书店'],
+      createdAt: '2026-04-24T10:01:00.000Z',
+      layer: 'fixed',
+    })
+    const bookstore = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: '安特卫普旧书店',
+      description: '和蓝色雨伞相关的旧书店',
+      confidence: 0.9,
+      aliases: [{ alias: '旧书店', confidence: 0.8 }],
+      now: new Date('2026-04-24T10:02:00.000Z'),
+    })
+    const umbrella = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '蓝色雨伞',
+      description: null,
+      confidence: 0.85,
+      aliases: [],
+      now: new Date('2026-04-24T10:03:00.000Z'),
+    })
+    const lab = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: 'MAS Lab',
+      description: null,
+      confidence: 0.8,
+      aliases: [],
+      now: new Date('2026-04-24T10:04:00.000Z'),
+    })
+    episodicMemoryGraphRepo.upsertEntityEdge({
+      agentId: 'agent-1',
+      sourceEntityId: bookstore.id,
+      targetEntityId: umbrella.id,
+      delta: 0.5,
+      now: new Date('2026-04-24T10:05:00.000Z'),
+    })
+    episodicMemoryGraphRepo.upsertEntityEdge({
+      agentId: 'agent-1',
+      sourceEntityId: bookstore.id,
+      targetEntityId: lab.id,
+      delta: 0.2,
+      now: new Date('2026-04-24T10:06:00.000Z'),
+    })
+    const episodic = episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-2',
+      summary: 'WJJ 在安特卫普旧书店带着蓝色雨伞。',
+      sourceText: 'WJJ 在安特卫普旧书店带着蓝色雨伞。',
+      sourceQuote: '带着蓝色雨伞',
+      retrievalText: '安特卫普旧书店 蓝色雨伞',
+      retrievalEmbedding: [1, 0, 0],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      importance: 0.88,
+      observedStartAt: new Date('2026-04-24T10:05:00.000Z'),
+      observedEndAt: new Date('2026-04-24T10:10:00.000Z'),
+      entityLinks: [
+        { entityId: bookstore.id, weight: 0.9 },
+        { entityId: umbrella.id, weight: 0.8 },
+      ],
+      now: new Date('2026-04-24T10:07:00.000Z'),
+    })
+
+    const firstPageResponse = listSqliteMemories('agent-1', undefined, {
+      page: 1,
+      pageSize: 2,
+      graphQuery: '旧书店',
+      nodePage: 1,
+      edgePage: 1,
+      graphPageSize: 1,
+    } as never)
+    const firstPage = await firstPageResponse.json()
+    const episodicOnlyResponse = listSqliteMemories('agent-1', '雨伞', {
+      page: 1,
+      pageSize: 5,
+      layer: 'episodic',
+    } as never)
+    const episodicOnly = await episodicOnlyResponse.json()
+
+    assert.equal(firstPageResponse.status, 200)
+    assert.equal(firstPage.total, 3)
+    assert.deepEqual(
+      firstPage.rows.map((row: { id: string; layer: string; kind: string }) => [row.id, row.layer, row.kind]),
+      [
+        [episodic.id, 'episodic', 'episodic'],
+        [fixed.id, 'fixed', 'sqlite'],
+      ],
+    )
+    assert.equal(firstPage.rows[0].sourceQuote, '带着蓝色雨伞')
+    assert.equal(firstPage.rows[0].hasEmbedding, true)
+    assert.equal(firstPage.rows[0].embeddingDimensions, 3)
+    assert.deepEqual(
+      firstPage.rows[0].entities.map((entity: { canonicalName: string; weight: number }) => [entity.canonicalName, entity.weight]),
+      [['安特卫普旧书店', 0.9], ['蓝色雨伞', 0.8]],
+    )
+    assert.equal(firstPage.graphQuery, '旧书店')
+    assert.equal(firstPage.entities.total, 1)
+    assert.equal(firstPage.entities.nodes.total, 1)
+    assert.equal(firstPage.entities.nodes.page, 1)
+    assert.equal(firstPage.entities.nodes.pageSize, 1)
+    assert.deepEqual(firstPage.entities.nodes.items.map((entity: { canonicalName: string }) => entity.canonicalName), ['安特卫普旧书店'])
+    assert.equal(firstPage.entities.edges.total, 2)
+    assert.equal(firstPage.entities.edges.items.length, 1)
+    assert.match(firstPage.entities.edges.items[0].sourceCanonicalName + firstPage.entities.edges.items[0].targetCanonicalName, /旧书店/)
+    assert.deepEqual(episodicOnly.rows.map((row: { id: string }) => row.id), [episodic.id])
+    assert.equal(episodicOnly.total, 1)
+    assert.equal(shortTerm.id.length > 0, true)
   } finally {
     resetDb()
     resetMemoryDb()

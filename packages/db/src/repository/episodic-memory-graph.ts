@@ -56,6 +56,34 @@ export interface MemoryEntityEdgeRecord {
   lastSeenAt: Date
 }
 
+export type ManagedMemoryRowLayer = 'short_term' | 'long_term' | 'fixed' | 'episodic'
+export type ManagedMemoryRowKind = 'sqlite' | 'episodic'
+
+export interface ManagedMemoryRowRecord {
+  kind: ManagedMemoryRowKind
+  id: string
+  agentId: string
+  sessionId: string
+  layer: ManagedMemoryRowLayer
+  summary: string
+  retrievalText: string
+  sourceQuote: string | null
+  retrievalEmbedding: number[]
+  retrievalModel: string
+  importance: number
+  observedStartAt: Date | null
+  observedEndAt: Date | null
+  createdAt: Date
+  entities: EpisodicMemoryEntityLinkRecord[]
+}
+
+export interface PageResult<T> {
+  total: number
+  page: number
+  pageSize: number
+  items: T[]
+}
+
 type EntityRow = {
   id: string
   agent_id: string
@@ -108,6 +136,23 @@ type EntityEdgeRow = {
   weight: number
   co_occurrence_count: number
   last_seen_at: number
+}
+
+type ManagedMemorySqlRow = {
+  kind: ManagedMemoryRowKind
+  id: string
+  agent_id: string
+  session_id: string
+  layer: ManagedMemoryRowLayer
+  summary: string
+  retrieval_text: string
+  source_quote: string | null
+  retrieval_embedding: string
+  retrieval_model: string
+  importance: number
+  observed_start_at: number | null
+  observed_end_at: number | null
+  created_at: number
 }
 
 function normalizeType(type: string): EntityType {
@@ -172,6 +217,19 @@ function clip01(value: number) {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
 }
 
+function normalizePage(value: number) {
+  return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1
+}
+
+function normalizePageSize(value: number) {
+  return Number.isFinite(value) ? Math.max(1, Math.min(100, Math.floor(value))) : 20
+}
+
+function readSearchQuery(value: string | null | undefined) {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed.toLowerCase() : null
+}
+
 function mapEntity(row: EntityRow): MemoryEntityRecord {
   return {
     id: row.id,
@@ -201,6 +259,111 @@ function mapEpisodicMemory(row: EpisodicMemoryRow): EpisodicMemoryRecord {
     observedEndAt: typeof row.observed_end_at === 'number' ? new Date(row.observed_end_at) : null,
     createdAt: new Date(row.created_at),
   }
+}
+
+function mapManagedMemoryRow(row: ManagedMemorySqlRow): ManagedMemoryRowRecord {
+  return {
+    kind: row.kind,
+    id: row.id,
+    agentId: row.agent_id,
+    sessionId: row.session_id,
+    layer: row.layer,
+    summary: row.summary,
+    retrievalText: row.retrieval_text,
+    sourceQuote: row.source_quote,
+    retrievalEmbedding: parseEmbedding(row.retrieval_embedding),
+    retrievalModel: row.retrieval_model,
+    importance: row.importance,
+    observedStartAt: typeof row.observed_start_at === 'number' ? new Date(row.observed_start_at) : null,
+    observedEndAt: typeof row.observed_end_at === 'number' ? new Date(row.observed_end_at) : null,
+    createdAt: new Date(row.created_at),
+    entities: [],
+  }
+}
+
+function attachEpisodicEntityLinks<T extends { id: string; kind?: ManagedMemoryRowKind; entities: EpisodicMemoryEntityLinkRecord[] }>(rows: T[]) {
+  const episodicIds = rows
+    .filter((row) => row.kind === undefined || row.kind === 'episodic')
+    .map((row) => row.id)
+  if (episodicIds.length === 0) {
+    return rows
+  }
+
+  const sqlite = getMemoryRawSqlite()
+  const placeholders = episodicIds.map(() => '?').join(', ')
+  const links = sqlite.prepare(`
+    SELECT memory_id, entity_id, weight
+    FROM episodic_memory_entities
+    WHERE memory_id IN (${placeholders})
+  `).all(...episodicIds) as EpisodicLinkRow[]
+
+  const entityIds = [...new Set(links.map((link) => link.entity_id))]
+  const entities = new Map<string, MemoryEntityRecord>()
+  for (const entityId of entityIds) {
+    const entity = getEntity(entityId)
+    if (entity) {
+      entities.set(entityId, entity)
+    }
+  }
+
+  const linksByMemory = new Map<string, EpisodicMemoryEntityLinkRecord[]>()
+  for (const link of links) {
+    const entity = entities.get(link.entity_id)
+    if (!entity) {
+      continue
+    }
+    const list = linksByMemory.get(link.memory_id) ?? []
+    list.push({ entity, weight: clip01(link.weight) })
+    linksByMemory.set(link.memory_id, list)
+  }
+
+  for (const row of rows) {
+    if (row.kind === 'sqlite') {
+      continue
+    }
+    row.entities = (linksByMemory.get(row.id) ?? [])
+      .sort((left, right) => right.weight - left.weight || left.entity.canonicalName.localeCompare(right.entity.canonicalName))
+  }
+
+  return rows
+}
+
+function attachEntityStats(entities: MemoryEntityRecord[]): MemoryEntityWithStatsRecord[] {
+  if (entities.length === 0) {
+    return []
+  }
+
+  const sqlite = getMemoryRawSqlite()
+  const entityIds = entities.map((entity) => entity.id)
+  const placeholders = entityIds.map(() => '?').join(', ')
+  const aliases = sqlite.prepare(`
+    SELECT entity_id, alias
+    FROM memory_entity_aliases
+    WHERE entity_id IN (${placeholders})
+    ORDER BY alias ASC
+  `).all(...entityIds) as AliasRow[]
+  const counts = sqlite.prepare(`
+    SELECT l.entity_id, COUNT(DISTINCT l.memory_id) AS count
+    FROM episodic_memory_entities l
+    JOIN episodic_memories m ON m.id = l.memory_id
+    WHERE l.entity_id IN (${placeholders})
+    GROUP BY l.entity_id
+  `).all(...entityIds) as EntityCountRow[]
+
+  const aliasesByEntity = new Map<string, string[]>()
+  for (const row of aliases) {
+    const list = aliasesByEntity.get(row.entity_id) ?? []
+    list.push(row.alias)
+    aliasesByEntity.set(row.entity_id, list)
+  }
+
+  const countsByEntity = new Map(counts.map((row) => [row.entity_id, row.count]))
+
+  return entities.map((entity) => ({
+    ...entity,
+    aliases: aliasesByEntity.get(entity.id) ?? [],
+    episodicMemoryCount: countsByEntity.get(entity.id) ?? 0,
+  }))
 }
 
 function sortedPair(left: string, right: string) {
@@ -515,43 +678,105 @@ export function listEpisodicMemoriesByAgent(input: {
   `).all(input.agentId, limit) as EpisodicMemoryRow[]
 
   const memories = rows.map(mapEpisodicMemory)
-  if (memories.length === 0) {
-    return []
+  return attachEpisodicEntityLinks(memories.map((memory) => ({ ...memory, entities: [] })))
+}
+
+export function listManagedMemoryRowsByAgent(input: {
+  agentId: string
+  query?: string | null
+  layer?: ManagedMemoryRowLayer | null
+  page: number
+  pageSize: number
+}): PageResult<ManagedMemoryRowRecord> {
+  const page = normalizePage(input.page)
+  const pageSize = normalizePageSize(input.pageSize)
+  const offset = (page - 1) * pageSize
+  const query = readSearchQuery(input.query)
+  const layer = input.layer ?? null
+  const sqlite = getMemoryRawSqlite()
+  const unionParts: string[] = []
+  const unionValues: unknown[] = []
+
+  if (layer !== 'episodic') {
+    const sqliteLayers = layer
+      ? [layer]
+      : ['short_term', 'fixed']
+    unionParts.push(`
+      SELECT
+        'sqlite' AS kind,
+        id,
+        agent_id,
+        session_id,
+        layer,
+        display_summary AS summary,
+        retrieval_text,
+        NULL AS source_quote,
+        retrieval_embedding,
+        retrieval_model,
+        importance,
+        observed_start_at,
+        observed_end_at,
+        created_at
+      FROM memories
+      WHERE agent_id = ?
+        AND layer IN (${sqliteLayers.map(() => '?').join(', ')})
+    `)
+    unionValues.push(input.agentId, ...sqliteLayers)
   }
 
-  const memoryIds = memories.map((memory) => memory.id)
-  const placeholders = memoryIds.map(() => '?').join(', ')
-  const links = sqlite.prepare(`
-    SELECT memory_id, entity_id, weight
-    FROM episodic_memory_entities
-    WHERE memory_id IN (${placeholders})
-  `).all(...memoryIds) as EpisodicLinkRow[]
-
-  const entityIds = [...new Set(links.map((link) => link.entity_id))]
-  const entities = new Map<string, MemoryEntityRecord>()
-  for (const entityId of entityIds) {
-    const entity = getEntity(entityId)
-    if (entity) {
-      entities.set(entityId, entity)
-    }
+  if (!layer || layer === 'episodic') {
+    unionParts.push(`
+      SELECT
+        'episodic' AS kind,
+        id,
+        agent_id,
+        session_id,
+        'episodic' AS layer,
+        summary,
+        retrieval_text,
+        source_quote,
+        retrieval_embedding,
+        retrieval_model,
+        importance,
+        observed_start_at,
+        observed_end_at,
+        created_at
+      FROM episodic_memories
+      WHERE agent_id = ?
+    `)
+    unionValues.push(input.agentId)
   }
 
-  const linksByMemory = new Map<string, EpisodicMemoryEntityLinkRecord[]>()
-  for (const link of links) {
-    const entity = entities.get(link.entity_id)
-    if (!entity) {
-      continue
-    }
-    const list = linksByMemory.get(link.memory_id) ?? []
-    list.push({ entity, weight: clip01(link.weight) })
-    linksByMemory.set(link.memory_id, list)
+  if (unionParts.length === 0) {
+    return { total: 0, page, pageSize, items: [] }
   }
 
-  return memories.map((memory) => ({
-    ...memory,
-    entities: (linksByMemory.get(memory.id) ?? [])
-      .sort((left, right) => right.weight - left.weight || left.entity.canonicalName.localeCompare(right.entity.canonicalName)),
-  }))
+  const queryCondition = query
+    ? `WHERE (
+        lower(summary) LIKE ?
+        OR lower(retrieval_text) LIKE ?
+        OR lower(COALESCE(source_quote, '')) LIKE ?
+      )`
+    : ''
+  const queryValues = query ? [`%${query}%`, `%${query}%`, `%${query}%`] : []
+  const fromSql = `FROM (${unionParts.join(' UNION ALL ')}) unified ${queryCondition}`
+  const totalRow = sqlite.prepare(`
+    SELECT COUNT(*) AS total
+    ${fromSql}
+  `).get(...unionValues, ...queryValues) as { total: number } | undefined
+  const rows = sqlite.prepare(`
+    SELECT *
+    ${fromSql}
+    ORDER BY created_at DESC, id ASC
+    LIMIT ? OFFSET ?
+  `).all(...unionValues, ...queryValues, pageSize, offset) as ManagedMemorySqlRow[]
+
+  return {
+    total: totalRow?.total ?? 0,
+    page,
+    pageSize,
+    items: attachEpisodicEntityLinks(rows.map(mapManagedMemoryRow)),
+  }
 }
 
 export function listMemoryEntitiesByAgent(agentId: string): MemoryEntityWithStatsRecord[] {
@@ -571,41 +796,66 @@ export function listMemoryEntitiesByAgent(agentId: string): MemoryEntityWithStat
     ORDER BY COALESCE(last_seen_at, created_at) DESC, canonical_name ASC
   `).all(agentId) as EntityRow[]).map(mapEntity)
 
-  if (entities.length === 0) {
-    return []
+  return attachEntityStats(entities)
+}
+
+export function listMemoryEntitiesPageByAgent(input: {
+  agentId: string
+  query?: string | null
+  page: number
+  pageSize: number
+}): PageResult<MemoryEntityWithStatsRecord> {
+  const page = normalizePage(input.page)
+  const pageSize = normalizePageSize(input.pageSize)
+  const offset = (page - 1) * pageSize
+  const query = readSearchQuery(input.query)
+  const sqlite = getMemoryRawSqlite()
+  const conditions = ['e.agent_id = ?']
+  const values: unknown[] = [input.agentId]
+
+  if (query) {
+    const wildcard = `%${query}%`
+    conditions.push(`(
+      lower(e.canonical_name) LIKE ?
+      OR lower(COALESCE(e.description, '')) LIKE ?
+      OR EXISTS (
+        SELECT 1
+        FROM memory_entity_aliases a
+        WHERE a.entity_id = e.id
+          AND lower(a.alias) LIKE ?
+      )
+    )`)
+    values.push(wildcard, wildcard, wildcard)
   }
 
-  const entityIds = entities.map((entity) => entity.id)
-  const placeholders = entityIds.map(() => '?').join(', ')
-  const aliases = sqlite.prepare(`
-    SELECT entity_id, alias
-    FROM memory_entity_aliases
-    WHERE entity_id IN (${placeholders})
-    ORDER BY alias ASC
-  `).all(...entityIds) as AliasRow[]
-  const counts = sqlite.prepare(`
-    SELECT l.entity_id, COUNT(DISTINCT l.memory_id) AS count
-    FROM episodic_memory_entities l
-    JOIN episodic_memories m ON m.id = l.memory_id
-    WHERE m.agent_id = ?
-      AND l.entity_id IN (${placeholders})
-    GROUP BY l.entity_id
-  `).all(agentId, ...entityIds) as EntityCountRow[]
+  const whereSql = conditions.join(' AND ')
+  const totalRow = sqlite.prepare(`
+    SELECT COUNT(*) AS total
+    FROM memory_entities e
+    WHERE ${whereSql}
+  `).get(...values) as { total: number } | undefined
+  const entities = (sqlite.prepare(`
+    SELECT
+      e.id,
+      e.agent_id,
+      e.type,
+      e.canonical_name,
+      e.description,
+      e.confidence,
+      e.created_at,
+      e.last_seen_at
+    FROM memory_entities e
+    WHERE ${whereSql}
+    ORDER BY COALESCE(e.last_seen_at, e.created_at) DESC, e.canonical_name ASC
+    LIMIT ? OFFSET ?
+  `).all(...values, pageSize, offset) as EntityRow[]).map(mapEntity)
 
-  const aliasesByEntity = new Map<string, string[]>()
-  for (const row of aliases) {
-    const list = aliasesByEntity.get(row.entity_id) ?? []
-    list.push(row.alias)
-    aliasesByEntity.set(row.entity_id, list)
+  return {
+    total: totalRow?.total ?? 0,
+    page,
+    pageSize,
+    items: attachEntityStats(entities),
   }
-
-  const countsByEntity = new Map(counts.map((row) => [row.entity_id, row.count]))
-
-  return entities.map((entity) => ({
-    ...entity,
-    aliases: aliasesByEntity.get(entity.id) ?? [],
-    episodicMemoryCount: countsByEntity.get(entity.id) ?? 0,
-  }))
 }
 
 export function listMemoryEntityEdgesByAgent(agentId: string): MemoryEntityEdgeRecord[] {
@@ -636,6 +886,84 @@ export function listMemoryEntityEdgesByAgent(agentId: string): MemoryEntityEdgeR
     coOccurrenceCount: row.co_occurrence_count,
     lastSeenAt: new Date(row.last_seen_at),
   }))
+}
+
+export function listMemoryEntityEdgesPageByAgent(input: {
+  agentId: string
+  query?: string | null
+  page: number
+  pageSize: number
+}): PageResult<MemoryEntityEdgeRecord> {
+  const page = normalizePage(input.page)
+  const pageSize = normalizePageSize(input.pageSize)
+  const offset = (page - 1) * pageSize
+  const query = readSearchQuery(input.query)
+  const conditions = ['edge.agent_id = ?']
+  const values: unknown[] = [input.agentId]
+
+  if (query) {
+    const wildcard = `%${query}%`
+    conditions.push(`(
+      lower(source.canonical_name) LIKE ?
+      OR lower(target.canonical_name) LIKE ?
+      OR EXISTS (
+        SELECT 1
+        FROM memory_entity_aliases source_alias
+        WHERE source_alias.entity_id = source.id
+          AND lower(source_alias.alias) LIKE ?
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM memory_entity_aliases target_alias
+        WHERE target_alias.entity_id = target.id
+          AND lower(target_alias.alias) LIKE ?
+      )
+    )`)
+    values.push(wildcard, wildcard, wildcard, wildcard)
+  }
+
+  const whereSql = conditions.join(' AND ')
+  const sqlite = getMemoryRawSqlite()
+  const totalRow = sqlite.prepare(`
+    SELECT COUNT(*) AS total
+    FROM memory_entity_edges edge
+    JOIN memory_entities source ON source.id = edge.source_entity_id
+    JOIN memory_entities target ON target.id = edge.target_entity_id
+    WHERE ${whereSql}
+  `).get(...values) as { total: number } | undefined
+  const rows = sqlite.prepare(`
+    SELECT
+      edge.agent_id,
+      edge.source_entity_id,
+      source.canonical_name AS source_canonical_name,
+      edge.target_entity_id,
+      target.canonical_name AS target_canonical_name,
+      edge.weight,
+      edge.co_occurrence_count,
+      edge.last_seen_at
+    FROM memory_entity_edges edge
+    JOIN memory_entities source ON source.id = edge.source_entity_id
+    JOIN memory_entities target ON target.id = edge.target_entity_id
+    WHERE ${whereSql}
+    ORDER BY edge.weight DESC, edge.co_occurrence_count DESC, edge.last_seen_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...values, pageSize, offset) as EntityEdgeRow[]
+
+  return {
+    total: totalRow?.total ?? 0,
+    page,
+    pageSize,
+    items: rows.map((row) => ({
+      agentId: row.agent_id,
+      sourceEntityId: row.source_entity_id,
+      sourceCanonicalName: row.source_canonical_name,
+      targetEntityId: row.target_entity_id,
+      targetCanonicalName: row.target_canonical_name,
+      weight: clip01(row.weight),
+      coOccurrenceCount: row.co_occurrence_count,
+      lastSeenAt: new Date(row.last_seen_at),
+    })),
+  }
 }
 
 export function findRelevantEpisodicMemories(input: {
