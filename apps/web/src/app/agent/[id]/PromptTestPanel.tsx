@@ -164,12 +164,16 @@ export default function PromptTestPanel({
       setError(null)
       try {
         const response = await fetch(`/api/agents/${agentId}/prompt-tests`, { cache: 'no-store' })
-        const data = await response.json() as { samples?: Record<string, unknown>; error?: string }
+        const data = await response.json() as {
+          defaults?: Record<string, unknown>
+          samples?: Record<string, unknown>
+          error?: string
+        }
         if (!response.ok) {
           throw new Error(readErrorMessage(data, '加载 prompt 测试样例失败'))
         }
         if (!cancelled) {
-          setInputText(stringifyInput(data.samples?.[testId] ?? defaultInput))
+          setInputText(stringifyInput(data.samples?.[testId] ?? data.defaults?.[testId] ?? defaultInput))
         }
       } catch (err) {
         if (!cancelled) {
