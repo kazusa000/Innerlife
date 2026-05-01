@@ -358,6 +358,12 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
 
   const settingsDirty = !areSettingsEqual(savedSettings, draftSettings)
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const nodePageCount = Math.max(1, Math.ceil(entityGraphSummary.nodes.total / entityGraphSummary.nodes.pageSize))
+  const edgePageCount = Math.max(1, Math.ceil(entityGraphSummary.edges.total / entityGraphSummary.edges.pageSize))
+  const nodeRangeStart = entityGraphSummary.nodes.total === 0 ? 0 : (entityGraphSummary.nodes.page - 1) * entityGraphSummary.nodes.pageSize + 1
+  const nodeRangeEnd = Math.min(entityGraphSummary.nodes.page * entityGraphSummary.nodes.pageSize, entityGraphSummary.nodes.total)
+  const edgeRangeStart = entityGraphSummary.edges.total === 0 ? 0 : (entityGraphSummary.edges.page - 1) * entityGraphSummary.edges.pageSize + 1
+  const edgeRangeEnd = Math.min(entityGraphSummary.edges.page * entityGraphSummary.edges.pageSize, entityGraphSummary.edges.total)
   const toolbarState = getSqliteMemoryToolbarState({
     loading,
     pending,
@@ -996,21 +1002,22 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </section>
         </div>
 
-        <section className={styles.sectionPanel}>
+        <section className={`${styles.sectionPanel} ${styles.graphPanel}`}>
           <div className={styles.panelHead}>
             <div>
               <p className={styles.tableLabel}>实体图</p>
               <h4 className={styles.panelTitle}>Entity Graph</h4>
             </div>
-            <span className={styles.panelPill}>
-              {entityGraphSummary.nodes.total} 节点 · {entityGraphSummary.edges.total} 边
-            </span>
+            <div className={styles.graphStats}>
+              <span>{entityGraphSummary.nodes.total} 节点</span>
+              <span>{entityGraphSummary.edges.total} 边</span>
+            </div>
           </div>
           <p className={styles.panelCopy}>
             实体节点、alias 和无类型权重边都由后台 merge/consolidation 维护。这里单独查询和分页，不再一次性渲染整张图。
           </p>
-          <div className={styles.tableToolbar}>
-            <label className={styles.searchField}>
+          <div className={styles.graphToolbar}>
+            <label className={`${styles.searchField} ${styles.graphSearchField}`}>
               <span className={styles.fieldLabel}>查询节点和边</span>
               <input
                 className={styles.searchInput}
@@ -1023,87 +1030,92 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 placeholder="按实体名、alias 或边两端搜索"
               />
             </label>
-            <span className={styles.statusText}>
+            <span className={styles.graphQueryState}>
               {deferredGraphQuery.trim() ? `图谱搜索：${deferredGraphQuery.trim()}` : '显示最近节点和最高权重边'}
             </span>
           </div>
 
-          <div className={styles.controlGrid}>
-            <section className={`${styles.panel} ${styles.sectionPanel}`}>
-              <div className={styles.panelHead}>
+          <div className={styles.graphGrid}>
+            <div className={styles.graphColumn}>
+              <div className={styles.graphColumnHead}>
                 <div>
                   <p className={styles.panelLabel}>Nodes</p>
                   <h4 className={styles.panelTitle}>实体节点</h4>
                 </div>
-                <span className={styles.panelPill}>第 {entityGraphSummary.nodes.page} / {Math.max(1, Math.ceil(entityGraphSummary.nodes.total / entityGraphSummary.nodes.pageSize))} 页</span>
+                <span className={styles.graphPagePill}>第 {entityGraphSummary.nodes.page} / {nodePageCount} 页</span>
               </div>
               {entityGraphSummary.nodes.items.length === 0 ? (
-                <p className={styles.statusText}>{deferredGraphQuery.trim() ? '当前查询没有实体节点。' : '还没有实体节点。'}</p>
+                <div className={styles.graphEmpty}>{deferredGraphQuery.trim() ? '当前查询没有实体节点。' : '还没有实体节点。'}</div>
               ) : (
-                <div className={styles.historyList}>
+                <div className={styles.graphList}>
                   {entityGraphSummary.nodes.items.map((entity) => (
-                    <article key={entity.id} className={styles.historyItem}>
-                      <div className={styles.historyHead}>
-                        <strong>{entity.canonicalName}</strong>
-                        <span className={styles.statusText}>
-                          {formatEntityType(entity.type)} · {entity.confidence.toFixed(2)} · {entity.episodicMemoryCount} 情景
-                        </span>
+                    <article key={entity.id} className={styles.graphNodeRow}>
+                      <div className={styles.graphNodeMain}>
+                        <div className={styles.graphNodeTitleLine}>
+                          <strong>{entity.canonicalName}</strong>
+                          <span className={styles.graphTypeBadge}>{formatEntityType(entity.type)}</span>
+                        </div>
+                        {entity.description && <p className={styles.graphDescription}>{entity.description}</p>}
+                        <div className={styles.graphAliasLine}>
+                          {entity.aliases.length === 0 ? (
+                            <span>无 alias</span>
+                          ) : entity.aliases.map((alias) => (
+                            <span key={`${entity.id}-${alias}`}>{alias}</span>
+                          ))}
+                        </div>
                       </div>
-                      {entity.description && <p className={styles.historyCopy}>{entity.description}</p>}
-                      <div className={styles.chips}>
-                        {entity.aliases.length === 0 ? (
-                          <span className={styles.statusText}>无 alias</span>
-                        ) : entity.aliases.map((alias) => (
-                          <span key={`${entity.id}-${alias}`} className={styles.chip}>{alias}</span>
-                        ))}
+                      <div className={styles.graphNodeMeta}>
+                        <span>{entity.confidence.toFixed(2)}</span>
+                        <span>{entity.episodicMemoryCount} 情景</span>
+                        <span>{formatOptionalDate(entity.lastSeenAt)}</span>
                       </div>
-                      <span className={styles.mono}>lastSeen {formatOptionalDate(entity.lastSeenAt)}</span>
                     </article>
                   ))}
                 </div>
               )}
-              <div className={styles.pagination}>
-                <span className={styles.statusText}>共 {entityGraphSummary.nodes.total} 个节点</span>
+              <div className={styles.graphPagination}>
+                <span>{nodeRangeStart}-{nodeRangeEnd} / {entityGraphSummary.nodes.total} 节点</span>
                 <div className={styles.pagerGroup}>
                   <button type="button" className={styles.pagerButton} onClick={() => setNodePage((current) => Math.max(1, current - 1))} disabled={nodePage <= 1 || loading}>上一页</button>
-                  <button type="button" className={styles.pagerButton} onClick={() => setNodePage((current) => current + 1)} disabled={nodePage >= Math.max(1, Math.ceil(entityGraphSummary.nodes.total / entityGraphSummary.nodes.pageSize)) || loading}>下一页</button>
+                  <button type="button" className={styles.pagerButton} onClick={() => setNodePage((current) => current + 1)} disabled={nodePage >= nodePageCount || loading}>下一页</button>
                 </div>
               </div>
-            </section>
+            </div>
 
-            <section className={`${styles.panel} ${styles.sectionPanel}`}>
-              <div className={styles.panelHead}>
+            <div className={styles.graphColumn}>
+              <div className={styles.graphColumnHead}>
                 <div>
                   <p className={styles.panelLabel}>Edges</p>
                   <h4 className={styles.panelTitle}>无类型权重边</h4>
                 </div>
-                <span className={styles.panelPill}>第 {entityGraphSummary.edges.page} / {Math.max(1, Math.ceil(entityGraphSummary.edges.total / entityGraphSummary.edges.pageSize))} 页</span>
+                <span className={styles.graphPagePill}>第 {entityGraphSummary.edges.page} / {edgePageCount} 页</span>
               </div>
               {entityGraphSummary.edges.items.length === 0 ? (
-                <p className={styles.statusText}>{deferredGraphQuery.trim() ? '当前查询没有实体边。' : '还没有实体边。'}</p>
+                <div className={styles.graphEmpty}>{deferredGraphQuery.trim() ? '当前查询没有实体边。' : '还没有实体边。'}</div>
               ) : (
-                <div className={styles.historyList}>
+                <div className={styles.graphList}>
                   {entityGraphSummary.edges.items.map((edge) => (
-                    <article key={`${edge.sourceEntityId}-${edge.targetEntityId}`} className={styles.historyItem}>
-                      <div className={styles.historyHead}>
+                    <article key={`${edge.sourceEntityId}-${edge.targetEntityId}`} className={styles.graphEdgeRow}>
+                      <div className={styles.graphEdgeMain}>
                         <strong>{edge.sourceCanonicalName} ↔ {edge.targetCanonicalName}</strong>
-                        <span className={styles.statusText}>
-                          权重 {edge.weight.toFixed(2)} · 共现 {edge.coOccurrenceCount}
-                        </span>
+                        <span>{formatDateTime(edge.lastSeenAt)}</span>
                       </div>
-                      <span className={styles.mono}>lastSeen {formatDateTime(edge.lastSeenAt)}</span>
+                      <div className={styles.graphEdgeMeta}>
+                        <span>权重 {edge.weight.toFixed(2)}</span>
+                        <span>共现 {edge.coOccurrenceCount}</span>
+                      </div>
                     </article>
                   ))}
                 </div>
               )}
-              <div className={styles.pagination}>
-                <span className={styles.statusText}>共 {entityGraphSummary.edges.total} 条边</span>
+              <div className={styles.graphPagination}>
+                <span>{edgeRangeStart}-{edgeRangeEnd} / {entityGraphSummary.edges.total} 边</span>
                 <div className={styles.pagerGroup}>
                   <button type="button" className={styles.pagerButton} onClick={() => setEdgePage((current) => Math.max(1, current - 1))} disabled={edgePage <= 1 || loading}>上一页</button>
-                  <button type="button" className={styles.pagerButton} onClick={() => setEdgePage((current) => current + 1)} disabled={edgePage >= Math.max(1, Math.ceil(entityGraphSummary.edges.total / entityGraphSummary.edges.pageSize)) || loading}>下一页</button>
+                  <button type="button" className={styles.pagerButton} onClick={() => setEdgePage((current) => current + 1)} disabled={edgePage >= edgePageCount || loading}>下一页</button>
                 </div>
               </div>
-            </section>
+            </div>
           </div>
         </section>
 
