@@ -612,7 +612,7 @@ function renderMemoryLayerResult(input: {
   ].join('\n')
 }
 
-function renderLayeredMemoryFragment(input: {
+export function renderLayeredMemoryFragment(input: {
   shortTermMemories: MemoryRecord[]
   fixedMemories: MemoryRecord[]
   shortTermPrompt?: string | null
@@ -781,7 +781,7 @@ function buildSemanticAnalyzerHistoryWindow(
   return history
 }
 
-function buildSemanticAnalyzerInputText(
+export function buildSemanticAnalyzerInputText(
   messages: ConversationMessage[],
   userText: string,
   labels: MemoryActorLabels = FALLBACK_MEMORY_ACTOR_LABELS,

@@ -426,6 +426,63 @@
   gap: 12px;
 }
 
+.promptTestPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(34, 197, 94, 0.18);
+  background: rgba(5, 10, 22, 0.58);
+}
+
+.promptTestHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.promptTestTitle {
+  display: block;
+  color: var(--text-primary);
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+
+.promptTestId {
+  color: var(--text-muted);
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+}
+
+.promptTestGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.promptTestColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.promptTestTextarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  border-radius: 14px;
+  border: 1px solid rgba(96, 165, 250, 0.16);
+  background: rgba(2, 6, 23, 0.76);
+  color: var(--text-primary);
+  padding: 12px;
+  font: 500 12px/1.55 'Fira Code', monospace;
+}
+
 .promptCard {
   display: flex;
   flex-direction: column;
@@ -971,6 +1028,7 @@
   .workspaceLayout,
   .sectionLayout,
   .graphGrid,
+  .promptTestGrid,
   .controlGrid,
   .grid,
   .statusGrid,

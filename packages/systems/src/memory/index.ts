@@ -5,6 +5,7 @@ export {
   buildLongTermSearchToolPrompt,
   buildMemoryFragmentPrompt,
   buildSemanticAnalyzerPrompt,
+  buildSemanticAnalyzerInputText,
   buildShortTermFragmentPrompt,
   buildShortTermToLongTermPrompt,
   buildShortTermToLongTermSourceText,
@@ -17,6 +18,7 @@ export {
   resolveMemoryActorLabels,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
+  renderLayeredMemoryFragment,
   serializeMemoryHit,
   SHORT_TERM_TO_LONG_TERM_RESPONSE_FORMAT,
 } from './sqlite'

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import PromptLab from '../PromptLab'
+import { DEFAULT_PROMPT_TEST_INPUTS } from '../PromptTestPanel'
 import styles from '../manager-ui.module.css'
 import { DEFAULT_RELATIONSHIP_BASELINE, type RelationshipBaseline } from '@/app/persona-modules'
 
@@ -534,6 +535,7 @@ export default function RelationshipManagerNamedMultiDim({ agentId }: Relationsh
             </section>
 
             <PromptLab
+              agentId={agentId}
               fields={[
                 {
                   key: 'fragmentPrompt',
@@ -552,6 +554,16 @@ export default function RelationshipManagerNamedMultiDim({ agentId }: Relationsh
                   rows: 10,
                 },
               ]}
+              tests={{
+                fragmentPrompt: {
+                  testId: 'relationshipNamed.fragment',
+                  defaultInput: DEFAULT_PROMPT_TEST_INPUTS.relationshipFragment,
+                },
+                analysisPrompt: {
+                  testId: 'relationshipNamed.analysis',
+                  defaultInput: DEFAULT_PROMPT_TEST_INPUTS.relationshipAnalysis,
+                },
+              }}
               onChange={(key, value) => {
                 if (key === 'fragmentPrompt') setFragmentPrompt(value)
                 if (key === 'analysisPrompt') setAnalysisPrompt(value)

@@ -2,6 +2,7 @@
 
 import { Fragment, useDeferredValue, useEffect, useRef, useState, useTransition } from 'react'
 import PromptLab from '../PromptLab'
+import { DEFAULT_PROMPT_TEST_INPUTS } from '../PromptTestPanel'
 import styles from '../manager-ui.module.css'
 import { getSqliteMemoryToolbarState } from './MemoryManager.sqlite.state'
 
@@ -1342,6 +1343,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
 
         <section className={styles.sectionPanel}>
           <PromptLab
+            agentId={agentId}
             fields={[
               {
                 key: 'semanticAnalyzerPrompt',
@@ -1400,6 +1402,36 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 rows: 7,
               },
             ]}
+            tests={{
+              semanticAnalyzerPrompt: {
+                testId: 'memory.semanticAnalyzer',
+                defaultInput: DEFAULT_PROMPT_TEST_INPUTS.memorySemantic,
+              },
+              contextToShortTermPrompt: {
+                testId: 'memory.contextToShortTerm',
+                defaultInput: DEFAULT_PROMPT_TEST_INPUTS.memoryContextToShortTerm,
+              },
+              entityMentionPrompt: {
+                testId: 'memory.entityMention',
+                defaultInput: DEFAULT_PROMPT_TEST_INPUTS.memoryEntityMention,
+              },
+              episodicExtractionPrompt: {
+                testId: 'memory.episodicExtraction',
+                defaultInput: DEFAULT_PROMPT_TEST_INPUTS.memoryEpisodicExtraction,
+              },
+              entityResolutionPrompt: {
+                testId: 'memory.entityResolution',
+                defaultInput: DEFAULT_PROMPT_TEST_INPUTS.memoryEntityResolution,
+              },
+              shortTermFragmentPrompt: {
+                testId: 'memory.shortTermFragment',
+                defaultInput: DEFAULT_PROMPT_TEST_INPUTS.memoryShortTermFragment,
+              },
+              fixedFragmentPrompt: {
+                testId: 'memory.fixedFragment',
+                defaultInput: DEFAULT_PROMPT_TEST_INPUTS.memoryFixedFragment,
+              },
+            }}
             onChange={(key, value) => updateSetting(key as keyof MemorySettings, value)}
           />
         </section>
