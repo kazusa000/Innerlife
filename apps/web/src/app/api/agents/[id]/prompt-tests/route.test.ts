@@ -303,3 +303,48 @@ test('prompt test semantic analyzer keeps prior user message when building the r
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('prompt test llm mode returns a JSON error when the provider fails', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-prompt-tests-route-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+    const agent = agentRepo.createAgent({
+      name: 'Prompty',
+      model: 'agent-model',
+      modules: {
+        memory: {
+          scheme: 'sqlite',
+          summarizeModel: 'memory-model',
+        },
+      },
+    })!
+
+    const response = await runPromptTest(agent.id, {
+      testId: 'memory.contextToShortTerm',
+      input: {
+        messages: [
+          { role: 'user', text: '我最近又开始玩星际2了。' },
+          { role: 'assistant', text: '你之前也提到过它。' },
+          { role: 'user', text: '对，我想让你记住它是我喜欢的游戏。' },
+        ],
+      },
+    }, {
+      sendMessage: async () => {
+        throw new Error('Provider returned error')
+      },
+    })
+
+    assert.equal(response.status, 502)
+    const payload = await response.json()
+    assert.equal(payload.error, 'Provider returned error')
+    assert.equal(payload.testId, 'memory.contextToShortTerm')
+    assert.equal(payload.mode, 'llm')
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

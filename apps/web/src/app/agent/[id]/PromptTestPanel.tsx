@@ -30,6 +30,28 @@ function readErrorMessage(value: unknown, fallback: string) {
   return fallback
 }
 
+async function readResponseBody(response: Response) {
+  const text = await response.text()
+  if (!text.trim()) {
+    return {
+      error: response.ok
+        ? '接口返回了空响应'
+        : `接口返回了空错误响应（${response.status} ${response.statusText || 'Error'}）`,
+    }
+  }
+
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return {
+      error: response.ok
+        ? '接口返回了非 JSON 响应'
+        : `接口返回了非 JSON 错误响应（${response.status} ${response.statusText || 'Error'}）`,
+      rawText: text,
+    }
+  }
+}
+
 export const DEFAULT_PROMPT_TEST_INPUTS = {
   personalitySystem: {
     userMessage: '你还记得我喜欢什么游戏吗？',
@@ -164,7 +186,7 @@ export default function PromptTestPanel({
       setError(null)
       try {
         const response = await fetch(`/api/agents/${agentId}/prompt-tests`, { cache: 'no-store' })
-        const data = await response.json() as {
+        const data = await readResponseBody(response) as {
           defaults?: Record<string, unknown>
           samples?: Record<string, unknown>
           error?: string
@@ -223,7 +245,7 @@ export default function PromptTestPanel({
           input: parsed.value,
         }),
       })
-      const data = await response.json() as unknown
+      const data = await readResponseBody(response)
       if (!response.ok) {
         throw new Error(readErrorMessage(data, '运行 prompt 测试失败'))
       }
@@ -253,7 +275,7 @@ export default function PromptTestPanel({
           input: parsed.value,
         }),
       })
-      const data = await response.json()
+      const data = await readResponseBody(response)
       if (!response.ok) {
         throw new Error(readErrorMessage(data, '保存 prompt 测试样例失败'))
       }
@@ -277,7 +299,7 @@ export default function PromptTestPanel({
           reset: true,
         }),
       })
-      const data = await response.json()
+      const data = await readResponseBody(response)
       if (!response.ok) {
         throw new Error(readErrorMessage(data, '重置 prompt 测试样例失败'))
       }

@@ -446,13 +446,25 @@ async function runLlmTest(input: {
   provider?: ProviderLike
 }) {
   const provider = input.provider ?? createProvider(input.agent.provider)
-  const response = await provider.sendMessage({
-    model: input.model,
-    systemPrompt: input.systemPrompt,
-    messages: [{ role: 'user', content: [{ type: 'text', text: input.inputText }] }],
-    reasoning: { effort: 'none' },
-    responseFormat: input.responseFormat,
-  })
+  let response: LLMResponse
+  try {
+    response = await provider.sendMessage({
+      model: input.model,
+      systemPrompt: input.systemPrompt,
+      messages: [{ role: 'user', content: [{ type: 'text', text: input.inputText }] }],
+      reasoning: { effort: 'none' },
+      responseFormat: input.responseFormat,
+    })
+  } catch (err) {
+    return Response.json({
+      testId: input.testId,
+      mode: input.mode,
+      model: input.model,
+      systemPrompt: input.systemPrompt,
+      inputText: input.inputText,
+      error: err instanceof Error ? err.message : 'Prompt test provider failed',
+    }, { status: 502 })
+  }
   const rawOutput = extractText(response)
 
   return Response.json({
