@@ -18,6 +18,17 @@ function bootstrap(dbPath: string, memoryDbPath: string) {
   bootstrapAppDatabases({ dbPath, memoryDbPath })
 }
 
+function requestMessageText(request: LLMRequest | undefined) {
+  const content = request?.messages[0]?.content
+  if (typeof content === 'string') {
+    return content
+  }
+  return content
+    ?.filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n') ?? ''
+}
+
 test('prompt test samples are persisted in the agent modules without changing prompts', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-prompt-tests-route-'))
   const dbPath = join(dir, 'data.db')
@@ -159,6 +170,58 @@ test('prompt test llm mode sends the sample input and parses entity mention outp
     assert.equal(requests.length, 1)
     assert.equal(requests[0]?.systemPrompt, '自定义实体 mention prompt')
     assert.match(JSON.stringify(requests[0]?.messages), /星际2和魔兽世界/)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('prompt test semantic analyzer keeps prior user message when building the real analyzer input', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-prompt-tests-route-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+  const requests: LLMRequest[] = []
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+    const agent = agentRepo.createAgent({
+      name: 'Prompty',
+      model: 'agent-model',
+      modules: {
+        memory: {
+          scheme: 'sqlite',
+          summarizeModel: 'memory-model',
+        },
+      },
+    })!
+
+    const response = await runPromptTest(agent.id, {
+      testId: 'memory.semanticAnalyzer',
+      input: {
+        recentMessages: [
+          { role: 'user', text: '我最喜欢的游戏是星际2。' },
+          { role: 'assistant', text: '我记住了。' },
+        ],
+        currentUserMessage: '那个游戏叫什么来着？',
+      },
+    }, {
+      sendMessage: async (request) => {
+        requests.push(request)
+        return {
+          content: [{ type: 'text', text: '{"retrieval_query":"我最喜欢的游戏叫什么"}' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 12, outputTokens: 6 },
+        } satisfies LLMResponse
+      },
+    })
+
+    assert.equal(response.status, 200)
+    const payload = await response.json()
+    assert.equal(payload.parsedOutput.retrieval_query, '我最喜欢的游戏叫什么')
+    const inputText = requestMessageText(requests[0])
+    assert.match(inputText, /我最喜欢的游戏是星际2/)
+    assert.match(inputText, /那个游戏叫什么来着/)
   } finally {
     resetDb()
     resetMemoryDb()

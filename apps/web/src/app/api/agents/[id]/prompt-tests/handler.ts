@@ -441,9 +441,18 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
   const actorLabels = resolveMemoryActorLabels({ agentId: agent.id, sessionId: 'sample-session', agentModules: agent.modules })
 
   if (testId === 'memory.semanticAnalyzer') {
+    const currentUserMessage = readCurrentUserMessage(input)
+    const semanticMessages: ConversationMessage[] = [
+      ...readConversationMessages(input),
+      {
+        role: 'user',
+        content: currentUserMessage,
+        createdAt: new Date('2026-04-30T10:59:00.000Z'),
+      },
+    ]
     const inputText = buildSemanticAnalyzerInputText(
-      readConversationMessages(input),
-      readCurrentUserMessage(input),
+      semanticMessages,
+      currentUserMessage,
       actorLabels,
       memoryConfig.semanticAnalyzerHistoryMessages,
     )
