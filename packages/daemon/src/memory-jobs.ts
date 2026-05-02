@@ -3,6 +3,7 @@ import {
   agentMemorySleepStateRepo,
   agentRepo,
   daemonEventRepo,
+  episodicMemoryGraphRepo,
   memoryRepo,
   messageRepo,
   sessionContextStateRepo,
@@ -17,9 +18,13 @@ import {
   type MemoryEmbedder,
   createOpenRouterMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
+  buildEntityResolutionPrompt,
+  buildEpisodicExtractionPrompt,
   isSqliteMemoryConfig,
   MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
   parseMemoryBatchWriteResponse,
+  parseEntityResolutionResponse,
+  parseEpisodicExtractionResponse,
   parseShortTermToLongTermResponse,
   resolveMemoryActorLabels,
   resolveMemoryPipelineSettings,
@@ -29,6 +34,180 @@ import {
 import type { MemoryRecord, ShortTermToLongTermMemoryWriteResult } from '@mas/systems'
 
 type DbMessage = ReturnType<typeof messageRepo.getSessionMessages>[number]
+
+const EPISODIC_STAGE_B_LOCAL_ENTITY_BATCH_SIZE = 5
+const EPISODIC_STAGE_B_CANDIDATE_LIMIT = 5
+const EPISODIC_STAGE_A_STM_BATCH_SIZE = 3
+const DEFAULT_ENTITY_CANDIDATE_EMBEDDING_MODEL = 'BAAI/bge-m3'
+
+type StageBLocalEntity = {
+  localEntityId: string
+  surface: string
+  type: 'person' | 'place' | 'object' | 'event'
+  contextHint: string
+}
+
+type MemoryEntityWithStats = ReturnType<typeof episodicMemoryGraphRepo.listMemoryEntitiesByAgent>[number]
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size))
+  }
+  return chunks
+}
+
+function extractTextFromContent(content: Array<{ type: string; text?: string }>) {
+  return content
+    .map((block) => block.type === 'text' ? block.text ?? '' : '')
+    .join('\n')
+}
+
+function resolveEntityCandidateEmbeddingModel() {
+  return process.env.MAS_ENTITY_EMBEDDING_MODEL?.trim() || DEFAULT_ENTITY_CANDIDATE_EMBEDDING_MODEL
+}
+
+function compactLines(lines: Array<string | null | undefined>) {
+  return lines
+    .map((line) => line?.trim())
+    .filter((line): line is string => Boolean(line))
+    .join('\n')
+}
+
+function buildLocalEntityEmbeddingText(entity: StageBLocalEntity) {
+  return compactLines([
+    `surface: ${entity.surface}`,
+    `type: ${entity.type}`,
+    entity.contextHint ? `context_hint: ${entity.contextHint}` : null,
+  ])
+}
+
+function buildMemoryEntityEmbeddingText(entity: MemoryEntityWithStats) {
+  return compactLines([
+    `canonical_name: ${entity.canonicalName}`,
+    `type: ${entity.type}`,
+    entity.aliases.length > 0 ? `aliases: ${entity.aliases.join(', ')}` : null,
+    entity.description ? `description: ${entity.description}` : null,
+    `episodic_memory_count: ${entity.episodicMemoryCount}`,
+  ])
+}
+
+function cosineSimilarity(left: number[], right: number[]) {
+  if (left.length === 0 || right.length === 0 || left.length !== right.length) {
+    return 0
+  }
+
+  let dot = 0
+  let leftNorm = 0
+  let rightNorm = 0
+  for (let index = 0; index < left.length; index += 1) {
+    const leftValue = left[index]!
+    const rightValue = right[index]!
+    dot += leftValue * rightValue
+    leftNorm += leftValue * leftValue
+    rightNorm += rightValue * rightValue
+  }
+
+  return leftNorm > 0 && rightNorm > 0
+    ? dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm))
+    : 0
+}
+
+async function rankStageBEntityCandidatesByEmbedding(input: {
+  agentId: string
+  localEntities: StageBLocalEntity[]
+  embedder: MemoryEmbedder
+  model: string
+  limit: number
+  now: Date
+}) {
+  const existingEntities = episodicMemoryGraphRepo.listMemoryEntitiesByAgent(input.agentId)
+  if (existingEntities.length === 0 || input.localEntities.length === 0) {
+    return new Map<string, MemoryEntityWithStats[]>()
+  }
+
+  const entityCards = existingEntities.map((entity) => ({
+    entity,
+    embeddingText: buildMemoryEntityEmbeddingText(entity),
+  }))
+  const staleEntityCards = entityCards.filter(({ entity, embeddingText }) =>
+    entity.embeddingModel !== input.model
+    || entity.embeddingText !== embeddingText
+    || entity.embedding.length === 0,
+  )
+  const freshEmbeddings = staleEntityCards.length > 0
+    ? await input.embedder.embed(
+        staleEntityCards.map((card) => card.embeddingText),
+        { model: input.model, inputType: 'search_document' },
+      )
+    : []
+  const refreshedEmbeddingsByEntityId = new Map<string, number[]>()
+
+  for (const [index, card] of staleEntityCards.entries()) {
+    const embedding = freshEmbeddings[index] ?? []
+    refreshedEmbeddingsByEntityId.set(card.entity.id, embedding)
+    episodicMemoryGraphRepo.updateEntityEmbedding({
+      entityId: card.entity.id,
+      embeddingText: card.embeddingText,
+      embedding,
+      embeddingModel: input.model,
+      now: input.now,
+    })
+  }
+
+  const localEmbeddings = await input.embedder.embed(
+    input.localEntities.map(buildLocalEntityEmbeddingText),
+    { model: input.model, inputType: 'search_query' },
+  )
+  const candidatesByLocalId = new Map<string, MemoryEntityWithStats[]>()
+
+  for (const [localIndex, localEntity] of input.localEntities.entries()) {
+    const localEmbedding = localEmbeddings[localIndex] ?? []
+    const candidates = existingEntities
+      .map((entity) => ({
+        entity,
+        score: cosineSimilarity(
+          localEmbedding,
+          refreshedEmbeddingsByEntityId.get(entity.id) ?? entity.embedding,
+        ),
+      }))
+      .sort((left, right) => right.score - left.score)
+      .slice(0, input.limit)
+      .map((candidate) => candidate.entity)
+
+    candidatesByLocalId.set(localEntity.localEntityId, candidates)
+  }
+
+  return candidatesByLocalId
+}
+
+async function refreshSingleEntityEmbedding(input: {
+  agentId: string
+  entityId: string
+  embedder: MemoryEmbedder
+  model: string
+  now: Date
+}) {
+  const entity = episodicMemoryGraphRepo
+    .listMemoryEntitiesByAgent(input.agentId)
+    .find((item) => item.id === input.entityId)
+  if (!entity) {
+    return
+  }
+
+  const embeddingText = buildMemoryEntityEmbeddingText(entity)
+  const [embedding = []] = await input.embedder.embed(
+    [embeddingText],
+    { model: input.model, inputType: 'search_document' },
+  )
+  episodicMemoryGraphRepo.updateEntityEmbedding({
+    entityId: entity.id,
+    embeddingText,
+    embedding,
+    embeddingModel: input.model,
+    now: input.now,
+  })
+}
 
 function toConversationMessage(message: DbMessage): ConversationMessage {
   return {
@@ -148,7 +327,7 @@ async function persistMemories(input: {
     sessionId: input.sessionId,
     layer: input.layer,
     sourceText: input.sourceText,
-    displaySummary: memory.displaySummary,
+    detail: memory.detail,
     retrievalText: memory.retrievalText,
     retrievalEmbedding: embeddings[index] ?? [],
     retrievalModel: input.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL,
@@ -228,7 +407,7 @@ async function persistLongTermMemoriesFromShortTerm(input: {
         sessionId: sourceMemories[0]?.sessionId ?? input.fallbackSessionId,
         layer: 'long_term',
         sourceText: buildShortTermToLongTermSourceText(sourceMemories),
-        displaySummary: memory.displaySummary,
+        detail: memory.detail,
         retrievalText: memory.retrievalText,
         retrievalEmbedding: embeddings[index] ?? [],
         retrievalModel: input.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL,
@@ -618,6 +797,242 @@ export async function runSleepForAgent(input: {
     memoryIds: created.map((item) => item.memory.id),
     deletedShortTermCount: usedShortTermIds.size,
     retainedShortTermCount: shortTermMemories.length - usedShortTermIds.size,
+  }
+}
+
+export async function runEpisodicConsolidationForAgent(input: {
+  agentId: string
+  now?: Date
+  signal?: AbortSignal
+  provider?: Pick<LLMProvider, 'sendMessage'>
+  embedder?: MemoryEmbedder
+}) {
+  const agent = agentRepo.getAgent(input.agentId)
+  if (!agent || !isSqliteMemoryConfig(agent.modules?.memory)) {
+    return { ok: false as const, reason: 'memory_not_sqlite' as const }
+  }
+
+  const now = input.now ?? new Date()
+  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+  const provider = input.provider ?? createProvider(agent.provider)
+  const embedder = input.embedder ?? createOpenRouterMemoryEmbedder()
+  const retrievalModel = memoryConfig.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL
+  let createdEntityCount = 0
+  let createdEpisodicCount = 0
+  let deletedShortTermCount = 0
+
+  while (true) {
+    const shortTermMemories = memoryRepo
+      .listMemoriesByAgentOldestFirst(agent.id)
+      .filter((memory) => memory.layer === 'short_term')
+      .slice(0, EPISODIC_STAGE_A_STM_BATCH_SIZE)
+
+    if (shortTermMemories.length === 0) {
+      return {
+        ok: true as const,
+        createdEntityCount,
+        createdEpisodicCount,
+        deletedShortTermCount,
+      }
+    }
+
+    const sourceText = buildShortTermToLongTermSourceText(shortTermMemories)
+    const extractionResponse = await provider.sendMessage({
+      model: memoryConfig.summarizeModel ?? agent.model,
+      systemPrompt: buildEpisodicExtractionPrompt(memoryConfig.episodicExtractionPrompt),
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: sourceText }],
+        },
+      ],
+      reasoning: { effort: 'none' },
+      signal: input.signal,
+    })
+    const extraction = parseEpisodicExtractionResponse(
+      extractTextFromContent(extractionResponse.content),
+    )
+    const usableEpisodicDrafts = extraction.episodicMemories
+      .filter((draft) => draft.entityLinks.length > 0)
+
+    if (usableEpisodicDrafts.length > 0) {
+      const referencedLocalEntityIds = new Set(
+        usableEpisodicDrafts.flatMap((draft) =>
+          draft.entityLinks.map((link) => link.localEntityId),
+        ),
+      )
+      const resolutionLocalEntities = extraction.entities
+        .filter((entity) => referencedLocalEntityIds.has(entity.localEntityId))
+      const candidatesByLocalId = await rankStageBEntityCandidatesByEmbedding({
+        agentId: agent.id,
+        localEntities: resolutionLocalEntities,
+        embedder,
+        model: resolveEntityCandidateEmbeddingModel(),
+        limit: EPISODIC_STAGE_B_CANDIDATE_LIMIT,
+        now,
+      })
+      const candidatePayloads = resolutionLocalEntities
+        .map((entity) => ({
+          local_entity_id: entity.localEntityId,
+          surface: entity.surface,
+          type: entity.type,
+          context_hint: entity.contextHint,
+          candidates: (candidatesByLocalId.get(entity.localEntityId) ?? []).map((candidate) => ({
+            entity_id: candidate.id,
+            canonical_name: candidate.canonicalName,
+            type: candidate.type,
+            description: candidate.description,
+          })),
+        }))
+      const extractionEntitiesById = new Map(
+        extraction.entities.map((entity) => [entity.localEntityId, entity]),
+      )
+      const entityIdsByLocalId = new Map<string, string>()
+      const entityCandidateEmbeddingModel = resolveEntityCandidateEmbeddingModel()
+
+      for (const candidateBatch of chunkArray(candidatePayloads, EPISODIC_STAGE_B_LOCAL_ENTITY_BATCH_SIZE)) {
+        const batchLocalEntityIds = new Set(candidateBatch.map((candidate) => candidate.local_entity_id))
+        const resolutionResponse = await provider.sendMessage({
+          model: memoryConfig.summarizeModel ?? agent.model,
+          systemPrompt: buildEntityResolutionPrompt(memoryConfig.entityResolutionPrompt),
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'text', text: JSON.stringify(candidateBatch, null, 2) }],
+            },
+          ],
+          reasoning: { effort: 'none' },
+          signal: input.signal,
+        })
+        const resolutions = parseEntityResolutionResponse(
+          extractTextFromContent(resolutionResponse.content),
+        )
+
+        for (const resolution of resolutions) {
+          if (!batchLocalEntityIds.has(resolution.localEntityId)) {
+            continue
+          }
+
+          if (resolution.action === 'merge') {
+            entityIdsByLocalId.set(resolution.localEntityId, resolution.entityId)
+            if (resolution.aliasToAdd) {
+              const aliasAdded = episodicMemoryGraphRepo.addEntityAlias({
+                entityId: resolution.entityId,
+                alias: resolution.aliasToAdd,
+                confidence: resolution.confidence,
+                now,
+              })
+              if (aliasAdded) {
+                await refreshSingleEntityEmbedding({
+                  agentId: agent.id,
+                  entityId: resolution.entityId,
+                  embedder,
+                  model: entityCandidateEmbeddingModel,
+                  now,
+                })
+              }
+            }
+            continue
+          }
+
+          const sourceEntity = extractionEntitiesById.get(resolution.localEntityId)
+          const canonicalName = resolution.canonicalName || sourceEntity?.surface || resolution.localEntityId
+          const exactExisting = episodicMemoryGraphRepo.findEntityCandidates({
+            agentId: agent.id,
+            type: resolution.type,
+            surface: canonicalName,
+            limit: 1,
+          }).find((candidate) => candidate.matchKind === 'exact')
+          if (exactExisting) {
+            entityIdsByLocalId.set(resolution.localEntityId, exactExisting.entity.id)
+            continue
+          }
+
+          const entity = episodicMemoryGraphRepo.createEntity({
+            agentId: agent.id,
+            type: resolution.type,
+            canonicalName,
+            description: sourceEntity?.contextHint ?? null,
+            confidence: resolution.confidence,
+            aliases: [],
+            now,
+          })
+          await refreshSingleEntityEmbedding({
+            agentId: agent.id,
+            entityId: entity.id,
+            embedder,
+            model: entityCandidateEmbeddingModel,
+            now,
+          })
+          createdEntityCount += 1
+          entityIdsByLocalId.set(resolution.localEntityId, entity.id)
+        }
+      }
+
+      const observedRange = getObservedRangeFromMemories(shortTermMemories)
+      const preparedDrafts = usableEpisodicDrafts.flatMap((draft) => {
+        const entityLinks = draft.entityLinks
+          .map((link) => ({
+            entityId: entityIdsByLocalId.get(link.localEntityId),
+            weight: link.weight,
+          }))
+          .filter((link): link is { entityId: string; weight: number } => Boolean(link.entityId))
+          .slice(0, 5)
+
+        if (entityLinks.length === 0) {
+          return []
+        }
+
+        return [{ draft, entityLinks }]
+      })
+
+      const retrievalEmbeddings = preparedDrafts.length > 0
+        ? await embedder.embed(
+          preparedDrafts.map((draft) => draft.draft.summary),
+          {
+            model: retrievalModel,
+            inputType: 'search_document',
+          },
+        )
+        : []
+
+      for (const [index, prepared] of preparedDrafts.entries()) {
+        episodicMemoryGraphRepo.createEpisodicMemory({
+          agentId: agent.id,
+          sessionId: shortTermMemories[0]!.sessionId,
+          summary: prepared.draft.summary,
+          sourceText,
+          detail: prepared.draft.detail,
+          retrievalEmbedding: retrievalEmbeddings[index] ?? [],
+          retrievalModel,
+          importance: prepared.draft.importance,
+          observedStartAt: observedRange.observedStartAt,
+          observedEndAt: observedRange.observedEndAt,
+          entityLinks: prepared.entityLinks,
+          now,
+        })
+        createdEpisodicCount += 1
+
+        for (let leftIndex = 0; leftIndex < prepared.entityLinks.length; leftIndex += 1) {
+          for (let rightIndex = leftIndex + 1; rightIndex < prepared.entityLinks.length; rightIndex += 1) {
+            const left = prepared.entityLinks[leftIndex]!
+            const right = prepared.entityLinks[rightIndex]!
+            episodicMemoryGraphRepo.upsertEntityEdge({
+              agentId: agent.id,
+              sourceEntityId: left.entityId,
+              targetEntityId: right.entityId,
+              delta: 0.1 * Math.min(left.weight, right.weight) * prepared.draft.importance,
+              now,
+            })
+          }
+        }
+      }
+    }
+
+    for (const memory of shortTermMemories) {
+      memoryRepo.deleteSqliteMemoryByAgent(agent.id, memory.id)
+    }
+    deletedShortTermCount += shortTermMemories.length
   }
 }
 

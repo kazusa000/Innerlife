@@ -3,7 +3,16 @@ import test from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { agentRepo, getDb, getMemoryDb, getRawSqlite, memoryRepo, resetDb, resetMemoryDb } from '@mas/db'
+import {
+  agentRepo,
+  episodicMemoryGraphRepo,
+  getDb,
+  getMemoryDb,
+  getRawSqlite,
+  memoryRepo,
+  resetDb,
+  resetMemoryDb,
+} from '@mas/db'
 import { deleteSqliteMemory, updateSqliteMemory } from './[memoryId]/handler'
 import { clearSqliteMemories, listSqliteMemories, updateSqliteMemorySettings } from './handler'
 
@@ -84,7 +93,7 @@ function addMemory(input: {
     sessionId: input.sessionId,
     layer: input.layer,
     sourceText: input.summary,
-    displaySummary: input.summary,
+    detail: input.summary,
     retrievalText: input.retrievalText ?? input.summary,
     retrievalEmbedding: [1, 0],
     retrievalModel: 'qwen/qwen3-embedding-0.6b',
@@ -142,7 +151,7 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
   try {
     bootstrapDb(dbPath, memoryDbPath)
 
-    const latest = addMemory({
+    const legacyLongTerm = addMemory({
       agentId: 'agent-1',
       sessionId: 'session-2',
       summary: '用户偏好午夜后编码',
@@ -178,7 +187,10 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     const listResponse = listSqliteMemories('agent-1', undefined, { page: 1, pageSize: 2 })
     const secondPageResponse = listSqliteMemories('agent-1', undefined, { page: 2, pageSize: 2 })
     const summaryResponse = listSqliteMemories('agent-1', 'WJJ')
-    const retrievalResponse = listSqliteMemories('agent-1', 'night coding')
+    const legacyRetrievalResponse = listSqliteMemories('agent-1', 'night coding')
+    const explicitLegacyResponse = listSqliteMemories('agent-1', 'night coding', {
+      layer: 'long_term',
+    } as never)
 
     assert.equal(listResponse.status, 200)
     const listData = await listResponse.clone().json()
@@ -186,6 +198,18 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.equal(listData.embeddingModel, 'memory-embed')
     assert.equal(listData.semanticAnalyzerPrompt, '提炼检索查询')
     assert.equal(listData.fragmentPrompt, '把这些记忆当作回忆来回答')
+    assert.equal(listData.entityMentionPrompt, null)
+    assert.equal(listData.episodicExtractionPrompt, null)
+    assert.equal(listData.entityResolutionPrompt, null)
+    assert.equal(typeof listData.entityMentionPromptDefault, 'string')
+    assert.equal(typeof listData.episodicExtractionPromptDefault, 'string')
+    assert.equal(typeof listData.entityResolutionPromptDefault, 'string')
+    assert.equal(listData.entityMentionPromptEffective, listData.entityMentionPromptDefault)
+    assert.equal(listData.episodicExtractionPromptEffective, listData.episodicExtractionPromptDefault)
+    assert.equal(listData.entityResolutionPromptEffective, listData.entityResolutionPromptDefault)
+    assert.equal('shortTermToLongTermPrompt' in listData, false)
+    assert.equal('shortTermToLongTermPromptDefault' in listData, false)
+    assert.equal('shortTermToLongTermPromptEffective' in listData, false)
     assert.equal(typeof listData.semanticAnalyzerPromptDefault, 'string')
     assert.equal(listData.semanticAnalyzerPromptEffective, '提炼检索查询')
     assert.equal(listData.fragmentPromptEffective, '把这些记忆当作回忆来回答')
@@ -215,15 +239,251 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.equal(listData.sleep.lastSleepAt, null)
     assert.equal(listData.page, 1)
     assert.equal(listData.pageSize, 2)
-    assert.equal(listData.total, 3)
-    assert.deepEqual(listData.memories.map((memory: { id: string }) => memory.id), [latest.id, older.id])
-    assert.equal(listData.memories[0]?.layer, 'long_term')
-    assert.equal(listData.memories[1]?.layer, 'short_term')
-    assert.equal(listData.memories[1]?.observedStartAt, '2026-04-17T08:55:00.000Z')
-    assert.equal(listData.memories[1]?.observedEndAt, '2026-04-17T09:05:00.000Z')
-    assert.deepEqual((await secondPageResponse.json()).memories.map((memory: { id: string }) => memory.id), [oldest.id])
+    assert.deepEqual(listData.legacyLayers, ['short_term', 'fixed'])
+    assert.equal(listData.total, 2)
+    assert.deepEqual(listData.memories.map((memory: { id: string }) => memory.id), [older.id, oldest.id])
+    assert.equal('summary' in listData.memories[0], false)
+    assert.equal(listData.memories[0]?.detail, '用户希望被称为 WJJ')
+    assert.equal(listData.memories[0]?.retrievalText, '用户希望被称为 WJJ')
+    assert.equal(listData.memories[0]?.layer, 'short_term')
+    assert.equal(listData.memories[0]?.observedStartAt, '2026-04-17T08:55:00.000Z')
+    assert.equal(listData.memories[0]?.observedEndAt, '2026-04-17T09:05:00.000Z')
+    assert.deepEqual((await secondPageResponse.json()).memories.map((memory: { id: string }) => memory.id), [])
     assert.deepEqual((await summaryResponse.json()).memories.map((memory: { id: string }) => memory.id), [older.id])
-    assert.deepEqual((await retrievalResponse.json()).memories.map((memory: { id: string }) => memory.id), [latest.id])
+    assert.deepEqual((await legacyRetrievalResponse.json()).memories.map((memory: { id: string }) => memory.id), [])
+    assert.deepEqual((await explicitLegacyResponse.json()).memories.map((memory: { id: string }) => memory.id), [legacyLongTerm.id])
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('listSqliteMemories returns read-only episodic memories and entity graph data', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const compass = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '黄铜指南针',
+      description: '放在 MAS Lab 白板旁的道具',
+      confidence: 0.92,
+      aliases: [{ alias: '指南针', confidence: 0.88 }],
+      now: new Date('2026-04-24T10:00:00.000Z'),
+    })
+    const lab = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: 'MAS Lab',
+      description: null,
+      confidence: 0.81,
+      aliases: [],
+      now: new Date('2026-04-24T10:02:00.000Z'),
+    })
+    episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-2',
+      type: 'object',
+      canonicalName: '其他 agent 的指南针',
+      description: null,
+      confidence: 0.9,
+      aliases: [],
+      now: new Date('2026-04-24T10:04:00.000Z'),
+    })
+    episodicMemoryGraphRepo.upsertEntityEdge({
+      agentId: 'agent-1',
+      sourceEntityId: compass.id,
+      targetEntityId: lab.id,
+      delta: 0.42,
+      now: new Date('2026-04-24T10:05:00.000Z'),
+    })
+    const episodic = episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '黄铜指南针被放在 MAS Lab 白板旁。',
+      sourceText: '用户说黄铜指南针在 MAS Lab 白板旁。',
+      detail: '黄铜指南针在 MAS Lab 白板旁',
+      retrievalEmbedding: [1, 0, 0],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      importance: 0.86,
+      observedStartAt: new Date('2026-04-24T09:55:00.000Z'),
+      observedEndAt: new Date('2026-04-24T10:00:00.000Z'),
+      entityLinks: [
+        { entityId: compass.id, weight: 0.9 },
+        { entityId: lab.id, weight: 0.7 },
+      ],
+      now: new Date('2026-04-24T10:06:00.000Z'),
+    })
+
+    const response = listSqliteMemories('agent-1')
+    const data = await response.json()
+
+    assert.equal(response.status, 200)
+    assert.deepEqual(data.legacyLayers, ['short_term', 'fixed'])
+    assert.equal('activations' in data, false)
+    assert.equal('memory_entity_activations' in data, false)
+    assert.equal(data.episodic.total, 1)
+    assert.equal(data.episodic.memories[0].id, episodic.id)
+    assert.equal(data.episodic.memories[0].summary, '黄铜指南针被放在 MAS Lab 白板旁。')
+    assert.equal(data.episodic.memories[0].retrievalModel, 'qwen/qwen3-embedding-8b')
+    assert.equal(data.episodic.memories[0].hasEmbedding, true)
+    assert.equal(data.episodic.memories[0].embeddingDimensions, 3)
+    assert.deepEqual(
+      data.episodic.memories[0].entities.map((entity: { canonicalName: string; weight: number }) => [entity.canonicalName, entity.weight]),
+      [['黄铜指南针', 0.9], ['MAS Lab', 0.7]],
+    )
+    assert.equal(data.entities.total, 2)
+    assert.deepEqual(
+      data.entities.nodes.items.map((entity: { canonicalName: string }) => entity.canonicalName).sort(),
+      ['MAS Lab', '黄铜指南针'],
+    )
+    assert.deepEqual(data.entities.nodes.items.find((entity: { id: string }) => entity.id === compass.id).aliases, ['指南针'])
+    assert.equal(data.entities.nodes.items.find((entity: { id: string }) => entity.id === compass.id).episodicMemoryCount, 1)
+    assert.equal(data.entities.edges.items.length, 1)
+    assert.equal(data.entities.edges.items[0].sourceEntityId, compass.id < lab.id ? compass.id : lab.id)
+    assert.equal(data.entities.edges.items[0].targetEntityId, compass.id < lab.id ? lab.id : compass.id)
+    assert.equal(data.entities.edges.items[0].weight, 0.42)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('listSqliteMemories returns unified memory rows and paginated graph query results', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const shortTerm = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 提到短期蓝色雨伞',
+      retrievalText: '短期 蓝色雨伞',
+      tags: ['雨伞'],
+      createdAt: '2026-04-24T10:00:00.000Z',
+      layer: 'short_term',
+    })
+    const fixed = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 固化偏好旧书店',
+      retrievalText: '固化 旧书店',
+      tags: ['旧书店'],
+      createdAt: '2026-04-24T10:01:00.000Z',
+      layer: 'fixed',
+    })
+    const bookstore = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: '安特卫普旧书店',
+      description: '和蓝色雨伞相关的旧书店',
+      confidence: 0.9,
+      aliases: [{ alias: '旧书店', confidence: 0.8 }],
+      now: new Date('2026-04-24T10:02:00.000Z'),
+    })
+    const umbrella = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '蓝色雨伞',
+      description: null,
+      confidence: 0.85,
+      aliases: [],
+      now: new Date('2026-04-24T10:03:00.000Z'),
+    })
+    const lab = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: 'MAS Lab',
+      description: null,
+      confidence: 0.8,
+      aliases: [],
+      now: new Date('2026-04-24T10:04:00.000Z'),
+    })
+    episodicMemoryGraphRepo.upsertEntityEdge({
+      agentId: 'agent-1',
+      sourceEntityId: bookstore.id,
+      targetEntityId: umbrella.id,
+      delta: 0.5,
+      now: new Date('2026-04-24T10:05:00.000Z'),
+    })
+    episodicMemoryGraphRepo.upsertEntityEdge({
+      agentId: 'agent-1',
+      sourceEntityId: bookstore.id,
+      targetEntityId: lab.id,
+      delta: 0.2,
+      now: new Date('2026-04-24T10:06:00.000Z'),
+    })
+    const episodic = episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-2',
+      summary: 'WJJ 在安特卫普旧书店带着蓝色雨伞。',
+      sourceText: 'WJJ 在安特卫普旧书店带着蓝色雨伞。',
+      detail: '带着蓝色雨伞',
+      retrievalEmbedding: [1, 0, 0],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      importance: 0.88,
+      observedStartAt: new Date('2026-04-24T10:05:00.000Z'),
+      observedEndAt: new Date('2026-04-24T10:10:00.000Z'),
+      entityLinks: [
+        { entityId: bookstore.id, weight: 0.9 },
+        { entityId: umbrella.id, weight: 0.8 },
+      ],
+      now: new Date('2026-04-24T10:07:00.000Z'),
+    })
+
+    const firstPageResponse = listSqliteMemories('agent-1', undefined, {
+      page: 1,
+      pageSize: 2,
+      graphQuery: '旧书店',
+      nodePage: 1,
+      edgePage: 1,
+      graphPageSize: 1,
+    } as never)
+    const firstPage = await firstPageResponse.json()
+    const episodicOnlyResponse = listSqliteMemories('agent-1', '雨伞', {
+      page: 1,
+      pageSize: 5,
+      layer: 'episodic',
+    } as never)
+    const episodicOnly = await episodicOnlyResponse.json()
+
+    assert.equal(firstPageResponse.status, 200)
+    assert.equal(firstPage.total, 3)
+    assert.deepEqual(
+      firstPage.rows.map((row: { id: string; layer: string; kind: string }) => [row.id, row.layer, row.kind]),
+      [
+        [episodic.id, 'episodic', 'episodic'],
+        [fixed.id, 'fixed', 'sqlite'],
+      ],
+    )
+    assert.equal(firstPage.rows[0].detail, 'WJJ 在安特卫普旧书店带着蓝色雨伞。')
+    assert.equal(firstPage.rows[0].episodicDetail, '带着蓝色雨伞')
+    assert.equal(firstPage.rows[0].hasEmbedding, true)
+    assert.equal(firstPage.rows[0].embeddingDimensions, 3)
+    assert.deepEqual(
+      firstPage.rows[0].entities.map((entity: { canonicalName: string; weight: number }) => [entity.canonicalName, entity.weight]),
+      [['安特卫普旧书店', 0.9], ['蓝色雨伞', 0.8]],
+    )
+    assert.equal(firstPage.graphQuery, '旧书店')
+    assert.equal(firstPage.entities.total, 1)
+    assert.equal(firstPage.entities.nodes.total, 1)
+    assert.equal(firstPage.entities.nodes.page, 1)
+    assert.equal(firstPage.entities.nodes.pageSize, 1)
+    assert.deepEqual(firstPage.entities.nodes.items.map((entity: { canonicalName: string }) => entity.canonicalName), ['安特卫普旧书店'])
+    assert.equal(firstPage.entities.edges.total, 2)
+    assert.equal(firstPage.entities.edges.items.length, 1)
+    assert.match(firstPage.entities.edges.items[0].sourceCanonicalName + firstPage.entities.edges.items[0].targetCanonicalName, /旧书店/)
+    assert.deepEqual(episodicOnly.rows.map((row: { id: string }) => row.id), [episodic.id])
+    assert.equal(episodicOnly.total, 1)
+    assert.equal(shortTerm.id.length > 0, true)
   } finally {
     resetDb()
     resetMemoryDb()
@@ -265,7 +525,8 @@ test('listSqliteMemories filters by layer', async () => {
     assert.equal(filteredData.total, 1)
     assert.deepEqual(filteredData.memories.map((memory: { layer: string }) => memory.layer), ['long_term'])
 
-    assert.equal(filteredData.memories[0]?.summary, '用户提到长期事项')
+    assert.equal(filteredData.memories[0]?.detail, '用户提到长期事项')
+    assert.equal('summary' in filteredData.memories[0], false)
   } finally {
     resetDb()
     resetMemoryDb()
@@ -301,7 +562,10 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
       sleepIntervalDays: 2,
       fragmentPrompt: '  把这些记忆当作回忆来回答  ',
       contextToShortTermPrompt: '  整理旧上下文为短期记忆  ',
-      shortTermToLongTermPrompt: '  把短期记忆沉淀成长期记忆  ',
+      shortTermToLongTermPrompt: '  旧字段应该被清掉  ',
+      entityMentionPrompt: '  抽取实体 mention  ',
+      episodicExtractionPrompt: '  抽取实体和情景记忆  ',
+      entityResolutionPrompt: '  合并实体或创建新实体  ',
       shortTermFragmentPrompt: '  这些是近期记忆  ',
       fixedFragmentPrompt: '  这些是稳定事实  ',
     })
@@ -329,15 +593,21 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal(data.semanticAnalyzerPrompt, '生成检索锚点')
     assert.equal(data.fragmentPrompt, '把这些记忆当作回忆来回答')
     assert.equal(data.contextToShortTermPrompt, '整理旧上下文为短期记忆')
-    assert.equal(data.shortTermToLongTermPrompt, '把短期记忆沉淀成长期记忆')
+    assert.equal(data.entityMentionPrompt, '抽取实体 mention')
+    assert.equal(data.episodicExtractionPrompt, '抽取实体和情景记忆')
+    assert.equal(data.entityResolutionPrompt, '合并实体或创建新实体')
     assert.equal(data.shortTermFragmentPrompt, '这些是近期记忆')
     assert.equal(data.fixedFragmentPrompt, '这些是稳定事实')
     assert.equal(typeof data.semanticAnalyzerPromptDefault, 'string')
     assert.equal(data.semanticAnalyzerPromptEffective, '生成检索锚点')
     assert.equal(typeof data.contextToShortTermPromptDefault, 'string')
     assert.equal(data.contextToShortTermPromptEffective, '整理旧上下文为短期记忆')
-    assert.equal(typeof data.shortTermToLongTermPromptDefault, 'string')
-    assert.equal(data.shortTermToLongTermPromptEffective, '把短期记忆沉淀成长期记忆')
+    assert.equal(typeof data.entityMentionPromptDefault, 'string')
+    assert.equal(data.entityMentionPromptEffective, '抽取实体 mention')
+    assert.equal(typeof data.episodicExtractionPromptDefault, 'string')
+    assert.equal(data.episodicExtractionPromptEffective, '抽取实体和情景记忆')
+    assert.equal(typeof data.entityResolutionPromptDefault, 'string')
+    assert.equal(data.entityResolutionPromptEffective, '合并实体或创建新实体')
     assert.equal(typeof data.fragmentPromptDefault, 'string')
     assert.equal(data.fragmentPromptEffective, '把这些记忆当作回忆来回答')
     assert.equal(typeof data.shortTermFragmentPromptDefault, 'string')
@@ -350,6 +620,9 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal('consolidatePrompt' in data, false)
     assert.equal('consolidatePromptDefault' in data, false)
     assert.equal('consolidatePromptEffective' in data, false)
+    assert.equal('shortTermToLongTermPrompt' in data, false)
+    assert.equal('shortTermToLongTermPromptDefault' in data, false)
+    assert.equal('shortTermToLongTermPromptEffective' in data, false)
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       memory: {
         scheme: 'sqlite',
@@ -373,7 +646,9 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
         semanticAnalyzerPrompt: '生成检索锚点',
         fragmentPrompt: '把这些记忆当作回忆来回答',
         contextToShortTermPrompt: '整理旧上下文为短期记忆',
-        shortTermToLongTermPrompt: '把短期记忆沉淀成长期记忆',
+        entityMentionPrompt: '抽取实体 mention',
+        episodicExtractionPrompt: '抽取实体和情景记忆',
+        entityResolutionPrompt: '合并实体或创建新实体',
         shortTermFragmentPrompt: '这些是近期记忆',
         fixedFragmentPrompt: '这些是稳定事实',
       },
@@ -413,7 +688,9 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
       semanticAnalyzerPrompt: '   ',
       fragmentPrompt: '   ',
       contextToShortTermPrompt: '   ',
-      shortTermToLongTermPrompt: '   ',
+      entityMentionPrompt: '   ',
+      episodicExtractionPrompt: '   ',
+      entityResolutionPrompt: '   ',
       shortTermFragmentPrompt: '   ',
       fixedFragmentPrompt: '   ',
     })
@@ -441,15 +718,21 @@ test('updateSqliteMemorySettings clears overrides when passed empty text', async
     assert.equal(data.semanticAnalyzerPrompt, null)
     assert.equal(data.fragmentPrompt, null)
     assert.equal(data.contextToShortTermPrompt, null)
-    assert.equal(data.shortTermToLongTermPrompt, null)
+    assert.equal(data.entityMentionPrompt, null)
+    assert.equal(data.episodicExtractionPrompt, null)
+    assert.equal(data.entityResolutionPrompt, null)
     assert.equal(data.shortTermFragmentPrompt, null)
     assert.equal(data.fixedFragmentPrompt, null)
     assert.equal(typeof data.semanticAnalyzerPromptDefault, 'string')
     assert.equal(data.semanticAnalyzerPromptEffective, data.semanticAnalyzerPromptDefault)
     assert.equal(typeof data.contextToShortTermPromptDefault, 'string')
     assert.equal(data.contextToShortTermPromptEffective, data.contextToShortTermPromptDefault)
-    assert.equal(typeof data.shortTermToLongTermPromptDefault, 'string')
-    assert.equal(data.shortTermToLongTermPromptEffective, data.shortTermToLongTermPromptDefault)
+    assert.equal(typeof data.entityMentionPromptDefault, 'string')
+    assert.equal(data.entityMentionPromptEffective, data.entityMentionPromptDefault)
+    assert.equal(typeof data.episodicExtractionPromptDefault, 'string')
+    assert.equal(data.episodicExtractionPromptEffective, data.episodicExtractionPromptDefault)
+    assert.equal(typeof data.entityResolutionPromptDefault, 'string')
+    assert.equal(data.entityResolutionPromptEffective, data.entityResolutionPromptDefault)
     assert.equal(typeof data.shortTermFragmentPromptDefault, 'string')
     assert.equal(data.shortTermFragmentPromptEffective, data.shortTermFragmentPromptDefault)
     assert.equal(typeof data.fixedFragmentPromptDefault, 'string')

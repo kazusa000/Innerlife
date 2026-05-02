@@ -72,7 +72,7 @@ test('sleepAgentMemory returns 400 when memory is not sqlite', async () => {
   }
 })
 
-test('sleepAgentMemory returns the sleep job result', async () => {
+test('sleepAgentMemory returns the episodic consolidation result', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sleep-'))
   const dbPath = join(dir, 'test.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -80,17 +80,15 @@ test('sleepAgentMemory returns the sleep job result', async () => {
   try {
     bootstrapDb(dbPath, memoryDbPath)
     const response = await sleepAgentMemory('agent-1', {
-      async runSleepForAgent(input) {
+      async runEpisodicConsolidationForAgent(input) {
         assert.deepEqual(input, {
           agentId: 'agent-1',
-          mode: 'manual',
         })
         return {
           ok: true as const,
-          createdCount: 1,
-          memoryIds: ['memory-9'],
+          createdEntityCount: 2,
+          createdEpisodicCount: 1,
           deletedShortTermCount: 3,
-          retainedShortTermCount: 2,
         }
       },
     })
@@ -100,10 +98,9 @@ test('sleepAgentMemory returns the sleep job result', async () => {
       agentId: 'agent-1',
       result: {
         ok: true,
-        createdCount: 1,
-        memoryIds: ['memory-9'],
+        createdEntityCount: 2,
+        createdEpisodicCount: 1,
         deletedShortTermCount: 3,
-        retainedShortTermCount: 2,
       },
     })
   } finally {

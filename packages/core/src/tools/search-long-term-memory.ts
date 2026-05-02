@@ -1,12 +1,18 @@
-import { agentRepo, memoryRepo } from '@mas/db'
+import { agentRepo, episodicMemoryGraphRepo, memoryRepo } from '@mas/db'
 import {
+  buildEntityMentionPrompt,
   buildLongTermSearchToolPrompt,
+  buildSemanticAnalyzerPrompt,
   createOpenRouterMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   isSqliteMemoryConfig,
+  parseEntityMentionResponse,
   resolveMemorySqliteConfig,
 } from '@mas/systems'
 import type { Tool } from './types'
+import { createProvider } from '../provider/factory'
+import type { LLMProvider } from '../provider/types'
+import type { Message, TextBlock } from '../types'
 
 const SEARCH_LONG_TERM_MEMORY_DESCRIPTION = [
   buildLongTermSearchToolPrompt(),
@@ -14,6 +20,10 @@ const SEARCH_LONG_TERM_MEMORY_DESCRIPTION = [
 ].join(' ')
 const SEMANTIC_QUERY_WEIGHT = 0.8
 const TOOL_QUERY_WEIGHT = 0.2
+const EPISODIC_GRAPH_WEIGHT = 0.4
+const EPISODIC_TEXT_WEIGHT = 0.5
+const EPISODIC_IMPORTANCE_WEIGHT = 0.1
+const EPISODIC_SUMMARY_EMBEDDING_BACKFILL_BATCH_SIZE = 100
 
 function formatOffset(minutesEastOfUtc: number): string {
   const sign = minutesEastOfUtc >= 0 ? '+' : '-'
@@ -34,6 +44,39 @@ function formatLocalMemoryPromptTime(date: Date): string {
   return `${year}-${month}-${day} ${hours}:${minutes} ${formatOffset(localMinutes)}`
 }
 
+async function ensureEpisodicSummaryEmbeddings(input: {
+  agentId: string
+  model: string
+  embedder: ReturnType<typeof createOpenRouterMemoryEmbedder>
+}) {
+  while (true) {
+    const memories = episodicMemoryGraphRepo.listEpisodicMemoriesNeedingSummaryEmbedding({
+      agentId: input.agentId,
+      embeddingModel: input.model,
+      limit: EPISODIC_SUMMARY_EMBEDDING_BACKFILL_BATCH_SIZE,
+    })
+    if (memories.length === 0) {
+      return
+    }
+
+    const embeddings = await input.embedder.embed(
+      memories.map((memory) => memory.summary),
+      {
+        model: input.model,
+        inputType: 'search_document',
+      },
+    )
+
+    for (const [index, memory] of memories.entries()) {
+      episodicMemoryGraphRepo.updateEpisodicSummaryEmbedding({
+        memoryId: memory.id,
+        embedding: embeddings[index] ?? [],
+        embeddingModel: input.model,
+      })
+    }
+  }
+}
+
 function parseDate(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) {
     return null
@@ -44,6 +87,133 @@ function parseDate(value: unknown) {
 
 function readQueryText(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function extractMessageText(message: Message) {
+  if (typeof message.content === 'string') {
+    return message.content.trim()
+  }
+
+  return message.content
+    .filter((block): block is TextBlock => block.type === 'text')
+    .map((block) => block.text.trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+function formatRecentContext(messages: Message[] | undefined, currentQuery: string) {
+  const recent = (messages ?? [])
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map((message) => ({
+      role: message.role,
+      text: extractMessageText(message),
+    }))
+    .filter((message) => message.text)
+    .slice(-6)
+
+  if (recent.length === 0) {
+    return currentQuery
+  }
+
+  const recentText = recent
+    .map((message) => `${message.role === 'user' ? '用户' : '我'}：${message.text}`)
+    .join('\n')
+
+  return [
+    '最近对话（仅供补全当前检索问题里的代词、省略、回指，不要顺手抽取上下文里的额外实体）：',
+    recentText,
+    '',
+    '当前检索问题：',
+    currentQuery,
+  ].join('\n')
+}
+
+async function extractEntityMentions(input: {
+  text: string
+  model: string
+  provider: Pick<LLMProvider, 'sendMessage'>
+  promptOverride?: string | null
+  signal?: AbortSignal
+}) {
+  if (!input.text.trim()) {
+    return []
+  }
+
+  const response = await input.provider.sendMessage({
+    model: input.model,
+    systemPrompt: buildEntityMentionPrompt(input.promptOverride),
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: input.text }],
+      },
+    ],
+    reasoning: { effort: 'none' },
+    signal: input.signal,
+  })
+
+  return parseEntityMentionResponse(
+    response.content
+      .map((block) => block.type === 'text' ? block.text : '')
+      .join('\n'),
+  )
+}
+
+function parseRetrievalQuery(text: string) {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  const candidate = fenced?.[1]?.trim() ?? trimmed
+  try {
+    const parsed = JSON.parse(candidate) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return ''
+    }
+    const value = (parsed as { retrieval_query?: unknown }).retrieval_query
+    return typeof value === 'string' && value.trim() ? value.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+async function extractEpisodicTextQuery(input: {
+  text: string
+  fallbackQuery: string
+  model: string
+  provider: Pick<LLMProvider, 'sendMessage'>
+  promptOverride?: string | null
+  signal?: AbortSignal
+}) {
+  if (!input.text.trim()) {
+    return input.fallbackQuery
+  }
+
+  const response = await input.provider.sendMessage({
+    model: input.model,
+    systemPrompt: buildSemanticAnalyzerPrompt(input.promptOverride),
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: input.text }],
+      },
+    ],
+    reasoning: { effort: 'none' },
+    signal: input.signal,
+  })
+  const parsed = parseRetrievalQuery(
+    response.content
+      .map((block) => block.type === 'text' ? block.text : '')
+      .join('\n'),
+  )
+
+  return parsed || input.fallbackQuery
+}
+
+function scoreByRank(index: number) {
+  return Math.max(0, 1 - index * 0.08)
 }
 
 export const SearchLongTermMemoryTool: Tool = {
@@ -78,9 +248,15 @@ export const SearchLongTermMemoryTool: Tool = {
     }
 
     const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+    const agentId = options.agentId
     const embedder = createOpenRouterMemoryEmbedder()
     const semanticQuery = readQueryText(options?.memoryRetrievalQuery)
     const toolQuery = readQueryText(input.query)
+    const start = parseDate(input.time_start)
+    const end = parseDate(input.time_end)
+    const topK = typeof input.top_k === 'number' && Number.isFinite(input.top_k)
+      ? Math.max(1, Math.min(5, Math.floor(input.top_k)))
+      : Math.max(1, Math.min(5, memoryConfig.longTermSearchDefaultTopK ?? 3))
     const effectiveQueries = [
       semanticQuery
         ? { source: 'semantic_analyzer', query: semanticQuery, weight: SEMANTIC_QUERY_WEIGHT }
@@ -102,6 +278,144 @@ export const SearchLongTermMemoryTool: Tool = {
       }
     }
 
+    const graphQuery = [toolQuery, semanticQuery]
+      .filter(Boolean)
+      .join('\n')
+    const mentionQuery = formatRecentContext(options?.recentMessages, graphQuery)
+    const graphProvider = options.provider ?? createProvider(agent.provider)
+    const textQuery = await extractEpisodicTextQuery({
+      text: graphQuery,
+      fallbackQuery: semanticQuery || toolQuery,
+      model: memoryConfig.summarizeModel ?? agent.model,
+      provider: graphProvider,
+      promptOverride: memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt,
+      signal: options.signal,
+    }).catch(() => semanticQuery || toolQuery)
+    const mentions = episodicMemoryGraphRepo.hasEntitiesForAgent(agentId)
+      ? await extractEntityMentions({
+        text: mentionQuery,
+        model: memoryConfig.summarizeModel ?? agent.model,
+        provider: graphProvider,
+        promptOverride: memoryConfig.entityMentionPrompt,
+        signal: options.signal,
+      }).catch(() => [])
+      : []
+    const mentionCandidates = mentions.flatMap((mention) =>
+      episodicMemoryGraphRepo.findEntityCandidates({
+        agentId,
+        type: mention.type,
+        surface: mention.surface,
+        limit: 10,
+      }).map((candidate) => ({
+        ...candidate,
+        mention,
+      })),
+    )
+    const graphCandidates = mentionCandidates
+
+    let graphHits: ReturnType<typeof episodicMemoryGraphRepo.recallEpisodicMemories> = []
+    if (graphCandidates.length > 0) {
+      const activation = graphCandidates.length === 1 ? 1 : 0.7
+      graphHits = episodicMemoryGraphRepo.recallEpisodicMemories({
+        agentId,
+        topK: Math.max(5, topK * 3),
+        activations: graphCandidates.map((candidate) => ({
+          entityId: candidate.entity.id,
+          activation,
+        })),
+        spreadFactor: 0.35,
+      })
+    }
+
+    const episodicEmbeddingModel = memoryConfig.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL
+    await ensureEpisodicSummaryEmbeddings({
+      agentId,
+      model: episodicEmbeddingModel,
+      embedder,
+    }).catch(() => undefined)
+
+    const episodicTextHits = textQuery
+      ? await embedder.embed(
+        [textQuery],
+        {
+          model: episodicEmbeddingModel,
+          inputType: 'search_query',
+        },
+      ).then((queryEmbeddings) => episodicMemoryGraphRepo.findRelevantEpisodicMemories({
+        agentId,
+        queryEmbeddings,
+        topK: Math.max(5, topK * 3),
+      })).catch(() => [])
+      : []
+    const fused = new Map<string, {
+      memory: NonNullable<ReturnType<typeof episodicMemoryGraphRepo.getEpisodicMemory>>
+      graphScore: number
+      textScore: number
+      finalScore: number
+    }>()
+
+    graphHits.forEach((memory, index) => {
+      fused.set(memory.id, {
+        memory,
+        graphScore: scoreByRank(index),
+        textScore: 0,
+        finalScore: 0,
+      })
+    })
+    episodicTextHits.forEach((hit) => {
+      const existing = fused.get(hit.memory.id)
+      fused.set(hit.memory.id, {
+        memory: hit.memory,
+        graphScore: existing?.graphScore ?? 0,
+        textScore: Math.max(existing?.textScore ?? 0, hit.similarity),
+        finalScore: 0,
+      })
+    })
+
+    const episodic = [...fused.values()]
+      .map((hit) => ({
+        ...hit,
+        finalScore:
+          hit.graphScore * EPISODIC_GRAPH_WEIGHT
+          + hit.textScore * EPISODIC_TEXT_WEIGHT
+          + hit.memory.importance * EPISODIC_IMPORTANCE_WEIGHT,
+      }))
+      .sort((left, right) => {
+        if (right.finalScore !== left.finalScore) {
+          return right.finalScore - left.finalScore
+        }
+        return right.memory.createdAt.getTime() - left.memory.createdAt.getTime()
+      })
+      .slice(0, topK)
+
+    if (episodic.length > 0) {
+      return {
+        output: [
+          '情景记忆召回结果：',
+          ...episodic.map((hit) => `[情景记忆] ${hit.memory.detail || hit.memory.summary}`),
+        ].join('\n'),
+        metadata: {
+          noResults: false,
+          mode: 'episodic_hybrid',
+          effectiveQueries,
+          textQuery,
+          entityMentions: mentions,
+          hits: episodic.map((hit) => ({
+            id: hit.memory.id,
+            sessionId: hit.memory.sessionId,
+            detail: hit.memory.detail,
+            summary: hit.memory.summary,
+            observedStartAt: hit.memory.observedStartAt?.toISOString() ?? null,
+            observedEndAt: hit.memory.observedEndAt?.toISOString() ?? null,
+            importance: hit.memory.importance,
+            graphScore: hit.graphScore,
+            textScore: hit.textScore,
+            score: hit.finalScore,
+          })),
+        },
+      }
+    }
+
     const queryEmbeddings = await embedder.embed(
       effectiveQueries.map((entry) => entry.query),
       {
@@ -110,14 +424,8 @@ export const SearchLongTermMemoryTool: Tool = {
       },
     )
 
-    const start = parseDate(input.time_start)
-    const end = parseDate(input.time_end)
-    const topK = typeof input.top_k === 'number' && Number.isFinite(input.top_k)
-      ? Math.max(1, Math.min(5, Math.floor(input.top_k)))
-      : Math.max(1, Math.min(5, memoryConfig.longTermSearchDefaultTopK ?? 3))
-
     const hits = memoryRepo.findRelevantMemories({
-      agentId: options.agentId,
+      agentId,
       queryEmbeddings,
       queryWeights: effectiveQueries.map((entry) => entry.weight),
       topK,
@@ -136,7 +444,7 @@ export const SearchLongTermMemoryTool: Tool = {
     return {
       output: [
         '长期记忆检索结果：',
-        ...hits.map((memory) => `[长期记忆][${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.displaySummary}`),
+        ...hits.map((memory) => `[长期记忆][${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.retrievalText}`),
       ].join('\n'),
       metadata: {
         noResults: false,
@@ -145,7 +453,8 @@ export const SearchLongTermMemoryTool: Tool = {
           id: memory.id,
           sessionId: memory.sessionId,
           layer: memory.layer,
-          displaySummary: memory.displaySummary,
+          detail: memory.detail,
+          retrievalText: memory.retrievalText,
           createdAt: memory.createdAt.toISOString(),
           importance: memory.importance,
         })),

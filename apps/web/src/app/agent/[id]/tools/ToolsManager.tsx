@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import PromptTestPanel, { DEFAULT_PROMPT_TEST_INPUTS } from '../PromptTestPanel'
 import styles from '../manager-ui.module.css'
 
 export interface ToolManagerItem {
@@ -199,6 +200,12 @@ export default function ToolsManager({ agentId, initialTools }: ToolsManagerProp
                         })}
                       rows={4}
                       placeholder="清空后保存会回退系统默认描述。"
+                    />
+                    <PromptTestPanel
+                      agentId={agentId}
+                      testId={`tools.${tool.name}.description`}
+                      defaultInput={DEFAULT_PROMPT_TEST_INPUTS.toolDescription(tool.name)}
+                      prompt={tool.description}
                     />
                   </label>
                 </div>

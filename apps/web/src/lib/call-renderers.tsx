@@ -296,10 +296,19 @@ function readText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
 function readTextArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean)
     : []
+}
+
+function formatScore(value: unknown) {
+  const number = readNumber(value)
+  return number === null ? '无' : number.toFixed(2)
 }
 
 function MemorySection({
@@ -330,6 +339,7 @@ function MemorySection({
 
 export function MemoryView({ metadata }: { metadata: unknown }) {
   const record = readRecord(metadata)
+  const mode = readText(record?.mode)
   const phase = readText(record?.phase) ?? 'unknown'
   const mergedQuery = readRecord(record?.mergedQuery)
   const retrievalQuery = readText(mergedQuery?.retrievalQuery) ?? readText(record?.retrievalQuery)
@@ -349,6 +359,133 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
       default:
         return null
     }
+  }
+
+  if (mode === 'episodic_hybrid') {
+    const entityMentions = Array.isArray(record?.entityMentions)
+      ? record.entityMentions.flatMap((mention) => {
+        const mentionRecord = readRecord(mention)
+        const surface = readText(mentionRecord?.surface)
+        if (!surface) {
+          return []
+        }
+        const type = readText(mentionRecord?.type)
+        return [{ surface, type }]
+      })
+      : []
+    const hits = Array.isArray(record?.hits)
+      ? record.hits.flatMap((hit) => {
+        const hitRecord = readRecord(hit)
+        const id = readText(hitRecord?.id)
+        const summary = readText(hitRecord?.summary)
+        if (!id || !summary) {
+          return []
+        }
+        const entities = Array.isArray(hitRecord?.entities)
+          ? hitRecord.entities.flatMap((entity) => {
+            const entityRecord = readRecord(entity)
+            const canonicalName = readText(entityRecord?.canonicalName)
+            if (!canonicalName) {
+              return []
+            }
+            return [{
+              canonicalName,
+              type: readText(entityRecord?.type),
+              weight: readNumber(entityRecord?.weight),
+            }]
+          })
+          : []
+
+        return [{
+          id,
+          summary,
+          importance: hitRecord?.importance,
+          graphScore: hitRecord?.graphScore,
+          textScore: hitRecord?.textScore,
+          score: hitRecord?.score,
+          entities,
+        }]
+      })
+      : []
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <MemorySection title="Hybrid Episodic Recall">
+          <pre style={{ fontSize: 11, color: '#cdd9e5' }}>{mode}</pre>
+        </MemorySection>
+        <MemorySection title="Text Query">
+          <pre style={{ fontSize: 11, color: '#cdd9e5' }}>{readText(record?.textQuery) ?? '无'}</pre>
+        </MemorySection>
+        <MemorySection title="Entity Mentions">
+          {entityMentions.length === 0 ? (
+            <pre style={{ fontSize: 11, color: '#cdd9e5' }}>[]</pre>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {entityMentions.map((mention, index) => (
+                <span
+                  key={`${mention.surface}-${index}`}
+                  style={{
+                    border: '1px solid rgba(52, 211, 153, 0.28)',
+                    borderRadius: 999,
+                    padding: '5px 9px',
+                    color: '#bbf7d0',
+                    background: 'rgba(52, 211, 153, 0.08)',
+                    fontSize: 12,
+                  }}
+                >
+                  {mention.surface}{mention.type ? ` · ${mention.type}` : ''}
+                </span>
+              ))}
+            </div>
+          )}
+        </MemorySection>
+        <MemorySection title={OBSERVER_UI_COPY.hits}>
+          {hits.length === 0 ? (
+            <pre style={{ fontSize: 11, color: '#cdd9e5' }}>[]</pre>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {hits.map((hit) => (
+                <div
+                  key={hit.id}
+                  style={{
+                    border: '1px solid rgba(52, 211, 153, 0.24)',
+                    borderRadius: 12,
+                    padding: 10,
+                    background: 'rgba(5, 10, 22, 0.82)',
+                  }}
+                >
+                  <div style={{ color: '#e5e7eb', fontWeight: 600, marginBottom: 8 }}>{hit.summary}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, color: '#cdd9e5', fontSize: 12 }}>
+                    <span>图分数 {formatScore(hit.graphScore)}</span>
+                    <span>文本分数 {formatScore(hit.textScore)}</span>
+                    <span>最终分数 {formatScore(hit.score)}</span>
+                    <span>重要性 {formatScore(hit.importance)}</span>
+                  </div>
+                  {hit.entities.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                      {hit.entities.map((entity) => (
+                        <span
+                          key={`${hit.id}-${entity.canonicalName}`}
+                          style={{
+                            color: '#bfdbfe',
+                            background: 'rgba(96, 165, 250, 0.1)',
+                            borderRadius: 999,
+                            padding: '4px 8px',
+                            fontSize: 11,
+                          }}
+                        >
+                          {entity.canonicalName}{entity.weight !== null ? ` · ${entity.weight.toFixed(2)}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </MemorySection>
+      </div>
+    )
   }
 
   return (

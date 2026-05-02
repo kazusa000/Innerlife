@@ -32,6 +32,7 @@ interface ToolExecution {
   input: Record<string, unknown>
   output?: string
   isError?: boolean
+  metadata?: Record<string, unknown> | null
 }
 
 interface DbMessage {
@@ -76,6 +77,72 @@ function isAbortError(error: unknown): boolean {
     (typeof DOMException !== 'undefined' &&
       error instanceof DOMException &&
       error.name === 'AbortError')
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function readText(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+function readNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function formatToolScore(value: unknown) {
+  const number = readNumber(value)
+  return number === null ? '无' : number.toFixed(2)
+}
+
+function HybridMemoryToolSummary({ metadata }: { metadata: Record<string, unknown> | null | undefined }) {
+  if (metadata?.mode !== 'episodic_hybrid') {
+    return null
+  }
+
+  const mentions = Array.isArray(metadata.entityMentions)
+    ? metadata.entityMentions.flatMap((mention) => {
+      const record = isRecord(mention) ? mention : null
+      const surface = readText(record?.surface)
+      return surface ? [{ surface, type: readText(record?.type) }] : []
+    })
+    : []
+  const hits = Array.isArray(metadata.hits)
+    ? metadata.hits.flatMap((hit) => {
+      const record = isRecord(hit) ? hit : null
+      const retrievalText = readText(record?.retrievalText) ?? readText(record?.summary)
+      return retrievalText
+        ? [{
+            retrievalText,
+            graphScore: record?.graphScore,
+            textScore: record?.textScore,
+            score: record?.score,
+          }]
+        : []
+    })
+    : []
+
+  return (
+    <div className="tool-memory-summary">
+      <div className="tool-memory-row">
+        <span>text query</span>
+        <code>{readText(metadata.textQuery) ?? '无'}</code>
+      </div>
+      <div className="tool-memory-row">
+        <span>entity mentions</span>
+        <code>{mentions.length ? mentions.map((mention) => `${mention.surface}${mention.type ? `/${mention.type}` : ''}`).join(', ') : '无'}</code>
+      </div>
+      {hits.map((hit, index) => (
+        <div key={`${hit.retrievalText}-${index}`} className="tool-memory-hit">
+          <strong>{hit.retrievalText}</strong>
+          <span>
+            图 {formatToolScore(hit.graphScore)} · 文本 {formatToolScore(hit.textScore)} · 最终 {formatToolScore(hit.score)}
+          </span>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -411,7 +478,12 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
                 setCurrentTools((prev) =>
                   prev.map((t) =>
                     t.toolName === event.toolName && !t.output
-                      ? { ...t, output: event.result.output, isError: event.result.isError }
+                      ? {
+                          ...t,
+                          output: event.result.output,
+                          isError: event.result.isError,
+                          metadata: isRecord(event.result.metadata) ? event.result.metadata : null,
+                        }
                       : t,
                   ),
                 )
@@ -613,9 +685,12 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
                 </code>
               </div>
               {tool.output && (
-                <pre className={tool.isError ? 'tool-out is-error' : 'tool-out'}>
-                  {tool.output}
-                </pre>
+                <>
+                  <HybridMemoryToolSummary metadata={tool.metadata} />
+                  <pre className={tool.isError ? 'tool-out is-error' : 'tool-out'}>
+                    {tool.output}
+                  </pre>
+                </>
               )}
             </div>
           ))}
@@ -991,6 +1066,42 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
         }
         .tool-input {
           color: var(--fg-subtle);
+        }
+        .tool-memory-summary {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 10px;
+          padding: 10px;
+          border-radius: 10px;
+          border: 1px solid rgba(52, 211, 153, 0.2);
+          background: rgba(52, 211, 153, 0.07);
+        }
+        .tool-memory-row,
+        .tool-memory-hit {
+          display: flex;
+          gap: 8px;
+          align-items: flex-start;
+          justify-content: space-between;
+          color: var(--fg-muted);
+        }
+        .tool-memory-row span,
+        .tool-memory-hit span {
+          color: var(--fg-subtle);
+          font-size: 12px;
+        }
+        .tool-memory-row code,
+        .tool-memory-hit strong {
+          color: var(--fg);
+          font-size: 12px;
+          text-align: right;
+        }
+        .tool-memory-hit {
+          flex-direction: column;
+          justify-content: flex-start;
+        }
+        .tool-memory-hit strong {
+          text-align: left;
         }
         .tool-out {
           margin-top: 8px;

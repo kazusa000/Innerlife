@@ -51,11 +51,11 @@ export function updateSqliteMemory(agentId: string, memoryId: string, input: unk
   return Response.json({
     ok: true,
     memory: memory
-      ? {
+        ? {
           id: memory.id,
           sessionId: memory.sessionId,
           layer: memory.layer,
-          summary: memory.displaySummary,
+          detail: memory.detail,
           retrievalText: memory.retrievalText,
           importance: memory.importance,
           observedStartAt: memory.observedStartAt?.toISOString() ?? null,

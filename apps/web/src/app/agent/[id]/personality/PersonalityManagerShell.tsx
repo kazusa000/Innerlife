@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { COMMON_UI_COPY } from '@/lib/ui-copy'
+import PromptTestPanel, { DEFAULT_PROMPT_TEST_INPUTS } from '../PromptTestPanel'
 import styles from '../manager-ui.module.css'
 
 type PersonalityConfig = {
@@ -237,6 +238,12 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                       onChange={(event) => setSystemPrompt(event.target.value)}
                       placeholder="例如：你是真实存在的人，不要自称 AI，不要用系统口吻解释自己。"
                     />
+                    <PromptTestPanel
+                      agentId={agentId}
+                      testId="personality.systemPrompt"
+                      defaultInput={DEFAULT_PROMPT_TEST_INPUTS.personalitySystem}
+                      prompt={systemPrompt}
+                    />
                   </label>
 
                   <label className={styles.wideField}>
@@ -247,6 +254,12 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                       value={personaPrompt}
                       onChange={(event) => setPersonaPrompt(event.target.value)}
                       placeholder="例如：像熟人一样交流，少一点客服感，克制一点，不把话说太满。"
+                    />
+                    <PromptTestPanel
+                      agentId={agentId}
+                      testId="personality.personaPrompt"
+                      defaultInput={DEFAULT_PROMPT_TEST_INPUTS.personalityPersona}
+                      prompt={personaPrompt}
                     />
                   </label>
                 </div>
@@ -267,6 +280,12 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                     value={thinkingRoleImmersionPrompt}
                     onChange={(event) => setThinkingRoleImmersionPrompt(event.target.value)}
                     placeholder="例如：【角色沉浸要求】&#10;在你的思考过程（<think>标签内）中，请遵守以下规则：..."
+                  />
+                  <PromptTestPanel
+                    agentId={agentId}
+                    testId="personality.thinkingModePrompt"
+                    defaultInput={DEFAULT_PROMPT_TEST_INPUTS.personalityThinking}
+                    prompt={thinkingRoleImmersionPrompt}
                   />
                   <p className={styles.promptMeta}>
                     生效条件：主聊天思考模式开启，且这里保存了非空内容。

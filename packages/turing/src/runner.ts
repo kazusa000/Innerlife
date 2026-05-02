@@ -190,8 +190,10 @@ async function applyInjection(input: {
       }
     }
   } else if (input.injection.type === 'memory') {
-    const displaySummary = typeof payload.displaySummary === 'string' ? payload.displaySummary : '测试记忆'
-    const retrievalText = typeof payload.retrievalText === 'string' ? payload.retrievalText : displaySummary
+    const detail = typeof payload.detail === 'string'
+      ? payload.detail
+      : (typeof payload.displaySummary === 'string' ? payload.displaySummary : '测试记忆')
+    const retrievalText = typeof payload.retrievalText === 'string' ? payload.retrievalText : detail
     const tags = Array.isArray(payload.tags) ? payload.tags.filter((tag): tag is string => typeof tag === 'string') : []
     const importance = typeof payload.importance === 'number' ? payload.importance : 0.8
     const layer =
@@ -204,7 +206,7 @@ async function applyInjection(input: {
       sessionId: input.tempSessionId,
       layer,
       sourceText: retrievalText,
-      displaySummary,
+      detail,
       retrievalText,
       retrievalEmbedding: embedding,
       retrievalModel: MEMORY_EMBEDDING_MODEL,

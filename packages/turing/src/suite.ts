@@ -54,7 +54,7 @@ export const FIXED_TURING_SUITE: TuringStageDefinition[] = [
         type: 'memory',
         label: '插入测试记忆：猫',
         payload: {
-          displaySummary: '用户养了一只叫橘子的猫。',
+          detail: '用户养了一只叫橘子的猫。',
           retrievalText: '用户养了一只叫橘子的猫，平时经常提起它。',
           tags: ['猫', '橘子'],
           importance: 0.88,
@@ -88,7 +88,7 @@ export const FIXED_TURING_SUITE: TuringStageDefinition[] = [
         label: '插入短期记忆：猫',
         payload: {
           layer: 'short_term',
-          displaySummary: '用户养了一只叫橘子的猫。',
+          detail: '用户养了一只叫橘子的猫。',
           retrievalText: '用户养了一只叫橘子的猫，平时经常提起它。',
           tags: ['猫', '橘子'],
           importance: 0.88,
@@ -99,7 +99,7 @@ export const FIXED_TURING_SUITE: TuringStageDefinition[] = [
         label: '插入长期记忆：灯塔画面',
         payload: {
           layer: 'long_term',
-          displaySummary: '用户之前提过海边灯塔、潮声和很大的风。',
+          detail: '用户之前提过海边灯塔、潮声和很大的风。',
           retrievalText: '用户之前提过一个海边灯塔的画面，有潮声，风很大，空气偏凉。',
           tags: ['海边', '灯塔', '潮声'],
           importance: 0.81,
@@ -110,7 +110,7 @@ export const FIXED_TURING_SUITE: TuringStageDefinition[] = [
         label: '插入固化记忆：香菜',
         payload: {
           layer: 'fixed',
-          displaySummary: '用户非常讨厌香菜。',
+          detail: '用户非常讨厌香菜。',
           retrievalText: '用户稳定而明确地讨厌香菜，提到吃饭时尤其在意这一点。',
           tags: ['香菜', '饮食偏好'],
           importance: 0.95,

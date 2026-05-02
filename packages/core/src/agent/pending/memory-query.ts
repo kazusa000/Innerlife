@@ -237,7 +237,6 @@ export async function runPendingMemoryQuery(
         }
       : null,
   }
-
   if (query.retrievalQuery || query.timeRange) {
     const shortTermHits = memoryResult.shortTerm.map((memory) => serializeMemoryHit(memory))
     const fixedHits = memoryResult.fixed.map((memory) => serializeMemoryHit(memory))

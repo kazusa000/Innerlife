@@ -1,6 +1,7 @@
 import {
   agentMemorySleepStateRepo,
   agentRepo,
+  episodicMemoryGraphRepo,
   memoryRepo,
   messageRepo,
   sessionContextStateRepo,
@@ -8,11 +9,13 @@ import {
 } from '@mas/db'
 import {
   buildContextToShortTermPrompt,
+  buildEntityMentionPrompt,
+  buildEntityResolutionPrompt,
+  buildEpisodicExtractionPrompt,
   buildFixedMemoryFragmentPrompt,
   buildMemoryFragmentPrompt,
   buildSemanticAnalyzerPrompt,
   buildShortTermFragmentPrompt,
-  buildShortTermToLongTermPrompt,
   isSqliteMemoryConfig,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
@@ -25,7 +28,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 type MemoryListOptions = {
   page?: number
   pageSize?: number
-  layer?: 'short_term' | 'long_term' | 'fixed'
+  layer?: 'short_term' | 'long_term' | 'fixed' | 'episodic'
+  graphQuery?: string
+  nodePage?: number
+  edgePage?: number
+  graphPageSize?: number
 }
 
 type SessionMessageRecord = ReturnType<typeof messageRepo.getSessionMessages>[number]
@@ -85,6 +92,122 @@ function selectActiveDbMessages(
   return startIndex >= 0 ? dbMessages.slice(startIndex) : dbMessages
 }
 
+function serializeDate(value: Date | null | undefined) {
+  return value ? value.toISOString() : null
+}
+
+function serializeEntityNode(entity: ReturnType<typeof episodicMemoryGraphRepo.listMemoryEntitiesByAgent>[number]) {
+  return {
+    id: entity.id,
+    type: entity.type,
+    canonicalName: entity.canonicalName,
+    description: entity.description,
+    confidence: entity.confidence,
+    aliases: entity.aliases,
+    episodicMemoryCount: entity.episodicMemoryCount,
+    createdAt: entity.createdAt.toISOString(),
+    lastSeenAt: serializeDate(entity.lastSeenAt),
+  }
+}
+
+function serializeEntityEdge(edge: ReturnType<typeof episodicMemoryGraphRepo.listMemoryEntityEdgesByAgent>[number]) {
+  return {
+    sourceEntityId: edge.sourceEntityId,
+    sourceCanonicalName: edge.sourceCanonicalName,
+    targetEntityId: edge.targetEntityId,
+    targetCanonicalName: edge.targetCanonicalName,
+    weight: edge.weight,
+    coOccurrenceCount: edge.coOccurrenceCount,
+    lastSeenAt: edge.lastSeenAt.toISOString(),
+  }
+}
+
+function serializeMemoryRow(row: ReturnType<typeof episodicMemoryGraphRepo.listManagedMemoryRowsByAgent>['items'][number]) {
+  return {
+    kind: row.kind,
+    id: row.id,
+    sessionId: row.sessionId,
+    layer: row.layer,
+    detail: row.summary,
+    retrievalText: row.retrievalText,
+    episodicDetail: row.detail,
+    retrievalModel: row.retrievalModel,
+    hasEmbedding: row.retrievalEmbedding.length > 0,
+    embeddingDimensions: row.retrievalEmbedding.length,
+    importance: row.importance,
+    observedStartAt: serializeDate(row.observedStartAt),
+    observedEndAt: serializeDate(row.observedEndAt),
+    createdAt: row.createdAt.toISOString(),
+    entities: row.entities.map((link) => ({
+      id: link.entity.id,
+      type: link.entity.type,
+      canonicalName: link.entity.canonicalName,
+      weight: link.weight,
+    })),
+  }
+}
+
+function buildEpisodicMemoryConsolePayload(agentId: string, options: MemoryListOptions = {}) {
+  const episodicMemories = episodicMemoryGraphRepo.listEpisodicMemoriesByAgent({
+    agentId,
+    limit: 10,
+  })
+  const graphQuery = options.graphQuery?.trim() ?? ''
+  const nodes = episodicMemoryGraphRepo.listMemoryEntitiesPageByAgent({
+    agentId,
+    query: graphQuery,
+    page: typeof options.nodePage === 'number' ? options.nodePage : 1,
+    pageSize: typeof options.graphPageSize === 'number' ? options.graphPageSize : 10,
+  })
+  const edges = episodicMemoryGraphRepo.listMemoryEntityEdgesPageByAgent({
+    agentId,
+    query: graphQuery,
+    page: typeof options.edgePage === 'number' ? options.edgePage : 1,
+    pageSize: typeof options.graphPageSize === 'number' ? options.graphPageSize : 10,
+  })
+
+  return {
+    graphQuery,
+    episodic: {
+      total: episodicMemories.length,
+      memories: episodicMemories.map((memory) => ({
+        id: memory.id,
+        sessionId: memory.sessionId,
+        summary: memory.summary,
+        detail: memory.detail,
+        retrievalModel: memory.retrievalModel,
+        hasEmbedding: memory.retrievalEmbedding.length > 0,
+        embeddingDimensions: memory.retrievalEmbedding.length,
+        importance: memory.importance,
+        observedStartAt: serializeDate(memory.observedStartAt),
+        observedEndAt: serializeDate(memory.observedEndAt),
+        createdAt: memory.createdAt.toISOString(),
+        entities: memory.entities.map((link) => ({
+          id: link.entity.id,
+          type: link.entity.type,
+          canonicalName: link.entity.canonicalName,
+          weight: link.weight,
+        })),
+      })),
+    },
+    entities: {
+      total: nodes.total,
+      nodes: {
+        total: nodes.total,
+        page: nodes.page,
+        pageSize: nodes.pageSize,
+        items: nodes.items.map(serializeEntityNode),
+      },
+      edges: {
+        total: edges.total,
+        page: edges.page,
+        pageSize: edges.pageSize,
+        items: edges.items.map(serializeEntityEdge),
+      },
+    },
+  }
+}
+
 export function listSqliteMemories(agentId: string, query?: string, options: MemoryListOptions = {}) {
   const agent = agentRepo.getAgent(agentId)
   if (!agent) {
@@ -99,10 +222,18 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
   const pipelineSettings = resolveMemoryPipelineSettings(agent.modules?.memory)
   const page = typeof options.page === 'number' ? options.page : 1
   const pageSize = typeof options.pageSize === 'number' ? options.pageSize : 20
-  const result = memoryRepo.listSqliteMemoriesPageByAgent({
+  const rowsResult = episodicMemoryGraphRepo.listManagedMemoryRowsByAgent({
     agentId,
     query,
     layer: options.layer,
+    page,
+    pageSize,
+  })
+  const result = memoryRepo.listSqliteMemoriesPageByAgent({
+    agentId,
+    query,
+    layer: options.layer === 'episodic' ? undefined : options.layer,
+    layers: options.layer ? undefined : ['short_term', 'fixed'],
     page,
     pageSize,
   })
@@ -123,11 +254,12 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
   return Response.json({
     agentId,
     scheme: 'sqlite',
+    legacyLayers: ['short_term', 'fixed'],
     query: query?.trim() ?? '',
     layer: options.layer ?? null,
-    page: result.page,
-    pageSize: result.pageSize,
-    total: result.total,
+    page: rowsResult.page,
+    pageSize: rowsResult.pageSize,
+    total: rowsResult.total,
     summarizeModel: memoryConfig.summarizeModel,
     embeddingModel: memoryConfig.embeddingModel,
     shortTermRetrieveTopK: memoryConfig.shortTermRetrieveTopK,
@@ -148,7 +280,9 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
       readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.semanticAnalyzerPrompt)
       ?? readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.retrievePrompt),
     contextToShortTermPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.contextToShortTermPrompt),
-    shortTermToLongTermPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.shortTermToLongTermPrompt),
+    entityMentionPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.entityMentionPrompt),
+    episodicExtractionPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.episodicExtractionPrompt),
+    entityResolutionPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.entityResolutionPrompt),
     fragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fragmentPrompt),
     shortTermFragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.shortTermFragmentPrompt),
     fixedFragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fixedFragmentPrompt),
@@ -159,11 +293,12 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
       memoryConfig.contextToShortTermPrompt,
       pipelineSettings.maxShortTermMemoriesPerFlush,
     ),
-    shortTermToLongTermPromptDefault: buildShortTermToLongTermPrompt(null, pipelineSettings.maxShortTermMemoriesPerFlush),
-    shortTermToLongTermPromptEffective: buildShortTermToLongTermPrompt(
-      memoryConfig.shortTermToLongTermPrompt,
-      pipelineSettings.maxShortTermMemoriesPerFlush,
-    ),
+    entityMentionPromptDefault: buildEntityMentionPrompt(),
+    entityMentionPromptEffective: buildEntityMentionPrompt(memoryConfig.entityMentionPrompt),
+    episodicExtractionPromptDefault: buildEpisodicExtractionPrompt(),
+    episodicExtractionPromptEffective: buildEpisodicExtractionPrompt(memoryConfig.episodicExtractionPrompt),
+    entityResolutionPromptDefault: buildEntityResolutionPrompt(),
+    entityResolutionPromptEffective: buildEntityResolutionPrompt(memoryConfig.entityResolutionPrompt),
     fragmentPromptDefault: buildMemoryFragmentPrompt(),
     fragmentPromptEffective: buildMemoryFragmentPrompt(memoryConfig.fragmentPrompt),
     shortTermFragmentPromptDefault: buildShortTermFragmentPrompt(),
@@ -182,11 +317,13 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     sleep: {
       lastSleepAt: sleepState?.lastSleepAt?.toISOString() ?? null,
     },
+    ...buildEpisodicMemoryConsolePayload(agentId, options),
+    rows: rowsResult.items.map(serializeMemoryRow),
     memories: result.memories.map((memory) => ({
       id: memory.id,
       sessionId: memory.sessionId,
       layer: memory.layer,
-      summary: memory.displaySummary,
+      detail: memory.detail,
       retrievalText: memory.retrievalText,
       importance: memory.importance,
       observedStartAt: memory.observedStartAt?.toISOString() ?? null,
@@ -230,7 +367,9 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     'embeddingModel',
     'semanticAnalyzerPrompt',
     'contextToShortTermPrompt',
-    'shortTermToLongTermPrompt',
+    'entityMentionPrompt',
+    'episodicExtractionPrompt',
+    'entityResolutionPrompt',
     'fragmentPrompt',
     'shortTermFragmentPrompt',
     'fixedFragmentPrompt',
@@ -270,7 +409,9 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     sleepIntervalDays: hasOwn(body, 'sleepIntervalDays') ? readOptionalInt(body.sleepIntervalDays) : undefined,
     semanticAnalyzerPrompt: hasOwn(body, 'semanticAnalyzerPrompt') ? readOptionalText(body.semanticAnalyzerPrompt) : undefined,
     contextToShortTermPrompt: hasOwn(body, 'contextToShortTermPrompt') ? readOptionalText(body.contextToShortTermPrompt) : undefined,
-    shortTermToLongTermPrompt: hasOwn(body, 'shortTermToLongTermPrompt') ? readOptionalText(body.shortTermToLongTermPrompt) : undefined,
+    entityMentionPrompt: hasOwn(body, 'entityMentionPrompt') ? readOptionalText(body.entityMentionPrompt) : undefined,
+    episodicExtractionPrompt: hasOwn(body, 'episodicExtractionPrompt') ? readOptionalText(body.episodicExtractionPrompt) : undefined,
+    entityResolutionPrompt: hasOwn(body, 'entityResolutionPrompt') ? readOptionalText(body.entityResolutionPrompt) : undefined,
     fragmentPrompt: hasOwn(body, 'fragmentPrompt') ? readOptionalText(body.fragmentPrompt) : undefined,
     shortTermFragmentPrompt: hasOwn(body, 'shortTermFragmentPrompt') ? readOptionalText(body.shortTermFragmentPrompt) : undefined,
     fixedFragmentPrompt: hasOwn(body, 'fixedFragmentPrompt') ? readOptionalText(body.fixedFragmentPrompt) : undefined,
@@ -282,6 +423,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   delete nextMemory.semanticAnalyzerMode
   delete nextMemory.summarizePrompt
   delete nextMemory.consolidatePrompt
+  delete nextMemory.shortTermToLongTermPrompt
   for (const [key, value] of Object.entries(nextValues)) {
     if (value === undefined) {
       continue
@@ -319,7 +461,9 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     sleepIntervalDays: resolvedPipeline.sleepIntervalDays,
     semanticAnalyzerPrompt: resolvedMemory.semanticAnalyzerPrompt ?? resolvedMemory.retrievePrompt,
     contextToShortTermPrompt: resolvedMemory.contextToShortTermPrompt,
-    shortTermToLongTermPrompt: resolvedMemory.shortTermToLongTermPrompt,
+    entityMentionPrompt: resolvedMemory.entityMentionPrompt,
+    episodicExtractionPrompt: resolvedMemory.episodicExtractionPrompt,
+    entityResolutionPrompt: resolvedMemory.entityResolutionPrompt,
     fragmentPrompt: resolvedMemory.fragmentPrompt,
     shortTermFragmentPrompt: resolvedMemory.shortTermFragmentPrompt ?? resolvedMemory.fragmentPrompt,
     fixedFragmentPrompt: resolvedMemory.fixedFragmentPrompt ?? resolvedMemory.fragmentPrompt,
@@ -330,11 +474,12 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
       resolvedMemory.contextToShortTermPrompt,
       resolvedPipeline.maxShortTermMemoriesPerFlush,
     ),
-    shortTermToLongTermPromptDefault: buildShortTermToLongTermPrompt(null, resolvedPipeline.maxShortTermMemoriesPerFlush),
-    shortTermToLongTermPromptEffective: buildShortTermToLongTermPrompt(
-      resolvedMemory.shortTermToLongTermPrompt,
-      resolvedPipeline.maxShortTermMemoriesPerFlush,
-    ),
+    entityMentionPromptDefault: buildEntityMentionPrompt(),
+    entityMentionPromptEffective: buildEntityMentionPrompt(resolvedMemory.entityMentionPrompt),
+    episodicExtractionPromptDefault: buildEpisodicExtractionPrompt(),
+    episodicExtractionPromptEffective: buildEpisodicExtractionPrompt(resolvedMemory.episodicExtractionPrompt),
+    entityResolutionPromptDefault: buildEntityResolutionPrompt(),
+    entityResolutionPromptEffective: buildEntityResolutionPrompt(resolvedMemory.entityResolutionPrompt),
     fragmentPromptDefault: buildMemoryFragmentPrompt(),
     fragmentPromptEffective: buildMemoryFragmentPrompt(resolvedMemory.fragmentPrompt),
     shortTermFragmentPromptDefault: buildShortTermFragmentPrompt(),

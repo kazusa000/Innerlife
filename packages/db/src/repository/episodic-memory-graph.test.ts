@@ -1,0 +1,518 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import Database from 'better-sqlite3'
+import { getMemoryDb, getMemoryRawSqlite, resetMemoryDb } from '../memory-client'
+import * as graphRepo from './episodic-memory-graph'
+
+function bootstrap(dbPath: string) {
+  process.env.MAS_MEMORY_DB_PATH = dbPath
+  resetMemoryDb()
+  getMemoryDb(dbPath)
+}
+
+test('memory db bootstrap creates entity graph and episodic memory tables', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const tables = getMemoryRawSqlite()
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
+      .all()
+      .map((row) => (row as { name: string }).name)
+
+    assert.ok(tables.includes('memory_entities'))
+    assert.ok(tables.includes('memory_entity_aliases'))
+    assert.ok(tables.includes('memory_entity_edges'))
+    assert.ok(tables.includes('episodic_memories'))
+    assert.ok(tables.includes('episodic_memory_entities'))
+    assert.equal(tables.includes('memory_entity_activations'), false)
+
+    const entityColumns = getMemoryRawSqlite().pragma("table_info('memory_entities')") as Array<{ name: string }>
+    const entityColumnNames = entityColumns.map((column) => column.name)
+    assert.ok(entityColumnNames.includes('embedding_text'))
+    assert.ok(entityColumnNames.includes('embedding'))
+    assert.ok(entityColumnNames.includes('embedding_model'))
+    assert.ok(entityColumnNames.includes('embedding_updated_at'))
+
+    const episodicColumns = getMemoryRawSqlite().pragma("table_info('episodic_memories')") as Array<{ name: string }>
+    const episodicColumnNames = episodicColumns.map((column) => column.name)
+    assert.ok(episodicColumnNames.includes('summary'))
+    assert.ok(episodicColumnNames.includes('detail'))
+    assert.equal(episodicColumnNames.includes('retrieval_text'), false)
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('memory db bootstrap renames legacy episodic detail column and preserves data', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+  const oldDetailColumn = ['source', 'quote'].join('_')
+
+  try {
+    const sqlite = new Database(dbPath)
+    sqlite.exec(`
+      CREATE TABLE episodic_memories (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        source_text TEXT NOT NULL,
+        ${oldDetailColumn} TEXT,
+        importance REAL NOT NULL,
+        observed_start_at INTEGER,
+        observed_end_at INTEGER,
+        created_at INTEGER NOT NULL
+      );
+    `)
+    sqlite.prepare(`
+      INSERT INTO episodic_memories (
+        id,
+        agent_id,
+        session_id,
+        summary,
+        source_text,
+        ${oldDetailColumn},
+        importance,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('memory-1', 'agent-1', 'session-1', '旧摘要', '旧来源', '旧 detail', 0.7, 1000)
+    sqlite.close()
+
+    bootstrap(dbPath)
+    const columns = getMemoryRawSqlite().pragma("table_info('episodic_memories')") as Array<{ name: string }>
+    const columnNames = columns.map((column) => column.name)
+    assert.ok(columnNames.includes('detail'))
+    assert.equal(columnNames.includes(oldDetailColumn), false)
+
+    const row = getMemoryRawSqlite().prepare(`
+      SELECT detail
+      FROM episodic_memories
+      WHERE id = ?
+    `).get('memory-1') as { detail: string } | undefined
+    assert.equal(row?.detail, '旧 detail')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('memory db bootstrap removes legacy episodic retrieval_text column and preserves summary embeddings', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    const sqlite = new Database(dbPath)
+    sqlite.exec(`
+      CREATE TABLE episodic_memories (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        source_text TEXT NOT NULL,
+        detail TEXT,
+        retrieval_text TEXT NOT NULL DEFAULT '',
+        retrieval_embedding TEXT NOT NULL DEFAULT '[]',
+        retrieval_model TEXT NOT NULL DEFAULT '',
+        importance REAL NOT NULL,
+        observed_start_at INTEGER,
+        observed_end_at INTEGER,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO episodic_memories (
+        id,
+        agent_id,
+        session_id,
+        summary,
+        source_text,
+        detail,
+        retrieval_text,
+        retrieval_embedding,
+        retrieval_model,
+        importance,
+        created_at
+      ) VALUES (
+        'memory-1',
+        'agent-1',
+        'session-1',
+        '旧摘要',
+        '旧来源',
+        '旧 detail',
+        '旧 retrieval',
+        '[1,0]',
+        'summary-embed',
+        0.7,
+        1000
+      );
+    `)
+    sqlite.close()
+
+    bootstrap(dbPath)
+    const columns = getMemoryRawSqlite().pragma("table_info('episodic_memories')") as Array<{ name: string }>
+    const columnNames = columns.map((column) => column.name)
+    assert.equal(columnNames.includes('retrieval_text'), false)
+
+    const row = getMemoryRawSqlite().prepare(`
+      SELECT summary, detail, retrieval_embedding, retrieval_model
+      FROM episodic_memories
+      WHERE id = ?
+    `).get('memory-1') as {
+      summary: string
+      detail: string
+      retrieval_embedding: string
+      retrieval_model: string
+    } | undefined
+    assert.deepEqual(row, {
+      summary: '旧摘要',
+      detail: '旧 detail',
+      retrieval_embedding: '[1,0]',
+      retrieval_model: 'summary-embed',
+    })
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('memory db bootstrap removes legacy persistent entity activation table', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    const sqlite = new Database(dbPath)
+    sqlite.exec(`
+      CREATE TABLE memory_entity_activations (
+        agent_id TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        activation REAL NOT NULL,
+        reason TEXT,
+        expires_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY(agent_id, entity_id)
+      );
+      CREATE INDEX idx_memory_entity_activations_expiry
+        ON memory_entity_activations(agent_id, expires_at);
+    `)
+    sqlite.close()
+
+    bootstrap(dbPath)
+    const table = getMemoryRawSqlite().prepare(`
+      SELECT 1 AS value
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'memory_entity_activations'
+    `).get()
+
+    assert.equal(table, undefined)
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('entity graph repo creates entities with aliases and matches mention candidates without embedding', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const entity = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: '安特卫普旧书店',
+      description: '一个和海盐焦糖回忆相关的旧书店地点',
+      confidence: 0.86,
+      aliases: [{ alias: '旧书店', confidence: 0.8 }],
+      now: new Date('2026-04-30T09:00:00.000Z'),
+    })
+
+    const exact = graphRepo.findEntityCandidates({
+      agentId: 'agent-1',
+      type: 'place',
+      surface: '旧书店',
+    })
+    const fuzzy = graphRepo.findEntityCandidates({
+      agentId: 'agent-1',
+      type: 'place',
+      surface: '那家旧书店',
+    })
+
+    assert.equal(exact[0]?.entity.id, entity.id)
+    assert.equal(exact[0]?.matchKind, 'exact')
+    assert.equal(fuzzy[0]?.entity.id, entity.id)
+    assert.equal(fuzzy[0]?.matchKind, 'contains')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('entity alias insertion rejects aliases identical to the canonical name', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const entity = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'event',
+      canonicalName: '周末 memory workshop',
+      description: null,
+      confidence: 0.9,
+      aliases: [],
+    })
+
+    assert.equal(graphRepo.addEntityAlias({
+      entityId: entity.id,
+      alias: '周末 memory workshop',
+      confidence: 0.95,
+    }), false)
+
+    const rows = getMemoryRawSqlite().prepare(`
+      SELECT alias
+      FROM memory_entity_aliases
+      WHERE entity_id = ?
+    `).all(entity.id)
+    assert.deepEqual(rows, [])
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('entity embedding can be persisted and is invalidated when aliases change', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const entity = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'event',
+      canonicalName: '起飞',
+      description: '用户喜欢的一种玩法',
+      confidence: 0.9,
+      aliases: [],
+      now: new Date('2026-04-30T09:00:00.000Z'),
+    })
+
+    graphRepo.updateEntityEmbedding({
+      entityId: entity.id,
+      embeddingText: 'canonical_name: 起飞\ntype: event',
+      embedding: [1, 0],
+      embeddingModel: 'BAAI/bge-m3',
+      now: new Date('2026-04-30T10:00:00.000Z'),
+    })
+
+    const embedded = graphRepo.getEntity(entity.id)
+    assert.deepEqual(embedded?.embedding, [1, 0])
+    assert.equal(embedded?.embeddingText, 'canonical_name: 起飞\ntype: event')
+    assert.equal(embedded?.embeddingModel, 'BAAI/bge-m3')
+    assert.equal(embedded?.embeddingUpdatedAt?.toISOString(), '2026-04-30T10:00:00.000Z')
+
+    assert.equal(graphRepo.addEntityAlias({
+      entityId: entity.id,
+      alias: '跳皮',
+      confidence: 0.95,
+    }), true)
+
+    const invalidated = graphRepo.getEntity(entity.id)
+    assert.deepEqual(invalidated?.embedding, [])
+    assert.equal(invalidated?.embeddingText, '')
+    assert.equal(invalidated?.embeddingModel, '')
+    assert.equal(invalidated?.embeddingUpdatedAt, null)
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('entity candidate matching surfaces shared concrete suffixes without aliases', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const antwerpBookstore = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: '安特卫普旧书店',
+      description: 'WJJ 买海盐焦糖的地点',
+      confidence: 0.9,
+      aliases: [],
+    })
+    const tokyoBookstore = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: '东京旧书店',
+      description: 'Nora 买焦糖咖啡的地点',
+      confidence: 0.9,
+      aliases: [],
+    })
+    const seaSaltCaramel = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '海盐焦糖',
+      description: '糖果',
+      confidence: 0.9,
+      aliases: [],
+    })
+
+    const bookstoreCandidates = graphRepo.findEntityCandidates({
+      agentId: 'agent-1',
+      type: 'place',
+      surface: '那家旧书店',
+    })
+
+    assert.deepEqual(
+      bookstoreCandidates.map((candidate) => candidate.entity.id).sort(),
+      [antwerpBookstore.id, tokyoBookstore.id].sort(),
+    )
+    assert.deepEqual(
+      bookstoreCandidates.map((candidate) => candidate.matchKind),
+      ['contains', 'contains'],
+    )
+
+    const caramelCandidates = graphRepo.findEntityCandidates({
+      agentId: 'agent-1',
+      type: 'object',
+      surface: '焦糖咖啡',
+    })
+
+    assert.equal(
+      caramelCandidates.some((candidate) => candidate.entity.id === seaSaltCaramel.id),
+      false,
+    )
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('entity activations spread one hop and recall top episodic memories by linked entity weights', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const now = new Date('2026-04-30T09:00:00.000Z')
+    const wjj = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'person',
+      canonicalName: 'WJJ',
+      confidence: 0.95,
+      aliases: [],
+      now,
+    })
+    const bookstore = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: '安特卫普旧书店',
+      confidence: 0.9,
+      aliases: [{ alias: '旧书店', confidence: 0.8 }],
+      now,
+    })
+    const caramel = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '海盐焦糖',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+    const memory = graphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 在安特卫普旧书店提到过海盐焦糖。',
+      sourceText: 'WJJ：旧书店那次我买了海盐焦糖。',
+      detail: '旧书店那次我买了海盐焦糖',
+      importance: 0.72,
+      observedStartAt: now,
+      observedEndAt: now,
+      entityLinks: [
+        { entityId: wjj.id, weight: 0.8 },
+        { entityId: bookstore.id, weight: 1 },
+        { entityId: caramel.id, weight: 0.7 },
+      ],
+      now,
+    })
+
+    graphRepo.upsertEntityEdge({
+      agentId: 'agent-1',
+      sourceEntityId: bookstore.id,
+      targetEntityId: caramel.id,
+      delta: 0.2,
+      now,
+    })
+    const noActivationRecall = graphRepo.recallEpisodicMemories({
+      agentId: 'agent-1',
+      topK: 5,
+    })
+
+    const recalled = graphRepo.recallEpisodicMemories({
+      agentId: 'agent-1',
+      topK: 5,
+      activations: [{ entityId: bookstore.id, activation: 1 }],
+      spreadFactor: 0.35,
+    })
+
+    assert.deepEqual(noActivationRecall, [])
+    assert.equal(recalled[0]?.id, memory.id)
+    assert.equal(recalled[0]?.summary, 'WJJ 在安特卫普旧书店提到过海盐焦糖。')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('episodic memories persist summary embeddings and can be ranked by text similarity', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const now = new Date('2026-04-30T09:00:00.000Z')
+    graphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 说最喜欢的游戏从魔兽世界变成星际争霸2。',
+      sourceText: 'WJJ 先说最喜欢魔兽世界，后来改口星际争霸2。',
+      detail: '现在最喜欢的游戏是星际争霸2',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'test-embed',
+      importance: 0.8,
+      entityLinks: [],
+      now,
+    })
+    graphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 在安特卫普旧书店买海盐焦糖。',
+      sourceText: '旧书店和海盐焦糖。',
+      detail: '旧书店',
+      retrievalEmbedding: [0, 1],
+      retrievalModel: 'test-embed',
+      importance: 0.9,
+      entityLinks: [],
+      now,
+    })
+
+    const hits = graphRepo.findRelevantEpisodicMemories({
+      agentId: 'agent-1',
+      queryEmbeddings: [[1, 0]],
+      topK: 2,
+      minSimilarity: 0.1,
+    })
+
+    assert.equal(hits[0]?.memory.summary, 'WJJ 说最喜欢的游戏从魔兽世界变成星际争霸2。')
+    assert.equal(hits[0]?.similarity, 1)
+    assert.equal(hits[0]?.memory.detail, '现在最喜欢的游戏是星际争霸2')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

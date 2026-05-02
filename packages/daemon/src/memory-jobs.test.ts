@@ -154,7 +154,7 @@ test('runContextFlushForSession uses bound counterpart labels in source text and
                 text: JSON.stringify({
                   memories: [
                     {
-                      display_summary: '张三小时候养过一只橘猫',
+                      detail: '张三小时候养过一只橘猫',
                       retrieval_text: '张三曾告诉我他小时候养过一只橘猫，我答应过他下次继续聊这件事。',
                       importance: 0.82,
                     },
@@ -184,7 +184,7 @@ test('runContextFlushForSession uses bound counterpart labels in source text and
 
     const rows = memoryRepo.listMemoriesByAgentOldestFirst('agent-1')
     assert.equal(rows.length, 1)
-    assert.equal(rows[0]?.displaySummary, '张三小时候养过一只橘猫')
+    assert.equal(rows[0]?.detail, '张三小时候养过一只橘猫')
     assert.equal(rows[0]?.retrievalText, '张三曾告诉我他小时候养过一只橘猫，我答应过他下次继续聊这件事。')
     assert.match(rows[0]?.sourceText ?? '', /^待整理的旧上下文：\n整理窗口时间范围：/)
     assert.match(rows[0]?.sourceText ?? '', /张三：\[.+\] 我小时候养过一只橘猫。/)
@@ -242,7 +242,7 @@ test('runContextFlushForSession idle mode flushes only overflow batch and keeps 
                 text: JSON.stringify({
                   memories: [
                     {
-                      display_summary: '第一轮对话',
+                      detail: '第一轮对话',
                       retrieval_text: '第一轮用户和助手说过话。',
                       importance: 0.6,
                     },
@@ -304,7 +304,7 @@ test('runSleepForAgent creates long-term memories from referenced short-term ids
       sessionId: 'session-1',
       layer: 'short_term',
       sourceText: 'source cat morning',
-      displaySummary: '张三提到小时候养过橘猫',
+      detail: '张三提到小时候养过橘猫',
       retrievalText: '张三小时候养过一只橘猫。',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'memory-embed',
@@ -319,7 +319,7 @@ test('runSleepForAgent creates long-term memories from referenced short-term ids
       sessionId: 'session-1',
       layer: 'short_term',
       sourceText: 'source coffee',
-      displaySummary: '张三提到喜欢浅烘咖啡',
+      detail: '张三提到喜欢浅烘咖啡',
       retrievalText: '张三喜欢浅烘咖啡。',
       retrievalEmbedding: [0, 1],
       retrievalModel: 'memory-embed',
@@ -334,7 +334,7 @@ test('runSleepForAgent creates long-term memories from referenced short-term ids
       sessionId: 'session-1',
       layer: 'short_term',
       sourceText: 'source cat noon',
-      displaySummary: '张三纠正猫的名字叫年糕',
+      detail: '张三纠正猫的名字叫年糕',
       retrievalText: '张三纠正那只猫叫年糕。',
       retrievalEmbedding: [1, 1],
       retrievalModel: 'memory-embed',
@@ -358,13 +358,13 @@ test('runSleepForAgent creates long-term memories from referenced short-term ids
                 text: JSON.stringify({
                   memories: [
                     {
-                      display_summary: '张三小时候养过一只橘猫',
+                      detail: '张三小时候养过一只橘猫',
                       retrieval_text: '张三告诉过我他小时候养过一只橘猫。',
                       importance: 0.78,
                       source_stm_ids: [catMorning.id],
                     },
                     {
-                      display_summary: '张三纠正那只猫叫年糕',
+                      detail: '张三纠正那只猫叫年糕',
                       retrieval_text: '张三后来纠正那只猫的名字叫年糕。',
                       importance: 0.86,
                       source_stm_ids: [catNoon.id],

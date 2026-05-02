@@ -7,6 +7,7 @@ import {
   getDb,
   getMemoryDb,
   getRawSqlite,
+  episodicMemoryGraphRepo,
   memoryRepo,
   resetDb,
   resetMemoryDb,
@@ -266,7 +267,7 @@ test('runAgent records embedding retrieval metadata without writing a short-term
       agentId: 'agent-1',
       sessionId: 'session-1',
       sourceText: '用户说自己的猫叫橘子',
-      displaySummary: '用户养了一只叫橘子的猫',
+      detail: '用户养了一只叫橘子的猫',
       retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
@@ -344,7 +345,7 @@ test('runAgent records embedding retrieval metadata without writing a short-term
         return
       }
 
-      if (params.systemPrompt.includes('"display_summary": string')) {
+      if (params.systemPrompt.includes('"detail": string')) {
         yield {
           type: 'message_complete',
           response: {
@@ -352,7 +353,7 @@ test('runAgent records embedding retrieval metadata without writing a short-term
               {
                 type: 'text',
                 text: JSON.stringify({
-                  display_summary: '用户养了一只叫橘子的猫',
+                  detail: '用户养了一只叫橘子的猫',
                   retrieval_text: '用户曾告诉我，他养了一只名叫橘子的猫',
                   importance: 0.9,
                 }),
@@ -428,7 +429,7 @@ test('runAgent records embedding retrieval metadata without writing a short-term
           : undefined,
         kind: isMemorySemanticPrompt(request.systemPrompt)
             ? 'retrieve_semantic'
-          : request.systemPrompt.includes('"display_summary": string')
+          : request.systemPrompt.includes('"detail": string')
             ? 'summarize'
             : 'turn',
       })),
@@ -485,7 +486,8 @@ test('runAgent records embedding retrieval metadata without writing a short-term
       shortTermHits: [
         {
           id: existingMemory.id,
-          summary: '用户养了一只叫橘子的猫',
+          detail: '用户养了一只叫橘子的猫',
+          retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
           layer: 'short_term',
           importance: 0.9,
         },
@@ -495,7 +497,8 @@ test('runAgent records embedding retrieval metadata without writing a short-term
       hits: [
         {
           id: existingMemory.id,
-          summary: '用户养了一只叫橘子的猫',
+          detail: '用户养了一只叫橘子的猫',
+          retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
           layer: 'short_term',
           importance: 0.9,
         },
@@ -508,10 +511,127 @@ test('runAgent records embedding retrieval metadata without writing a short-term
 
     const rows = memoryRepo.listMemoriesByAgent('agent-1')
     assert.equal(rows.length, 1)
-    assert.equal(rows[0]!.displaySummary, '用户养了一只叫橘子的猫')
+    assert.equal(rows[0]!.detail, '用户养了一只叫橘子的猫')
     assert.equal(rows[0]!.retrievalText, '用户曾告诉我，他养了一只名叫橘子的猫')
     assert.deepEqual(rows[0]!.retrievalEmbedding, [1, 0])
     assert.equal(rows[0]!.layer, 'short_term')
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('runner does not execute entity mention recall before composing the main turn prompt', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+    const now = new Date('2026-04-30T09:00:00.000Z')
+    const wjj = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'person',
+      canonicalName: 'WJJ',
+      confidence: 0.95,
+      aliases: [],
+      now,
+    })
+    const bookstore = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'place',
+      canonicalName: '安特卫普旧书店',
+      confidence: 0.9,
+      aliases: [{ alias: '旧书店', confidence: 0.8 }],
+      now,
+    })
+    const caramel = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '海盐焦糖',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+    episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'WJJ 在安特卫普旧书店提到过海盐焦糖。',
+      sourceText: 'WJJ：旧书店那次我买了海盐焦糖。',
+      detail: '旧书店那次我买了海盐焦糖',
+      importance: 0.72,
+      observedStartAt: now,
+      observedEndAt: now,
+      entityLinks: [
+        { entityId: wjj.id, weight: 0.8 },
+        { entityId: bookstore.id, weight: 1 },
+        { entityId: caramel.id, weight: 0.7 },
+      ],
+      now,
+    })
+
+    const seenSystemPrompts: string[] = []
+    let sawEntityMentionCall = false
+    const provider = new FakeProvider(async function* (params) {
+      if (params.systemPrompt.includes('实体 mention')) {
+        sawEntityMentionCall = true
+        yield {
+          type: 'message_complete',
+          response: {
+            content: [{ type: 'text', text: JSON.stringify({
+              mentions: [{ surface: '旧书店', type: 'place', context_hint: '旧书店地点', confidence: 0.9 }],
+            }) }],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 1, outputTokens: 1 },
+          },
+        }
+        return
+      }
+
+      if (isMemorySemanticPrompt(params.systemPrompt)) {
+        yield {
+          type: 'message_complete',
+          response: {
+            content: [{ type: 'text', text: JSON.stringify({ retrieval_query: '那家旧书店后来怎么样了' }) }],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 1, outputTokens: 1 },
+          },
+        }
+        return
+      }
+
+      seenSystemPrompts.push(params.systemPrompt)
+      yield {
+        type: 'message_complete',
+        response: {
+          content: [{ type: 'text', text: 'ok' }],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1 },
+        },
+      }
+    })
+
+    const events = []
+    for await (const event of runAgent(
+      createConfig(),
+      [createTextMessage('user', '那家旧书店后来怎么样了？')],
+      provider,
+      createSystems({
+        memory: {
+          scheme: 'sqlite',
+          embedder: createEmbedder({}),
+        },
+      }),
+    )) {
+      events.push(event)
+      assert.notEqual(event.type, 'error')
+    }
+
+    assert.equal(events.some((event) => event.type === 'system_error'), false)
+    assert.equal(sawEntityMentionCall, false)
+    assert.doesNotMatch(seenSystemPrompts[0] ?? '', /此刻自然浮现的情景记忆/)
+    assert.doesNotMatch(seenSystemPrompts[0] ?? '', /WJJ 在安特卫普旧书店提到过海盐焦糖/)
   } finally {
     resetDb()
     resetMemoryDb()
@@ -530,7 +650,7 @@ test('runAgent supports pure time-range recall without a retrieval query', async
       agentId: 'agent-1',
       sessionId: 'session-1',
       sourceText: '用户昨天晚饭吃了番茄鸡蛋面。',
-      displaySummary: '用户昨晚吃了番茄鸡蛋面',
+      detail: '用户昨晚吃了番茄鸡蛋面',
       retrievalText: '用户昨晚晚饭吃了番茄鸡蛋面，还加了很多胡椒。',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
@@ -562,7 +682,7 @@ test('runAgent supports pure time-range recall without a retrieval query', async
         return
       }
 
-      if (params.systemPrompt.includes('"display_summary": string')) {
+      if (params.systemPrompt.includes('"detail": string')) {
         yield {
           type: 'message_complete',
           response: {
@@ -570,7 +690,7 @@ test('runAgent supports pure time-range recall without a retrieval query', async
               {
                 type: 'text',
                 text: JSON.stringify({
-                  display_summary: '用户昨天提到自己昨晚吃了番茄鸡蛋面',
+                  detail: '用户昨天提到自己昨晚吃了番茄鸡蛋面',
                   retrieval_text: '用户昨天提到自己昨晚吃了很多胡椒的番茄鸡蛋面。',
                   importance: 0.7,
                 }),
@@ -693,7 +813,7 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
       throw new Error('memory query failed')
     }
 
-    if (params.systemPrompt.includes('"display_summary": string')) {
+    if (params.systemPrompt.includes('"detail": string')) {
       yield {
         type: 'message_complete',
         response: {
@@ -701,7 +821,7 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
             {
               type: 'text',
               text: JSON.stringify({
-                display_summary: '用户养了一只叫橘子的猫',
+                detail: '用户养了一只叫橘子的猫',
                 retrieval_text: '用户曾告诉我，他养了一只名叫橘子的猫',
                 tags: ['猫', 'pet'],
                 importance: 0.8,
@@ -952,7 +1072,7 @@ test('runAgent emits system_error without fallback retrieval when semantic analy
       return
     }
 
-    if (params.systemPrompt.includes('"display_summary": string')) {
+    if (params.systemPrompt.includes('"detail": string')) {
       yield {
         type: 'message_complete',
         response: {
@@ -960,7 +1080,7 @@ test('runAgent emits system_error without fallback retrieval when semantic analy
             {
               type: 'text',
               text: JSON.stringify({
-                display_summary: '用户养了一只叫橘子的猫',
+                detail: '用户养了一只叫橘子的猫',
                 retrieval_text: '用户曾告诉我，他养了一只名叫橘子的猫',
                 tags: ['猫', 'pet'],
                 importance: 0.8,
@@ -1087,7 +1207,7 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
           sourceText: '用户：你好\n助手：你好呀',
           parse() {
             return {
-              displaySummary: '用户打了招呼',
+              detail: '用户打了招呼',
               retrievalText: '用户刚刚向我打了招呼',
               tags: ['打招呼'],
               importance: 0.4,
@@ -1178,7 +1298,7 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
 
       if (params.systemPrompt === '记忆总结 prompt') {
         return {
-          content: [{ type: 'text', text: '{"display_summary":"用户打了招呼","retrieval_text":"用户刚刚向我打了招呼","importance":0.4}' }],
+          content: [{ type: 'text', text: '{"detail":"用户打了招呼","retrieval_text":"用户刚刚向我打了招呼","importance":0.4}' }],
           stopReason: 'end_turn',
           usage: { inputTokens: 3, outputTokens: 3 },
         }
