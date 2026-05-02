@@ -139,10 +139,13 @@ export function buildEntityMentionPrompt(promptOverride?: string | null) {
 
   return [
     '你是实体 mention 提取器，只服务当前聊天召回。',
-    '请从当前用户消息中提取真实实体 mention：person/place/object/event。',
+    '你可能会收到最近对话和当前检索问题；最近对话只用于补全当前检索问题里的代词、省略、回指，不用于扩写主题。',
+    '请从当前检索问题中提取真实实体 mention：person/place/object/event。',
     'object 包含物品、游戏、软件、书、电影、网站、系统名、项目名和其他可被指代的具体对象。',
     'event 只用于某次具体发生过的事情，例如某次测试、旅行、聚会或争吵。',
     '泛称也可以是 mention：如果“旧书店”“那家店”“这个游戏”等词可能指向记忆节点，也要输出。',
+    '如果当前检索问题里的“那个游戏”“它”“那里”等能被最近对话唯一补全，surface 输出补全后的稳定称呼。',
+    '不要把最近对话中的额外实体顺手输出；只输出服务当前检索问题的 mention。',
     '不要提取抽象概念、情绪标签、关系解释或心理分析。',
     '不要创建实体、不要合并实体、不要新增 alias；你只输出当前文本中的 mention。',
     '只输出严格 JSON，不要 markdown，不要解释文字。',

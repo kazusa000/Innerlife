@@ -12,6 +12,7 @@ import {
 import type { Tool } from './types'
 import { createProvider } from '../provider/factory'
 import type { LLMProvider } from '../provider/types'
+import type { Message, TextBlock } from '../types'
 
 const SEARCH_LONG_TERM_MEMORY_DESCRIPTION = [
   buildLongTermSearchToolPrompt(),
@@ -52,6 +53,45 @@ function parseDate(value: unknown) {
 
 function readQueryText(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function extractMessageText(message: Message) {
+  if (typeof message.content === 'string') {
+    return message.content.trim()
+  }
+
+  return message.content
+    .filter((block): block is TextBlock => block.type === 'text')
+    .map((block) => block.text.trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+function formatRecentContext(messages: Message[] | undefined, currentQuery: string) {
+  const recent = (messages ?? [])
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map((message) => ({
+      role: message.role,
+      text: extractMessageText(message),
+    }))
+    .filter((message) => message.text)
+    .slice(-6)
+
+  if (recent.length === 0) {
+    return currentQuery
+  }
+
+  const recentText = recent
+    .map((message) => `${message.role === 'user' ? '用户' : '我'}：${message.text}`)
+    .join('\n')
+
+  return [
+    '最近对话（仅供补全当前检索问题里的代词、省略、回指，不要顺手抽取上下文里的额外实体）：',
+    recentText,
+    '',
+    '当前检索问题：',
+    currentQuery,
+  ].join('\n')
 }
 
 async function extractEntityMentions(input: {
@@ -207,6 +247,7 @@ export const SearchLongTermMemoryTool: Tool = {
     const graphQuery = [toolQuery, semanticQuery]
       .filter(Boolean)
       .join('\n')
+    const mentionQuery = formatRecentContext(options?.recentMessages, graphQuery)
     const graphProvider = options.provider ?? createProvider(agent.provider)
     const textQuery = await extractEpisodicTextQuery({
       text: graphQuery,
@@ -218,7 +259,7 @@ export const SearchLongTermMemoryTool: Tool = {
     }).catch(() => semanticQuery || toolQuery)
     const mentions = episodicMemoryGraphRepo.hasEntitiesForAgent(agentId)
       ? await extractEntityMentions({
-        text: graphQuery,
+        text: mentionQuery,
         model: memoryConfig.summarizeModel ?? agent.model,
         provider: graphProvider,
         promptOverride: memoryConfig.entityMentionPrompt,

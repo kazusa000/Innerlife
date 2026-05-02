@@ -401,6 +401,115 @@ test('search_long_term_memory fuses entity graph and episodic text embedding rec
   }
 })
 
+test('search_long_term_memory gives recent context to entity mention extraction for pronoun resolution', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-search-ltm-tool-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+  const originalFetch = globalThis.fetch
+  const originalApiKey = process.env.OPENROUTER_API_KEY
+
+  try {
+    process.env.OPENROUTER_API_KEY = 'test-key'
+    bootstrap(dbPath, memoryDbPath)
+    const agent = agentRepo.createAgent({
+      name: 'Hazel',
+      provider: 'openrouter',
+      model: 'qwen/qwen3.5-flash-02-23',
+      modules: { memory: { scheme: 'sqlite', embeddingModel: 'qwen/qwen3-embedding-8b' } },
+    })
+    const session = sessionRepo.createSession(agent.id, 'seed')
+    const now = new Date('2026-04-30T09:00:00.000Z')
+    const sc2 = episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: 'object',
+      canonicalName: '星际争霸2',
+      confidence: 0.9,
+      aliases: [{ alias: '星际2', confidence: 0.9 }],
+      now,
+    })
+    episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: agent.id,
+      sessionId: session.id,
+      summary: 'WJJ 说星际2是自己喜欢的游戏。',
+      sourceText: '',
+      detail: 'WJJ 说星际2是自己喜欢的游戏。',
+      retrievalText: 'WJJ 喜欢 星际2 星际争霸2',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'qwen/qwen3-embedding-8b',
+      importance: 0.9,
+      observedStartAt: now,
+      observedEndAt: now,
+      entityLinks: [{ entityId: sc2.id, weight: 1 }],
+      now,
+    })
+
+    globalThis.fetch = (async (_input, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) as { input?: string[] } : {}
+      return Response.json({
+        data: (body.input ?? []).map((_, index) => ({ index, embedding: [1, 0] })),
+      })
+    }) as typeof fetch
+
+    let mentionInput = ''
+    const provider = {
+      async sendMessage(input: any) {
+        if (input.systemPrompt.includes('实体 mention')) {
+          mentionInput = input.messages[0]?.content[0]?.text ?? ''
+          assert.match(mentionInput, /最近对话/)
+          assert.match(mentionInput, /我最近又开始玩星际2了/)
+          assert.match(mentionInput, /当前检索问题/)
+          assert.match(mentionInput, /那个游戏我之前怎么说的/)
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({
+              mentions: [
+                {
+                  surface: '星际2',
+                  type: 'object',
+                  context_hint: '当前问题里的“那个游戏”指最近对话中的星际2',
+                  confidence: 0.92,
+                },
+              ],
+            }) }],
+            stopReason: 'end_turn' as const,
+            usage: { inputTokens: 1, outputTokens: 1 },
+          }
+        }
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            retrieval_query: '星际2是喜欢的游戏',
+          }) }],
+          stopReason: 'end_turn' as const,
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+
+    const result = await SearchLongTermMemoryTool.call(
+      { query: '那个游戏我之前怎么说的？', top_k: 1 },
+      {
+        agentId: agent.id,
+        sessionId: session.id,
+        provider,
+        recentMessages: [
+          { role: 'user', content: [{ type: 'text', text: '我最近又开始玩星际2了。' }] },
+          { role: 'assistant', content: [{ type: 'text', text: '你之前也提到过这个游戏。' }] },
+          { role: 'user', content: [{ type: 'text', text: '那个游戏我之前怎么说的？' }] },
+        ],
+      },
+    )
+
+    assert.match(mentionInput, /星际2/)
+    assert.equal(result.metadata?.noResults, false)
+    assert.match(result.output, /WJJ 喜欢 星际2 星际争霸2/)
+  } finally {
+    globalThis.fetch = originalFetch
+    process.env.OPENROUTER_API_KEY = originalApiKey
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('search_long_term_memory uses persona default top_k when the tool input omits it', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-search-ltm-tool-'))
   const dbPath = join(dir, 'data.db')

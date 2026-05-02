@@ -1,4 +1,5 @@
 import type { LLMProvider } from '../provider/types'
+import type { Message } from '../types'
 
 export interface ToolResult {
   output: string
@@ -20,6 +21,7 @@ export interface ToolCallOptions {
   agentId?: string
   sessionId?: string
   memoryRetrievalQuery?: string | null
+  recentMessages?: Message[]
   provider?: Pick<LLMProvider, 'sendMessage'>
 }
 

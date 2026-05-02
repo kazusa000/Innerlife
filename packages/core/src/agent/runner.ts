@@ -13,7 +13,7 @@ import { runPendingEmotionAnalysis } from './pending/emotion-analysis'
 import { runPendingMemoryQuery } from './pending/memory-query'
 import { runPendingMemoryWrite } from './pending/memory-write'
 import { runPendingRelationshipAnalysis } from './pending/relationship-analysis'
-import { extractContentText } from './message-utils'
+import { cloneMessages, extractContentText } from './message-utils'
 
 export type { RunAgentObserver } from './types'
 
@@ -282,6 +282,7 @@ export async function* runAgent(
                 typeof ctx.state.memoryRetrievalQuery === 'string'
                   ? ctx.state.memoryRetrievalQuery
                   : null,
+              recentMessages: cloneMessages(messages),
             })
           }
         } else {
@@ -294,6 +295,7 @@ export async function* runAgent(
               typeof ctx.state.memoryRetrievalQuery === 'string'
                 ? ctx.state.memoryRetrievalQuery
                 : null,
+            recentMessages: cloneMessages(messages),
           })
         }
       } catch (err) {

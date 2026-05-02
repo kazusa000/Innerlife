@@ -268,6 +268,10 @@ test('runAgent passes semantic memory retrieval query into tool execution option
 
   assert.equal(events[0]?.type, 'tool_start')
   assert.equal(seenToolOptions?.memoryRetrievalQuery, '我们养的那只猫叫什么名字')
+  const recentMessages = seenToolOptions?.recentMessages as unknown[]
+  assert.ok(recentMessages.some((message) =>
+    JSON.stringify(message) === JSON.stringify(createTextMessage('user', '你还记得我们养的那只猫叫什么名字吗？')),
+  ))
 })
 
 test('runAgent composes sorted prompt fragments from systems before calling the provider', async () => {
