@@ -26,7 +26,6 @@ export interface EpisodicMemoryRecord {
   summary: string
   sourceText: string
   detail: string | null
-  retrievalText: string
   retrievalEmbedding: number[]
   retrievalModel: string
   importance: number
@@ -110,7 +109,6 @@ type EpisodicMemoryRow = {
   summary: string
   source_text: string
   detail: string | null
-  retrieval_text: string
   retrieval_embedding: string
   retrieval_model: string
   importance: number
@@ -263,7 +261,6 @@ function mapEpisodicMemory(row: EpisodicMemoryRow): EpisodicMemoryRecord {
     summary: row.summary,
     sourceText: row.source_text,
     detail: row.detail,
-    retrievalText: row.retrieval_text,
     retrievalEmbedding: parseEmbedding(row.retrieval_embedding),
     retrievalModel: row.retrieval_model,
     importance: row.importance,
@@ -625,7 +622,6 @@ export function createEpisodicMemory(input: {
   summary: string
   sourceText: string
   detail?: string | null
-  retrievalText?: string | null
   retrievalEmbedding?: number[]
   retrievalModel?: string | null
   importance: number
@@ -646,14 +642,13 @@ export function createEpisodicMemory(input: {
       summary,
       source_text,
       detail,
-      retrieval_text,
       retrieval_embedding,
       retrieval_model,
       importance,
       observed_start_at,
       observed_end_at,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     input.agentId,
@@ -661,7 +656,6 @@ export function createEpisodicMemory(input: {
     normalizeText(input.summary),
     input.sourceText,
     input.detail?.trim() || null,
-    input.retrievalText?.trim() || normalizeText(input.summary),
     JSON.stringify(input.retrievalEmbedding?.filter((value) => typeof value === 'number' && Number.isFinite(value)) ?? []),
     input.retrievalModel?.trim() || '',
     clip01(input.importance),
@@ -696,7 +690,6 @@ export function getEpisodicMemory(memoryId: string) {
       summary,
       source_text,
       detail,
-      retrieval_text,
       retrieval_embedding,
       retrieval_model,
       importance,
@@ -724,7 +717,6 @@ export function listEpisodicMemoriesByAgent(input: {
       summary,
       source_text,
       detail,
-      retrieval_text,
       retrieval_embedding,
       retrieval_model,
       importance,
@@ -739,6 +731,60 @@ export function listEpisodicMemoriesByAgent(input: {
 
   const memories = rows.map(mapEpisodicMemory)
   return attachEpisodicEntityLinks(memories.map((memory) => ({ ...memory, entities: [] })))
+}
+
+export function listEpisodicMemoriesNeedingSummaryEmbedding(input: {
+  agentId: string
+  embeddingModel: string
+  limit?: number
+}) {
+  const limit = Math.max(1, Math.min(1000, Math.floor(input.limit ?? 1000)))
+  const rows = getMemoryRawSqlite().prepare(`
+    SELECT
+      id,
+      agent_id,
+      session_id,
+      summary,
+      source_text,
+      detail,
+      retrieval_embedding,
+      retrieval_model,
+      importance,
+      observed_start_at,
+      observed_end_at,
+      created_at
+    FROM episodic_memories
+    WHERE agent_id = ?
+      AND (
+        retrieval_model != ?
+        OR retrieval_embedding = '[]'
+        OR retrieval_embedding = ''
+      )
+    ORDER BY created_at ASC
+    LIMIT ?
+  `).all(input.agentId, input.embeddingModel, limit) as EpisodicMemoryRow[]
+
+  return rows.map(mapEpisodicMemory)
+}
+
+export function updateEpisodicSummaryEmbedding(input: {
+  memoryId: string
+  embedding: number[]
+  embeddingModel: string
+}) {
+  const result = getMemoryRawSqlite().prepare(`
+    UPDATE episodic_memories
+    SET
+      retrieval_embedding = ?,
+      retrieval_model = ?
+    WHERE id = ?
+  `).run(
+    JSON.stringify(input.embedding.filter((value) => typeof value === 'number' && Number.isFinite(value))),
+    input.embeddingModel.trim(),
+    input.memoryId,
+  )
+
+  return result.changes > 0
 }
 
 export function listManagedMemoryRowsByAgent(input: {
@@ -793,7 +839,7 @@ export function listManagedMemoryRowsByAgent(input: {
         session_id,
         'episodic' AS layer,
         summary,
-        retrieval_text,
+        summary AS retrieval_text,
         detail,
         retrieval_embedding,
         retrieval_model,
@@ -1067,7 +1113,6 @@ export function findRelevantEpisodicMemories(input: {
       summary,
       source_text,
       detail,
-      retrieval_text,
       retrieval_embedding,
       retrieval_model,
       importance,

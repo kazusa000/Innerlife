@@ -113,7 +113,6 @@ function ensureMemoryDbSchema(sqlite: Database.Database) {
       summary TEXT NOT NULL,
       source_text TEXT NOT NULL,
       detail TEXT,
-      retrieval_text TEXT NOT NULL DEFAULT '',
       retrieval_embedding TEXT NOT NULL DEFAULT '[]',
       retrieval_model TEXT NOT NULL DEFAULT '',
       importance REAL NOT NULL,
@@ -160,14 +159,62 @@ function ensureMemoryDbSchema(sqlite: Database.Database) {
   if (!episodicColumnNames.has('detail')) {
     sqlite.exec('ALTER TABLE episodic_memories ADD COLUMN detail TEXT;')
   }
-  if (!episodicColumnNames.has('retrieval_text')) {
-    sqlite.exec("ALTER TABLE episodic_memories ADD COLUMN retrieval_text TEXT NOT NULL DEFAULT '';")
-  }
   if (!episodicColumnNames.has('retrieval_embedding')) {
     sqlite.exec("ALTER TABLE episodic_memories ADD COLUMN retrieval_embedding TEXT NOT NULL DEFAULT '[]';")
   }
   if (!episodicColumnNames.has('retrieval_model')) {
     sqlite.exec("ALTER TABLE episodic_memories ADD COLUMN retrieval_model TEXT NOT NULL DEFAULT '';")
+    episodicColumnNames.add('retrieval_model')
+  }
+  if (episodicColumnNames.has('retrieval_text')) {
+    sqlite.exec(`
+      CREATE TABLE episodic_memories_without_retrieval_text (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        source_text TEXT NOT NULL,
+        detail TEXT,
+        retrieval_embedding TEXT NOT NULL DEFAULT '[]',
+        retrieval_model TEXT NOT NULL DEFAULT '',
+        importance REAL NOT NULL,
+        observed_start_at INTEGER,
+        observed_end_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+      );
+      INSERT INTO episodic_memories_without_retrieval_text (
+        id,
+        agent_id,
+        session_id,
+        summary,
+        source_text,
+        detail,
+        retrieval_embedding,
+        retrieval_model,
+        importance,
+        observed_start_at,
+        observed_end_at,
+        created_at
+      )
+      SELECT
+        id,
+        agent_id,
+        session_id,
+        summary,
+        source_text,
+        detail,
+        retrieval_embedding,
+        retrieval_model,
+        importance,
+        observed_start_at,
+        observed_end_at,
+        created_at
+      FROM episodic_memories;
+      DROP TABLE episodic_memories;
+      ALTER TABLE episodic_memories_without_retrieval_text RENAME TO episodic_memories;
+      CREATE INDEX IF NOT EXISTS idx_episodic_memories_agent_created
+        ON episodic_memories(agent_id, created_at);
+    `)
   }
 }
 

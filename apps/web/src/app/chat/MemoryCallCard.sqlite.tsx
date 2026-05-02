@@ -162,7 +162,7 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                           rows={[
                             { label: '记忆 ID', value: hit.id },
                             { label: '层级', value: formatMemoryLayerLabel(typeof hit.layer === 'string' ? hit.layer : null) },
-                            { label: '检索文本', value: hit.retrievalText },
+                            { label: '摘要 / 检索文本', value: hit.retrievalText },
                             ...(hit.detail ? [{ label: 'detail', value: hit.detail }] : []),
                             { label: '重要性', value: formatImportance(hit.importance) },
                           ]}
@@ -181,7 +181,7 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                 rows={[
                   ...(written?.id ? [{ label: '写入 ID', value: written.id }] : []),
                   { label: '层级', value: formatMemoryLayerLabel(typeof written?.layer === 'string' ? written.layer : null) },
-                  { label: '检索文本', value: written?.retrievalText ?? '无' },
+                  { label: '摘要 / 检索文本', value: written?.retrievalText ?? '无' },
                   ...(written?.detail ? [{ label: 'detail', value: written.detail }] : []),
                   { label: '重要性', value: written ? formatImportance(written.importance) : '无' },
                 ]}

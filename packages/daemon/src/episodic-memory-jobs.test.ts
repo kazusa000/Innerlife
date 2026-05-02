@@ -122,10 +122,7 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
             model: 'qwen/qwen3-embedding-8b',
             inputType: 'search_document',
           })
-          assert.equal(input.length, 1)
-          assert.match(input[0] ?? '', /WJJ 在旧书店提到过海盐焦糖/)
-          assert.match(input[0] ?? '', /旧书店那次我买了海盐焦糖/)
-          assert.match(input[0] ?? '', /海盐焦糖/)
+          assert.deepEqual(input, ['WJJ 在旧书店提到过海盐焦糖。'])
           return [[1, 0, 0]]
         },
       },
@@ -137,11 +134,12 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
     assert.equal(result.createdEntityCount, 3)
     assert.deepEqual(
       getMemoryRawSqlite().prepare(`
-        SELECT retrieval_text, retrieval_embedding, retrieval_model
+        SELECT summary, detail, retrieval_embedding, retrieval_model
         FROM episodic_memories
       `).all(),
       [{
-        retrieval_text: 'WJJ 在旧书店提到过海盐焦糖。\n旧书店那次我买了海盐焦糖\nWJJ 旧书店 海盐焦糖',
+        summary: 'WJJ 在旧书店提到过海盐焦糖。',
+        detail: '旧书店那次我买了海盐焦糖',
         retrieval_embedding: '[1,0,0]',
         retrieval_model: 'qwen/qwen3-embedding-8b',
       }],

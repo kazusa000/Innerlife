@@ -983,22 +983,12 @@ export async function runEpisodicConsolidationForAgent(input: {
           return []
         }
 
-        const entityNames = entityLinks
-          .map((link) => episodicMemoryGraphRepo.getEntity(link.entityId)?.canonicalName)
-          .filter((name): name is string => typeof name === 'string' && Boolean(name.trim()))
-        const retrievalText = [
-          draft.summary,
-          draft.detail,
-          entityNames.join(' '),
-        ].filter((line): line is string => typeof line === 'string' && Boolean(line.trim()))
-          .join('\n')
-
-        return [{ draft, entityLinks, retrievalText }]
+        return [{ draft, entityLinks }]
       })
 
       const retrievalEmbeddings = preparedDrafts.length > 0
         ? await embedder.embed(
-          preparedDrafts.map((draft) => draft.retrievalText),
+          preparedDrafts.map((draft) => draft.draft.summary),
           {
             model: retrievalModel,
             inputType: 'search_document',
@@ -1013,7 +1003,6 @@ export async function runEpisodicConsolidationForAgent(input: {
           summary: prepared.draft.summary,
           sourceText,
           detail: prepared.draft.detail,
-          retrievalText: prepared.retrievalText,
           retrievalEmbedding: retrievalEmbeddings[index] ?? [],
           retrievalModel,
           importance: prepared.draft.importance,

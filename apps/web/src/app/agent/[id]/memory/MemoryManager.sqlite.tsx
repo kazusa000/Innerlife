@@ -1141,7 +1141,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 setQuery(event.target.value)
                 setPage(1)
               }}
-              placeholder="按检索文本或 detail 搜索"
+              placeholder="按摘要、检索文本或 detail 搜索"
             />
           </label>
 
@@ -1194,7 +1194,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th>检索文本</th>
+                    <th>摘要 / 检索文本</th>
                     <th>层级</th>
                     <th>时间</th>
                     <th>会话</th>
@@ -1215,7 +1215,9 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                               className={styles.tableRowButton}
                               onClick={() => setExpandedId(expanded ? null : memory.id)}
                             >
-                              <span className={styles.tablePrimary}>{memory.retrievalText}</span>
+                              <span className={styles.tablePrimary}>
+                                {memory.kind === 'episodic' ? memory.detail : memory.retrievalText}
+                              </span>
                               <span className={styles.tableSecondary}>{expanded ? '点击收起详情' : '点击展开详情'}</span>
                             </button>
                           </td>
@@ -1243,13 +1245,11 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                             <td colSpan={6}>
                               <div className={styles.expandedGrid}>
                                 <div>
-                                  <p className={styles.fieldLabel}>retrieval_text</p>
-                                  <p className={styles.panelCopy}>{memory.retrievalText}</p>
-                                  <p className={styles.fieldLabel}>detail</p>
-                                  <p className={styles.panelCopy}>{memory.detail || '无'}</p>
                                   {memory.kind === 'episodic' && (
                                     <>
-                                      <p className={styles.fieldLabel}>episodic_detail</p>
+                                      <p className={styles.fieldLabel}>summary</p>
+                                      <p className={styles.panelCopy}>{memory.detail || '无'}</p>
+                                      <p className={styles.fieldLabel}>detail</p>
                                       <p className={styles.panelCopy}>{memory.episodicDetail ?? '无'}</p>
                                       <p className={styles.fieldLabel}>entities</p>
                                       <div className={styles.chips}>
@@ -1261,6 +1261,14 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                                           </span>
                                         ))}
                                       </div>
+                                    </>
+                                  )}
+                                  {memory.kind === 'sqlite' && (
+                                    <>
+                                      <p className={styles.fieldLabel}>retrieval_text</p>
+                                      <p className={styles.panelCopy}>{memory.retrievalText}</p>
+                                      <p className={styles.fieldLabel}>detail</p>
+                                      <p className={styles.panelCopy}>{memory.detail || '无'}</p>
                                     </>
                                   )}
                                 </div>

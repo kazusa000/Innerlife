@@ -37,6 +37,12 @@ test('memory db bootstrap creates entity graph and episodic memory tables', () =
     assert.ok(entityColumnNames.includes('embedding'))
     assert.ok(entityColumnNames.includes('embedding_model'))
     assert.ok(entityColumnNames.includes('embedding_updated_at'))
+
+    const episodicColumns = getMemoryRawSqlite().pragma("table_info('episodic_memories')") as Array<{ name: string }>
+    const episodicColumnNames = episodicColumns.map((column) => column.name)
+    assert.ok(episodicColumnNames.includes('summary'))
+    assert.ok(episodicColumnNames.includes('detail'))
+    assert.equal(episodicColumnNames.includes('retrieval_text'), false)
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
@@ -90,6 +96,83 @@ test('memory db bootstrap renames legacy episodic detail column and preserves da
       WHERE id = ?
     `).get('memory-1') as { detail: string } | undefined
     assert.equal(row?.detail, '旧 detail')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('memory db bootstrap removes legacy episodic retrieval_text column and preserves summary embeddings', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    const sqlite = new Database(dbPath)
+    sqlite.exec(`
+      CREATE TABLE episodic_memories (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        source_text TEXT NOT NULL,
+        detail TEXT,
+        retrieval_text TEXT NOT NULL DEFAULT '',
+        retrieval_embedding TEXT NOT NULL DEFAULT '[]',
+        retrieval_model TEXT NOT NULL DEFAULT '',
+        importance REAL NOT NULL,
+        observed_start_at INTEGER,
+        observed_end_at INTEGER,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO episodic_memories (
+        id,
+        agent_id,
+        session_id,
+        summary,
+        source_text,
+        detail,
+        retrieval_text,
+        retrieval_embedding,
+        retrieval_model,
+        importance,
+        created_at
+      ) VALUES (
+        'memory-1',
+        'agent-1',
+        'session-1',
+        '旧摘要',
+        '旧来源',
+        '旧 detail',
+        '旧 retrieval',
+        '[1,0]',
+        'summary-embed',
+        0.7,
+        1000
+      );
+    `)
+    sqlite.close()
+
+    bootstrap(dbPath)
+    const columns = getMemoryRawSqlite().pragma("table_info('episodic_memories')") as Array<{ name: string }>
+    const columnNames = columns.map((column) => column.name)
+    assert.equal(columnNames.includes('retrieval_text'), false)
+
+    const row = getMemoryRawSqlite().prepare(`
+      SELECT summary, detail, retrieval_embedding, retrieval_model
+      FROM episodic_memories
+      WHERE id = ?
+    `).get('memory-1') as {
+      summary: string
+      detail: string
+      retrieval_embedding: string
+      retrieval_model: string
+    } | undefined
+    assert.deepEqual(row, {
+      summary: '旧摘要',
+      detail: '旧 detail',
+      retrieval_embedding: '[1,0]',
+      retrieval_model: 'summary-embed',
+    })
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
@@ -386,7 +469,7 @@ test('entity activations spread one hop and recall top episodic memories by link
   }
 })
 
-test('episodic memories persist retrieval embeddings and can be ranked by text similarity', () => {
+test('episodic memories persist summary embeddings and can be ranked by text similarity', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
   const dbPath = join(dir, 'memory.db')
 
@@ -399,7 +482,6 @@ test('episodic memories persist retrieval embeddings and can be ranked by text s
       summary: 'WJJ 说最喜欢的游戏从魔兽世界变成星际争霸2。',
       sourceText: 'WJJ 先说最喜欢魔兽世界，后来改口星际争霸2。',
       detail: '现在最喜欢的游戏是星际争霸2',
-      retrievalText: 'WJJ 最喜欢的游戏变化 魔兽世界 星际争霸2',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'test-embed',
       importance: 0.8,
@@ -412,7 +494,6 @@ test('episodic memories persist retrieval embeddings and can be ranked by text s
       summary: 'WJJ 在安特卫普旧书店买海盐焦糖。',
       sourceText: '旧书店和海盐焦糖。',
       detail: '旧书店',
-      retrievalText: '安特卫普旧书店 海盐焦糖',
       retrievalEmbedding: [0, 1],
       retrievalModel: 'test-embed',
       importance: 0.9,
@@ -429,7 +510,7 @@ test('episodic memories persist retrieval embeddings and can be ranked by text s
 
     assert.equal(hits[0]?.memory.summary, 'WJJ 说最喜欢的游戏从魔兽世界变成星际争霸2。')
     assert.equal(hits[0]?.similarity, 1)
-    assert.equal(hits[0]?.memory.retrievalText, 'WJJ 最喜欢的游戏变化 魔兽世界 星际争霸2')
+    assert.equal(hits[0]?.memory.detail, '现在最喜欢的游戏是星际争霸2')
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })

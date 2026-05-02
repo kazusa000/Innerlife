@@ -27,9 +27,9 @@
 | Web UI | Next.js（App Router） | 全栈框架，SSR + API Routes，未来可打包桌面应用 |
 | LLM 接入 | Provider 抽象层；当前已实现 Anthropic + OpenRouter | 聊天模型与模块子模型可独立配置，后续仍可继续扩展 |
 | 数据持久化 | SQLite + Drizzle ORM（业务数据）| 轻量嵌入，查询能力强，未来可迁移 PostgreSQL |
-| 记忆存储 | 当前 `sqlite` 本地记忆；未来可选 Python + ChromaDB 独立服务 | 先把轻量本地记忆打磨稳定，再引入独立向量服务 |
-| 记忆组织 | 宫殿隐喻：Wing（人/项目）→ Room（时间/话题）→ Drawer（原文） | 按实体组织比按类型分更实用，参考 MemPalace |
-| 记忆加载 | 4 层渐进（L0 身份 → L1 精华 → L2 按需 → L3 深搜） | 启动只花 ~600 token，不一次全塞 context |
+| 记忆存储 | 当前 `sqlite` 本地记忆；短期记忆 + 实体图 + 情景记忆 | 先把 persona 本地记忆网络做稳，不急于引入外部向量服务 |
+| 记忆组织 | Entity（person/place/object/event）图 → Episodic memory（情景记忆） | 长期记忆应像被点亮的联想网络，而不是扁平检索行 |
+| 记忆加载 | STM 前置检索；长期情景记忆由 tool 触发实体激活 + 一跳扩散 + summary embedding 混合召回 | 主 prompt 保持轻量，需要时再按实体网络深搜 |
 | 模块化架构 | System Registry + Lifecycle Hooks，共享 TurnContext | 可插拔系统（感知/内在/行为/表达），每个虚拟人独立配置方案 |
 | 感知层设计 | 子模型预处理管线，主模型只收文本 | 主模型不需要多模态能力，子模型可独立选型 |
 | Agent 间通信 | 消息总线接口，先内存实现，后升级 SQLite | 渐进式 |
@@ -1040,38 +1040,43 @@ interface PerceptionResult {
 
 感知结果写入 `ctx.input`，可同时存入记忆系统。
 
-#### 记忆生命周期（三层）
+#### 记忆生命周期：Context → STM → Entity Graph + Episodic
 
-记忆在长期设计上不再只看作“一张 memories 表”，而是拆成三条职责明确的路径：
+当前主线不再把长期记忆设计成 `long_term` 扁平行，而是拆成短期记忆、实体图和情景记忆三层：
 
-- **Context**：当前回合直接进入 prompt 的活上下文。它服务当下回答，生命周期最短，不追求长期持久化语义。
-- **Short-term memory（STM）**：由最近若干轮对话、章节压缩、短期印象组成。它比 context 稳定，但仍允许被合并、重写、淘汰。
-- **Long-term memory（LTM）**：经过筛选和整理后沉淀下来的长期记忆。它服务“这个虚拟人长期记得什么”，而不是“这几轮刚聊了什么”。
+- **Context**：当前 session 的活跃消息窗口。它只服务当下对话，不进入 memory 表。
+- **Short-term memory（STM）**：由 `context -> STM` 后台 flush 生成，仍保存在旧 `memories` 表的 `short_term` 层；每轮聊天前会前置检索并注入 prompt。
+- **Entity graph**：长期情景记忆的索引网络。实体类型收窄为 `person / place / object / event`，alias 只在 Stage B merge 时建立；边是无类型权重边。
+- **Episodic memory**：真正的长期情景记忆，保存 `summary / detail / importance / observed range / entity links / summary embedding`。`summary` 负责 embedding 检索，命中后返回 `detail` 给 tool/prompt。
 
-这三层的核心不是一次请求内同步完成，而是通过后台长期运行逐步搬运：
+后台搬运链路：
 
 ```
 当前对话/上下文
       │
       ▼
 Context（即时使用）
+      │ context -> STM
+      ▼
+STM（短期记忆，前置检索）
+      │ Stage A：抽取 local entities + episodic drafts
+      ▼
+Stage B：local entities → 实体节点（embedding top5 candidates + LLM resolution）
       │
       ▼
-STM（章节/近期压缩）
-      │
-      ▼
-LTM（长期沉淀）
+Episodic memories + entity links + entity edges
 ```
 
-当前主线已经把这条链路的第一版落地：
+当前落地规则：
 
-- `context` 只作为 session 活跃消息窗口存在，不进入 memory 表，也不参与检索
-- `context -> STM` 由 daemon 在空闲或超窗时后台搬运，从最早完整回合块中提炼最多 N 条 `short_term`
-- `STM -> LTM` 由 daemon 每日一次“睡眠”任务沉淀
-- `fixed` 第一版仍通过后台手动从 `long_term` 提升
-- 主对话每轮只前置检索 `short_term + fixed`；`long_term` 改为按需 tool 深搜
-
-也就是说，sqlite 记忆现在已经不是“一张 memories 表 + 每轮 afterTurn 直接写入”的形态，而是进入了后台持续搬运的分层流水线阶段。
+- `context -> STM` 由 daemon 手动/空闲/超窗 flush 触发，最多提炼 3 条 STM。
+- `STM -> episodic` 每批最多处理 3 条 STM，并循环直到没有 STM；Stage B 每轮最多处理 5 个 local entity，每个 local entity 最多带 5 个候选实体。
+- Stage B 候选实体先按 type 筛，再用实体卡片 embedding 排名前 5，最后交给 LLM 判断 `merge` 或 `create_new`。
+- 新实体和 alias 的建立只允许发生在 Stage B resolution；alias 不是独立节点。
+- 同一条 episodic memory 绑定的实体会两两更新无类型边：`delta = 0.1 * min(linkWeightA, linkWeightB) * importance`，累计上限 1。
+- `search_long_term_memory` 是长期情景记忆入口：tool 结合最近上下文和当前问题抽取 mentions，命中实体/alias 后临时点亮实体，一跳扩散后召回 episodic memories；同时用 text query 走 summary embedding，最后融合 graph / text / importance 排序。
+- 实体激活只在当前 tool 调用内有效，不跨 session，也不跨下一轮对话。
+- `fixed` 仍保留在旧 sqlite memory 流程里；`long_term` 扁平层不再作为新长期情景记忆的默认目标。
 
 ### 10.8 后台层 — Daemon 与记忆演化（Phase 4）
 
@@ -1286,6 +1291,13 @@ Phase 1（已完成）
   - 整理范围：该 agent 全部 memories 一次过，上限默认 100（超了 400 拒绝提示用户手动分批）
   - 写回语义：单条 rewrite → `UPDATE` 保留 `id` + `createdAt`；多条合并 → `INSERT` 新条目（`createdAt` 取源中最早的）+ `DELETE` 源条目
   - 不限成本；无 cron / 自动触发；UI 按钮等 D4 再挂
+- [x] **D1g Memory — entity episodic 方案** — STM → 实体图 + 情景记忆
+  - `context -> STM` 仍使用 sqlite memory 表的 `short_term` 层，聊天前前置检索
+  - `STM -> episodic` 后台抽取 local entities 和 episodic drafts，再做实体 resolution
+  - 实体类型收窄为 `person / place / object / event`；alias 只由 merge 建立
+  - 长期情景记忆写入 `episodic_memories`，并通过 `episodic_memory_entities` 绑定实体节点
+  - `summary` 用于 embedding；tool 命中后返回 `detail`
+  - `search_long_term_memory` 通过 mention → entity/alias → 一跳扩散召回情景记忆，并与 summary embedding 召回混合排序
 - [ ] **D2 Memory — chromadb 方案** — 向量语义检索记忆
   - Python + ChromaDB 独立服务，主项目通过 HTTP/MCP 调用
   - 宫殿结构：Wing（人/项目）→ Room（时间/话题）→ Drawer（原文）

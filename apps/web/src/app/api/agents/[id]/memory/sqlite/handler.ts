@@ -175,7 +175,6 @@ function buildEpisodicMemoryConsolePayload(agentId: string, options: MemoryListO
         sessionId: memory.sessionId,
         summary: memory.summary,
         detail: memory.detail,
-        retrievalText: memory.retrievalText,
         retrievalModel: memory.retrievalModel,
         hasEmbedding: memory.retrievalEmbedding.length > 0,
         embeddingDimensions: memory.retrievalEmbedding.length,

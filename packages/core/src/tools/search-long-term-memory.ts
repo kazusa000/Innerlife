@@ -23,6 +23,7 @@ const TOOL_QUERY_WEIGHT = 0.2
 const EPISODIC_GRAPH_WEIGHT = 0.4
 const EPISODIC_TEXT_WEIGHT = 0.5
 const EPISODIC_IMPORTANCE_WEIGHT = 0.1
+const EPISODIC_SUMMARY_EMBEDDING_BACKFILL_BATCH_SIZE = 100
 
 function formatOffset(minutesEastOfUtc: number): string {
   const sign = minutesEastOfUtc >= 0 ? '+' : '-'
@@ -41,6 +42,39 @@ function formatLocalMemoryPromptTime(date: Date): string {
   const hours = String(localDate.getUTCHours()).padStart(2, '0')
   const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
   return `${year}-${month}-${day} ${hours}:${minutes} ${formatOffset(localMinutes)}`
+}
+
+async function ensureEpisodicSummaryEmbeddings(input: {
+  agentId: string
+  model: string
+  embedder: ReturnType<typeof createOpenRouterMemoryEmbedder>
+}) {
+  while (true) {
+    const memories = episodicMemoryGraphRepo.listEpisodicMemoriesNeedingSummaryEmbedding({
+      agentId: input.agentId,
+      embeddingModel: input.model,
+      limit: EPISODIC_SUMMARY_EMBEDDING_BACKFILL_BATCH_SIZE,
+    })
+    if (memories.length === 0) {
+      return
+    }
+
+    const embeddings = await input.embedder.embed(
+      memories.map((memory) => memory.summary),
+      {
+        model: input.model,
+        inputType: 'search_document',
+      },
+    )
+
+    for (const [index, memory] of memories.entries()) {
+      episodicMemoryGraphRepo.updateEpisodicSummaryEmbedding({
+        memoryId: memory.id,
+        embedding: embeddings[index] ?? [],
+        embeddingModel: input.model,
+      })
+    }
+  }
 }
 
 function parseDate(value: unknown) {
@@ -293,11 +327,18 @@ export const SearchLongTermMemoryTool: Tool = {
       })
     }
 
+    const episodicEmbeddingModel = memoryConfig.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL
+    await ensureEpisodicSummaryEmbeddings({
+      agentId,
+      model: episodicEmbeddingModel,
+      embedder,
+    }).catch(() => undefined)
+
     const episodicTextHits = textQuery
       ? await embedder.embed(
         [textQuery],
         {
-          model: memoryConfig.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL,
+          model: episodicEmbeddingModel,
           inputType: 'search_query',
         },
       ).then((queryEmbeddings) => episodicMemoryGraphRepo.findRelevantEpisodicMemories({
@@ -351,7 +392,7 @@ export const SearchLongTermMemoryTool: Tool = {
       return {
         output: [
           '情景记忆召回结果：',
-          ...episodic.map((hit) => `[情景记忆] ${hit.memory.retrievalText || hit.memory.summary}`),
+          ...episodic.map((hit) => `[情景记忆] ${hit.memory.detail || hit.memory.summary}`),
         ].join('\n'),
         metadata: {
           noResults: false,
@@ -362,8 +403,8 @@ export const SearchLongTermMemoryTool: Tool = {
           hits: episodic.map((hit) => ({
             id: hit.memory.id,
             sessionId: hit.memory.sessionId,
-            detail: hit.memory.summary,
-            retrievalText: hit.memory.retrievalText,
+            detail: hit.memory.detail,
+            summary: hit.memory.summary,
             observedStartAt: hit.memory.observedStartAt?.toISOString() ?? null,
             observedEndAt: hit.memory.observedEndAt?.toISOString() ?? null,
             importance: hit.memory.importance,
