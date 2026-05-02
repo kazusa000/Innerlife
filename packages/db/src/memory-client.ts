@@ -71,6 +71,10 @@ function ensureMemoryDbSchema(sqlite: Database.Database) {
       canonical_name TEXT NOT NULL,
       description TEXT,
       confidence REAL NOT NULL,
+      embedding_text TEXT NOT NULL DEFAULT '',
+      embedding TEXT NOT NULL DEFAULT '[]',
+      embedding_model TEXT NOT NULL DEFAULT '',
+      embedding_updated_at INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
       last_seen_at INTEGER
     );
@@ -129,6 +133,21 @@ function ensureMemoryDbSchema(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_episodic_memory_entities_entity
       ON episodic_memory_entities(entity_id);
   `)
+
+  const entityColumns = sqlite.pragma("table_info('memory_entities')") as Array<{ name: string }>
+  const entityColumnNames = new Set(entityColumns.map((column) => column.name))
+  if (!entityColumnNames.has('embedding_text')) {
+    sqlite.exec("ALTER TABLE memory_entities ADD COLUMN embedding_text TEXT NOT NULL DEFAULT '';")
+  }
+  if (!entityColumnNames.has('embedding')) {
+    sqlite.exec("ALTER TABLE memory_entities ADD COLUMN embedding TEXT NOT NULL DEFAULT '[]';")
+  }
+  if (!entityColumnNames.has('embedding_model')) {
+    sqlite.exec("ALTER TABLE memory_entities ADD COLUMN embedding_model TEXT NOT NULL DEFAULT '';")
+  }
+  if (!entityColumnNames.has('embedding_updated_at')) {
+    sqlite.exec('ALTER TABLE memory_entities ADD COLUMN embedding_updated_at INTEGER;')
+  }
 
   const episodicColumns = sqlite.pragma("table_info('episodic_memories')") as Array<{ name: string }>
   const episodicColumnNames = new Set(episodicColumns.map((column) => column.name))

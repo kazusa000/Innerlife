@@ -30,6 +30,13 @@ test('memory db bootstrap creates entity graph and episodic memory tables', () =
     assert.ok(tables.includes('episodic_memories'))
     assert.ok(tables.includes('episodic_memory_entities'))
     assert.equal(tables.includes('memory_entity_activations'), false)
+
+    const entityColumns = getMemoryRawSqlite().pragma("table_info('memory_entities')") as Array<{ name: string }>
+    const entityColumnNames = entityColumns.map((column) => column.name)
+    assert.ok(entityColumnNames.includes('embedding_text'))
+    assert.ok(entityColumnNames.includes('embedding'))
+    assert.ok(entityColumnNames.includes('embedding_model'))
+    assert.ok(entityColumnNames.includes('embedding_updated_at'))
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
@@ -188,6 +195,53 @@ test('entity alias insertion rejects aliases identical to the canonical name', (
       WHERE entity_id = ?
     `).all(entity.id)
     assert.deepEqual(rows, [])
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('entity embedding can be persisted and is invalidated when aliases change', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const entity = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'event',
+      canonicalName: '起飞',
+      description: '用户喜欢的一种玩法',
+      confidence: 0.9,
+      aliases: [],
+      now: new Date('2026-04-30T09:00:00.000Z'),
+    })
+
+    graphRepo.updateEntityEmbedding({
+      entityId: entity.id,
+      embeddingText: 'canonical_name: 起飞\ntype: event',
+      embedding: [1, 0],
+      embeddingModel: 'BAAI/bge-m3',
+      now: new Date('2026-04-30T10:00:00.000Z'),
+    })
+
+    const embedded = graphRepo.getEntity(entity.id)
+    assert.deepEqual(embedded?.embedding, [1, 0])
+    assert.equal(embedded?.embeddingText, 'canonical_name: 起飞\ntype: event')
+    assert.equal(embedded?.embeddingModel, 'BAAI/bge-m3')
+    assert.equal(embedded?.embeddingUpdatedAt?.toISOString(), '2026-04-30T10:00:00.000Z')
+
+    assert.equal(graphRepo.addEntityAlias({
+      entityId: entity.id,
+      alias: '跳皮',
+      confidence: 0.95,
+    }), true)
+
+    const invalidated = graphRepo.getEntity(entity.id)
+    assert.deepEqual(invalidated?.embedding, [])
+    assert.equal(invalidated?.embeddingText, '')
+    assert.equal(invalidated?.embeddingModel, '')
+    assert.equal(invalidated?.embeddingUpdatedAt, null)
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })

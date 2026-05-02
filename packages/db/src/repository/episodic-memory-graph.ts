@@ -11,6 +11,10 @@ export interface MemoryEntityRecord {
   canonicalName: string
   description: string | null
   confidence: number
+  embeddingText: string
+  embedding: number[]
+  embeddingModel: string
+  embeddingUpdatedAt: Date | null
   createdAt: Date
   lastSeenAt: Date | null
 }
@@ -91,6 +95,10 @@ type EntityRow = {
   canonical_name: string
   description: string | null
   confidence: number
+  embedding_text: string
+  embedding: string
+  embedding_model: string
+  embedding_updated_at: number | null
   created_at: number
   last_seen_at: number | null
 }
@@ -238,6 +246,10 @@ function mapEntity(row: EntityRow): MemoryEntityRecord {
     canonicalName: row.canonical_name,
     description: row.description,
     confidence: row.confidence,
+    embeddingText: row.embedding_text,
+    embedding: parseEmbedding(row.embedding),
+    embeddingModel: row.embedding_model,
+    embeddingUpdatedAt: typeof row.embedding_updated_at === 'number' ? new Date(row.embedding_updated_at) : null,
     createdAt: new Date(row.created_at),
     lastSeenAt: typeof row.last_seen_at === 'number' ? new Date(row.last_seen_at) : null,
   }
@@ -426,6 +438,10 @@ export function getEntity(entityId: string) {
       canonical_name,
       description,
       confidence,
+      embedding_text,
+      embedding,
+      embedding_model,
+      embedding_updated_at,
       created_at,
       last_seen_at
     FROM memory_entities
@@ -433,6 +449,45 @@ export function getEntity(entityId: string) {
   `).get(entityId) as EntityRow | undefined
 
   return row ? mapEntity(row) : undefined
+}
+
+export function updateEntityEmbedding(input: {
+  entityId: string
+  embeddingText: string
+  embedding: number[]
+  embeddingModel: string
+  now?: Date
+}) {
+  const now = input.now ?? new Date()
+  const result = getMemoryRawSqlite().prepare(`
+    UPDATE memory_entities
+    SET
+      embedding_text = ?,
+      embedding = ?,
+      embedding_model = ?,
+      embedding_updated_at = ?
+    WHERE id = ?
+  `).run(
+    input.embeddingText.trim(),
+    JSON.stringify(input.embedding.filter((value) => typeof value === 'number' && Number.isFinite(value))),
+    input.embeddingModel.trim(),
+    now.getTime(),
+    input.entityId,
+  )
+
+  return result.changes > 0
+}
+
+function clearEntityEmbedding(entityId: string) {
+  getMemoryRawSqlite().prepare(`
+    UPDATE memory_entities
+    SET
+      embedding_text = '',
+      embedding = '[]',
+      embedding_model = '',
+      embedding_updated_at = NULL
+    WHERE id = ?
+  `).run(entityId)
 }
 
 export function addEntityAlias(input: {
@@ -473,7 +528,12 @@ export function addEntityAlias(input: {
     now.getTime(),
   )
 
-  return result.changes > 0
+  if (result.changes > 0) {
+    clearEntityEmbedding(input.entityId)
+    return true
+  }
+
+  return false
 }
 
 export function hasEntitiesForAgent(agentId: string) {
@@ -789,6 +849,10 @@ export function listMemoryEntitiesByAgent(agentId: string): MemoryEntityWithStat
       canonical_name,
       description,
       confidence,
+      embedding_text,
+      embedding,
+      embedding_model,
+      embedding_updated_at,
       created_at,
       last_seen_at
     FROM memory_entities
@@ -842,6 +906,10 @@ export function listMemoryEntitiesPageByAgent(input: {
       e.canonical_name,
       e.description,
       e.confidence,
+      e.embedding_text,
+      e.embedding,
+      e.embedding_model,
+      e.embedding_updated_at,
       e.created_at,
       e.last_seen_at
     FROM memory_entities e

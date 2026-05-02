@@ -119,16 +119,42 @@ async function rankStageBEntityCandidatesByEmbedding(input: {
   embedder: MemoryEmbedder
   model: string
   limit: number
+  now: Date
 }) {
   const existingEntities = episodicMemoryGraphRepo.listMemoryEntitiesByAgent(input.agentId)
   if (existingEntities.length === 0 || input.localEntities.length === 0) {
     return new Map<string, MemoryEntityWithStats[]>()
   }
 
-  const entityEmbeddings = await input.embedder.embed(
-    existingEntities.map(buildMemoryEntityEmbeddingText),
-    { model: input.model, inputType: 'search_document' },
+  const entityCards = existingEntities.map((entity) => ({
+    entity,
+    embeddingText: buildMemoryEntityEmbeddingText(entity),
+  }))
+  const staleEntityCards = entityCards.filter(({ entity, embeddingText }) =>
+    entity.embeddingModel !== input.model
+    || entity.embeddingText !== embeddingText
+    || entity.embedding.length === 0,
   )
+  const freshEmbeddings = staleEntityCards.length > 0
+    ? await input.embedder.embed(
+        staleEntityCards.map((card) => card.embeddingText),
+        { model: input.model, inputType: 'search_document' },
+      )
+    : []
+  const refreshedEmbeddingsByEntityId = new Map<string, number[]>()
+
+  for (const [index, card] of staleEntityCards.entries()) {
+    const embedding = freshEmbeddings[index] ?? []
+    refreshedEmbeddingsByEntityId.set(card.entity.id, embedding)
+    episodicMemoryGraphRepo.updateEntityEmbedding({
+      entityId: card.entity.id,
+      embeddingText: card.embeddingText,
+      embedding,
+      embeddingModel: input.model,
+      now: input.now,
+    })
+  }
+
   const localEmbeddings = await input.embedder.embed(
     input.localEntities.map(buildLocalEntityEmbeddingText),
     { model: input.model, inputType: 'search_query' },
@@ -138,9 +164,12 @@ async function rankStageBEntityCandidatesByEmbedding(input: {
   for (const [localIndex, localEntity] of input.localEntities.entries()) {
     const localEmbedding = localEmbeddings[localIndex] ?? []
     const candidates = existingEntities
-      .map((entity, entityIndex) => ({
+      .map((entity) => ({
         entity,
-        score: cosineSimilarity(localEmbedding, entityEmbeddings[entityIndex] ?? []),
+        score: cosineSimilarity(
+          localEmbedding,
+          refreshedEmbeddingsByEntityId.get(entity.id) ?? entity.embedding,
+        ),
       }))
       .sort((left, right) => right.score - left.score)
       .slice(0, input.limit)
@@ -150,6 +179,34 @@ async function rankStageBEntityCandidatesByEmbedding(input: {
   }
 
   return candidatesByLocalId
+}
+
+async function refreshSingleEntityEmbedding(input: {
+  agentId: string
+  entityId: string
+  embedder: MemoryEmbedder
+  model: string
+  now: Date
+}) {
+  const entity = episodicMemoryGraphRepo
+    .listMemoryEntitiesByAgent(input.agentId)
+    .find((item) => item.id === input.entityId)
+  if (!entity) {
+    return
+  }
+
+  const embeddingText = buildMemoryEntityEmbeddingText(entity)
+  const [embedding = []] = await input.embedder.embed(
+    [embeddingText],
+    { model: input.model, inputType: 'search_document' },
+  )
+  episodicMemoryGraphRepo.updateEntityEmbedding({
+    entityId: entity.id,
+    embeddingText,
+    embedding,
+    embeddingModel: input.model,
+    now: input.now,
+  })
 }
 
 function toConversationMessage(message: DbMessage): ConversationMessage {
@@ -812,6 +869,7 @@ export async function runEpisodicConsolidationForAgent(input: {
         embedder,
         model: resolveEntityCandidateEmbeddingModel(),
         limit: EPISODIC_STAGE_B_CANDIDATE_LIMIT,
+        now,
       })
       const candidatePayloads = resolutionLocalEntities
         .map((entity) => ({
@@ -830,6 +888,7 @@ export async function runEpisodicConsolidationForAgent(input: {
         extraction.entities.map((entity) => [entity.localEntityId, entity]),
       )
       const entityIdsByLocalId = new Map<string, string>()
+      const entityCandidateEmbeddingModel = resolveEntityCandidateEmbeddingModel()
 
       for (const candidateBatch of chunkArray(candidatePayloads, EPISODIC_STAGE_B_LOCAL_ENTITY_BATCH_SIZE)) {
         const batchLocalEntityIds = new Set(candidateBatch.map((candidate) => candidate.local_entity_id))
@@ -857,12 +916,21 @@ export async function runEpisodicConsolidationForAgent(input: {
           if (resolution.action === 'merge') {
             entityIdsByLocalId.set(resolution.localEntityId, resolution.entityId)
             if (resolution.aliasToAdd) {
-              episodicMemoryGraphRepo.addEntityAlias({
+              const aliasAdded = episodicMemoryGraphRepo.addEntityAlias({
                 entityId: resolution.entityId,
                 alias: resolution.aliasToAdd,
                 confidence: resolution.confidence,
                 now,
               })
+              if (aliasAdded) {
+                await refreshSingleEntityEmbedding({
+                  agentId: agent.id,
+                  entityId: resolution.entityId,
+                  embedder,
+                  model: entityCandidateEmbeddingModel,
+                  now,
+                })
+              }
             }
             continue
           }
@@ -887,6 +955,13 @@ export async function runEpisodicConsolidationForAgent(input: {
             description: sourceEntity?.contextHint ?? null,
             confidence: resolution.confidence,
             aliases: [],
+            now,
+          })
+          await refreshSingleEntityEmbedding({
+            agentId: agent.id,
+            entityId: entity.id,
+            embedder,
+            model: entityCandidateEmbeddingModel,
             now,
           })
           createdEntityCount += 1

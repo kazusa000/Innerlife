@@ -112,6 +112,12 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
       provider,
       embedder: {
         async embed(input, options) {
+          if (options?.model === 'BAAI/bge-m3') {
+            assert.equal(options.inputType, 'search_document')
+            assert.equal(input.length, 1)
+            assert.match(input[0] ?? '', /canonical_name:/)
+            return [[0, 1, 0]]
+          }
           assert.deepEqual(options, {
             model: 'qwen/qwen3-embedding-8b',
             inputType: 'search_document',
@@ -147,6 +153,15 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
         ORDER BY alias
       `).all(),
       [],
+    )
+    assert.deepEqual(
+      getMemoryRawSqlite().prepare(`
+        SELECT COUNT(*) AS count
+        FROM memory_entities
+        WHERE embedding_model = 'BAAI/bge-m3'
+          AND embedding != '[]'
+      `).get(),
+      { count: 3 },
     )
     assert.equal(memoryRepo.getMemory(stm.id), undefined)
     assert.equal(episodicMemoryGraphRepo.recallEpisodicMemories({
@@ -288,7 +303,7 @@ test('runEpisodicConsolidationForAgent resolves local entities in batches of fiv
       embedder: {
         async embed(input, options) {
           if (options?.inputType === 'search_document' && input.some((text) => text.includes('canonical_name'))) {
-            assert.equal(input.length, 7)
+            assert.ok(input.length === 7 || input.length === 1)
             return input.map((_, index) => [index + 1, 0, 0])
           }
           if (options?.inputType === 'search_query') {
@@ -457,6 +472,10 @@ test('runEpisodicConsolidationForAgent ranks stage B candidates by entity card e
       `).all(existing.id),
       [{ alias: '跳皮' }],
     )
+    const embeddedEntity = episodicMemoryGraphRepo.getEntity(existing.id)
+    assert.deepEqual(embeddedEntity?.embedding, [1, 0])
+    assert.equal(embeddedEntity?.embeddingModel, 'BAAI/bge-m3')
+    assert.match(embeddedEntity?.embeddingText ?? '', /canonical_name: 起飞/)
   } finally {
     resetDb()
     resetMemoryDb()
