@@ -841,6 +841,18 @@ test('memory sqlite structured prompt overrides replace the default prompt direc
   assert.equal(sleepPrompt, '整理短期记忆')
 })
 
+test('context-to-short-term prompt treats display_summary as stage A detail', () => {
+  const prompt = buildContextToShortTermPrompt(null, 3)
+
+  assert.match(prompt, /display_summary 字段不是展示摘要/)
+  assert.match(prompt, /Stage A/)
+  assert.match(prompt, /不参与 embedding/)
+  assert.match(prompt, /原文 surface/)
+  assert.match(prompt, /名字、简称、别称/)
+  assert.match(prompt, /retrieval_text .*embedding/)
+  assert.doesNotMatch(prompt, /display_summary 用简体中文，写成简洁、稳定、适合展示给模型看的记忆摘要。/)
+})
+
 test('memory sqlite config resolves per-layer retrieval settings and ignores legacy summarize/consolidate prompts', () => {
   const resolved = resolveMemorySqliteConfig({
     retrieveTopK: 7,

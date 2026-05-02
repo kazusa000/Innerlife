@@ -195,6 +195,14 @@ const WRITE_GUIDANCE = [
   '描述助手自身时默认使用第一人称“我”，不要把“AI”或“助手”当成记忆主体，除非是在直接引用原话。',
 ].join('\n')
 
+const SHORT_TERM_WRITE_GUIDANCE = [
+  'display_summary 字段不是展示摘要；它是 detail/context detail，用简体中文写成给后续 Stage A 抽实体和情景记忆使用的详细语境说明。',
+  'display_summary 不参与 embedding，可以比 retrieval_text 更详细；必须保留原文 surface、昵称、名字、简称、别称、回指解释，以及“X 是 Y 的名字/简称/别称”等指向关系。',
+  'retrieval_text 用于 embedding、检索和 UI 阅读；用自然语言完整描述可检索的事实、场景或事件，不要写成标签列表。',
+  '如果上文里已经明确出现当前对话对象的名字，display_summary 和 retrieval_text 优先直接使用这个名字，不要退回成泛化的“用户”。',
+  '描述助手自身时默认使用第一人称“我”，不要把“AI”或“助手”当成记忆主体，除非是在直接引用原话。',
+].join('\n')
+
 function formatMemoryLayerLabel(layer: MemoryRecord['layer']): string {
   switch (layer) {
     case 'long_term':
@@ -464,7 +472,7 @@ export function buildContextToShortTermPrompt(promptOverride?: string | null, ma
     '不要逐句复述聊天记录，只保留对后续对话最有价值的几个近期印象。',
     '请严格返回如下 JSON 结构：',
     '{"memories": Array<{"display_summary": string, "retrieval_text": string, "importance": number}>}',
-    WRITE_GUIDANCE,
+    SHORT_TERM_WRITE_GUIDANCE,
     '如果这段上下文里没有值得留下的短期记忆，也必须返回 {"memories": []}。',
     '不要输出 markdown、代码块或任何额外说明。',
   ]
