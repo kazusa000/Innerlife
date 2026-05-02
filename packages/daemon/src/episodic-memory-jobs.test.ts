@@ -56,14 +56,13 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
 
     const provider = {
       async sendMessage(input: { systemPrompt: string }) {
-        if (input.systemPrompt.includes('阶段 A')) {
+        if (input.systemPrompt.includes('episodic_memories')) {
           assert.match(input.systemPrompt, /local_entity_id/)
           assert.match(input.systemPrompt, /surface/)
-          assert.match(input.systemPrompt, /source_quote/)
+          assert.match(input.systemPrompt, /"detail":string/)
           assert.match(input.systemPrompt, /entity_links/)
           assert.doesNotMatch(input.systemPrompt, /"aliases":string\[\]/)
-          assert.match(input.systemPrompt, /Stage A 禁止建立 alias/)
-          assert.match(input.systemPrompt, /surface 必须保留原文中的实际 mention/)
+          assert.match(input.systemPrompt, /surface 必须保留原文/)
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
@@ -74,7 +73,7 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
               episodic_memories: [
                 {
                   summary: 'WJJ 在旧书店提到过海盐焦糖。',
-                  source_quote: '旧书店那次我买了海盐焦糖',
+                  detail: '旧书店那次我买了海盐焦糖',
                   importance: 0.72,
                   entity_links: [
                     { local_entity_id: 'e1', weight: 0.8 },
@@ -207,7 +206,7 @@ test('runEpisodicConsolidationForAgent resolves local entities in batches of fiv
     const stageBLocalIds: string[][] = []
     const provider = {
       async sendMessage(input: LLMRequest) {
-        if (input.systemPrompt.includes('阶段 A')) {
+        if (input.systemPrompt.includes('episodic_memories')) {
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: Array.from({ length: 12 }, (_, index) => ({
@@ -219,7 +218,7 @@ test('runEpisodicConsolidationForAgent resolves local entities in batches of fiv
               episodic_memories: [
                 {
                   summary: '第一批局部实体需要沉淀。',
-                  source_quote: '第一批',
+                  detail: '第一批',
                   importance: 0.8,
                   entity_links: Array.from({ length: 5 }, (_, index) => ({
                     local_entity_id: `e${index + 1}`,
@@ -228,7 +227,7 @@ test('runEpisodicConsolidationForAgent resolves local entities in batches of fiv
                 },
                 {
                   summary: '第二批局部实体需要沉淀。',
-                  source_quote: '第二批',
+                  detail: '第二批',
                   importance: 0.8,
                   entity_links: Array.from({ length: 5 }, (_, index) => ({
                     local_entity_id: `e${index + 6}`,
@@ -237,7 +236,7 @@ test('runEpisodicConsolidationForAgent resolves local entities in batches of fiv
                 },
                 {
                   summary: '第三批局部实体需要沉淀。',
-                  source_quote: '第三批',
+                  detail: '第三批',
                   importance: 0.8,
                   entity_links: [
                     { local_entity_id: 'e11', weight: 0.9 },
@@ -353,7 +352,7 @@ test('runEpisodicConsolidationForAgent processes stage A in batches of three unt
         const content = input.messages[0]?.content
         const text = Array.isArray(content) && content[0]?.type === 'text' ? content[0].text : ''
 
-        if (input.systemPrompt.includes('阶段 A')) {
+        if (input.systemPrompt.includes('episodic_memories')) {
           stageACalls += 1
           const details = Array.from(text.matchAll(/第 \d+ 条短期记忆 detail。/g)).map((match) => match[0])
           stageABatchSizes.push(details.length)
@@ -371,7 +370,7 @@ test('runEpisodicConsolidationForAgent processes stage A in batches of three unt
               episodic_memories: [
                 {
                   summary: `第 ${stageACalls} 批 STM 已沉淀。`,
-                  source_quote: details.join(' '),
+                  detail: details.join(' '),
                   importance: 0.7,
                   entity_links: [{ local_entity_id: `e${stageACalls}`, weight: 0.9 }],
                 },
@@ -459,7 +458,7 @@ test('runEpisodicConsolidationForAgent does not mutate entity graph when extract
     let stageBCalls = 0
     const provider = {
       async sendMessage(input: { systemPrompt: string }) {
-        if (input.systemPrompt.includes('阶段 A')) {
+        if (input.systemPrompt.includes('episodic_memories')) {
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
@@ -550,7 +549,7 @@ test('runEpisodicConsolidationForAgent does not mutate entity graph when episodi
     let stageBCalls = 0
     const provider = {
       async sendMessage(input: { systemPrompt: string }) {
-        if (input.systemPrompt.includes('阶段 A')) {
+        if (input.systemPrompt.includes('episodic_memories')) {
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
@@ -559,7 +558,7 @@ test('runEpisodicConsolidationForAgent does not mutate entity graph when episodi
               episodic_memories: [
                 {
                   summary: '这条情景记忆没有可用实体链接。',
-                  source_quote: '只有弱实体链接',
+                  detail: '只有弱实体链接',
                   importance: 0.4,
                   entity_links: [
                     { local_entity_id: 'missing', weight: 1 },
@@ -658,7 +657,7 @@ test('runEpisodicConsolidationForAgent resolves only entities linked by usable e
     let stageBInput = ''
     const provider = {
       async sendMessage(input: any) {
-        if (input.systemPrompt.includes('阶段 A')) {
+        if (input.systemPrompt.includes('episodic_memories')) {
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
@@ -668,7 +667,7 @@ test('runEpisodicConsolidationForAgent resolves only entities linked by usable e
               episodic_memories: [
                 {
                   summary: 'WJJ 把焦糖放进这条情景记忆。',
-                  source_quote: '焦糖进入情景',
+                  detail: '焦糖进入情景',
                   importance: 0.6,
                   entity_links: [
                     { local_entity_id: 'c', weight: 0.8 },
@@ -772,7 +771,7 @@ test('runEpisodicConsolidationForAgent uses editable episodic extraction and res
               episodic_memories: [
                 {
                   summary: 'WJJ 说星际2就是星际争霸2。',
-                  source_quote: '星际2就是星际争霸2',
+                  detail: '星际2就是星际争霸2',
                   importance: 0.8,
                   entity_links: [{ local_entity_id: 'sc2', weight: 1 }],
                 },
@@ -858,7 +857,7 @@ test('runEpisodicConsolidationForAgent reuses an exact existing entity when reso
 
     const provider = {
       async sendMessage(input: { systemPrompt: string }) {
-        if (input.systemPrompt.includes('阶段 A')) {
+        if (input.systemPrompt.includes('episodic_memories')) {
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
@@ -867,7 +866,7 @@ test('runEpisodicConsolidationForAgent reuses an exact existing entity when reso
               episodic_memories: [
                 {
                   summary: 'Nora 又提到东京旧书店。',
-                  source_quote: 'Nora 今天又提到东京旧书店',
+                  detail: 'Nora 今天又提到东京旧书店',
                   importance: 0.7,
                   entity_links: [{ local_entity_id: 'tokyo', weight: 1 }],
                 },

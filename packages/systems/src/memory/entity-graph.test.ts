@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   buildEntityMentionPrompt,
+  buildEpisodicExtractionPrompt,
   parseEntityMentionResponse,
   parseEntityResolutionResponse,
   parseEpisodicExtractionResponse,
@@ -98,7 +99,7 @@ test('entity parsers narrow obsolete project and unknown types away', () => {
     episodic_memories: [
       {
         summary: '用户提到魔兽世界和上周测试。',
-        source_quote: '魔兽世界和上周测试',
+        detail: '魔兽世界和上周测试',
         importance: 0.7,
         entity_links: [
           { local_entity_id: 'e1', weight: 0.9 },
@@ -144,7 +145,7 @@ test('parseEpisodicExtractionResponse enforces max links and drops weak links', 
     episodic_memories: [
       {
         summary: 'WJJ 在旧书店提到过海盐焦糖。',
-        source_quote: '旧书店那次买了海盐焦糖',
+        detail: 'WJJ 在旧书店那次买了海盐焦糖。',
         importance: 0.72,
         entity_links: [
           { local_entity_id: 'e1', weight: 0.8 },
@@ -159,8 +160,17 @@ test('parseEpisodicExtractionResponse enforces max links and drops weak links', 
   }))
 
   assert.equal(parsed.entities.length, 6)
+  assert.equal(parsed.episodicMemories[0]?.detail, 'WJJ 在旧书店那次买了海盐焦糖。')
   assert.equal(parsed.episodicMemories[0]?.entityLinks.length, 5)
   assert.equal(parsed.episodicMemories[0]?.entityLinks.some((link) => link.localEntityId === 'e6'), false)
+})
+
+test('episodic extraction prompt uses detail instead of source_quote', () => {
+  const prompt = buildEpisodicExtractionPrompt()
+
+  assert.match(prompt, /"detail":string/)
+  assert.match(prompt, /detail/)
+  assert.doesNotMatch(prompt, /source_quote/)
 })
 
 test('parseEntityResolutionResponse only merges above threshold', () => {

@@ -226,7 +226,7 @@ test('memory sqlite injects recalled episodic memories as natural surfaced memor
       sessionId: 'session-1',
       summary: 'WJJ 在安特卫普旧书店提到过海盐焦糖。',
       sourceText: '',
-      sourceQuote: null,
+      detail: null,
       importance: 0.7,
       observedStartAt: new Date('2026-04-24T18:00:00.000Z'),
       observedEndAt: new Date('2026-04-24T18:20:00.000Z'),

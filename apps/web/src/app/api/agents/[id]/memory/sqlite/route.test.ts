@@ -306,7 +306,7 @@ test('listSqliteMemories returns read-only episodic memories and entity graph da
       sessionId: 'session-1',
       summary: '黄铜指南针被放在 MAS Lab 白板旁。',
       sourceText: '用户说黄铜指南针在 MAS Lab 白板旁。',
-      sourceQuote: '黄铜指南针在 MAS Lab 白板旁',
+      detail: '黄铜指南针在 MAS Lab 白板旁',
       retrievalText: '黄铜指南针 MAS Lab 白板旁',
       retrievalEmbedding: [1, 0, 0],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -427,7 +427,7 @@ test('listSqliteMemories returns unified memory rows and paginated graph query r
       sessionId: 'session-2',
       summary: 'WJJ 在安特卫普旧书店带着蓝色雨伞。',
       sourceText: 'WJJ 在安特卫普旧书店带着蓝色雨伞。',
-      sourceQuote: '带着蓝色雨伞',
+      detail: '带着蓝色雨伞',
       retrievalText: '安特卫普旧书店 蓝色雨伞',
       retrievalEmbedding: [1, 0, 0],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -466,7 +466,8 @@ test('listSqliteMemories returns unified memory rows and paginated graph query r
         [fixed.id, 'fixed', 'sqlite'],
       ],
     )
-    assert.equal(firstPage.rows[0].sourceQuote, '带着蓝色雨伞')
+    assert.equal(firstPage.rows[0].detail, 'WJJ 在安特卫普旧书店带着蓝色雨伞。')
+    assert.equal(firstPage.rows[0].episodicDetail, '带着蓝色雨伞')
     assert.equal(firstPage.rows[0].hasEmbedding, true)
     assert.equal(firstPage.rows[0].embeddingDimensions, 3)
     assert.deepEqual(

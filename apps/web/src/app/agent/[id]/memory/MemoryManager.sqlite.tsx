@@ -25,7 +25,7 @@ interface MemoryRow {
   layer: 'short_term' | 'long_term' | 'fixed' | 'episodic'
   detail: string
   retrievalText: string
-  sourceQuote: string | null
+  episodicDetail: string | null
   retrievalModel: string
   hasEmbedding: boolean
   embeddingDimensions: number
@@ -1249,8 +1249,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                                   <p className={styles.panelCopy}>{memory.detail || '无'}</p>
                                   {memory.kind === 'episodic' && (
                                     <>
-                                      <p className={styles.fieldLabel}>source_quote</p>
-                                      <p className={styles.panelCopy}>{memory.sourceQuote ?? '无'}</p>
+                                      <p className={styles.fieldLabel}>episodic_detail</p>
+                                      <p className={styles.panelCopy}>{memory.episodicDetail ?? '无'}</p>
                                       <p className={styles.fieldLabel}>entities</p>
                                       <div className={styles.chips}>
                                         {memory.entities.length === 0 ? (

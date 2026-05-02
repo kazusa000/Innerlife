@@ -811,7 +811,7 @@ export async function runEpisodicConsolidationForAgent(input: {
           .filter((name): name is string => typeof name === 'string' && Boolean(name.trim()))
         const retrievalText = [
           draft.summary,
-          draft.sourceQuote,
+          draft.detail,
           entityNames.join(' '),
         ].filter((line): line is string => typeof line === 'string' && Boolean(line.trim()))
           .join('\n')
@@ -835,7 +835,7 @@ export async function runEpisodicConsolidationForAgent(input: {
           sessionId: shortTermMemories[0]!.sessionId,
           summary: prepared.draft.summary,
           sourceText,
-          sourceQuote: prepared.draft.sourceQuote,
+          detail: prepared.draft.detail,
           retrievalText: prepared.retrievalText,
           retrievalEmbedding: retrievalEmbeddings[index] ?? [],
           retrievalModel,

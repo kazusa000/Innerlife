@@ -16,7 +16,7 @@ export interface EpisodicExtractionEntity {
 
 export interface EpisodicMemoryDraft {
   summary: string
-  sourceQuote: string | null
+  detail: string | null
   importance: number
   entityLinks: Array<{ localEntityId: string; weight: number }>
 }
@@ -160,20 +160,20 @@ export function buildEpisodicExtractionPrompt(promptOverride?: string | null) {
   }
 
   return [
-    '阶段 A：从 STM 抽取实体和情景记忆。',
+    '从 memories 抽取 entities 和 episodic_memories。',
+    '可以从多条 memories 中总结出一条 episodic_memories。',
     '只输出严格 JSON，不要 markdown，不要解释文字。',
     '顶层格式必须是：{"entities":[...],"episodic_memories":[...]}。',
     'entities 每项格式必须是：{"local_entity_id":string,"surface":string,"type":"person|place|object|event","context_hint":string}。',
-    'episodic_memories 每项格式必须是：{"summary":string,"source_quote":string,"importance":number,"entity_links":[{"local_entity_id":string,"weight":number}]}。',
+    'local_entity_id 从 e1 开始逐渐递增。',
+    'surface 必须保留原文中的实际提到的文本，不要提前标准化、翻译或改写成你猜测的正式名称。',
+    'context_hint 简单解释这个 entity 在 memories 中的含义。',
+    'episodic_memories 每项格式必须是：{"summary":string,"detail":string,"importance":number,"entity_links":[{"local_entity_id":string,"weight":number}]}。',
+    'summary 为从相关 memories 中总结出的 episodic_memories 的总结。',
+    'detail 为该 episodic_memories 的详细描述，可以参考相关 memories 的 detail。',
+    'importance 的范围取在相关 memories 的 importance 范围之间。',
     'entity_links.local_entity_id 必须引用 entities 中的 local_entity_id。',
-    '不要使用 id/name/entity_id/source_stm_id/role/attributes/aliases 等替代字段。',
-    '只抽取真实实体 mention：人物、地点、物品/作品/游戏/软件/系统名/项目名、具体事件；不要把抽象概念、情绪或关系解释作为实体。',
-    '游戏、软件、书、电影、网站、系统名和项目名统一标为 object。',
-    'event 只用于具体发生过的一次事情；普通作品名、游戏名、软件名不是 event。',
-    'surface 必须保留原文中的实际 mention 文本，不要提前标准化、翻译或改写成你猜测的正式名称。',
-    'Stage A 禁止建立 alias；alias 只能在 Stage B merge 既有实体时由 alias_to_add 建立。',
-    '每条情景记忆最多 5 个 entity_links；weight < 0.3 不输出。',
-    '实体类型只允许 person/place/object/event。',
+    'weight 判断规则：0.8-1.0 表示核心实体，没有它记忆就不成立；0.5-0.8 表示重要相关实体，帮助理解记忆；0.3-0.5 表示弱相关背景实体。',
   ].join('\n')
 }
 
@@ -289,7 +289,7 @@ export function parseEpisodicExtractionResponse(responseText: string): {
 
     return [{
       summary,
-      sourceQuote: readText(record.source_quote) || null,
+      detail: readText(record.detail) || readText(record.source_quote) || null,
       importance: readConfidence(record.importance),
       entityLinks,
     }]

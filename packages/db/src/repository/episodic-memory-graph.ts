@@ -21,7 +21,7 @@ export interface EpisodicMemoryRecord {
   sessionId: string
   summary: string
   sourceText: string
-  sourceQuote: string | null
+  detail: string | null
   retrievalText: string
   retrievalEmbedding: number[]
   retrievalModel: string
@@ -67,7 +67,7 @@ export interface ManagedMemoryRowRecord {
   layer: ManagedMemoryRowLayer
   summary: string
   retrievalText: string
-  sourceQuote: string | null
+  detail: string | null
   retrievalEmbedding: number[]
   retrievalModel: string
   importance: number
@@ -250,7 +250,7 @@ function mapEpisodicMemory(row: EpisodicMemoryRow): EpisodicMemoryRecord {
     sessionId: row.session_id,
     summary: row.summary,
     sourceText: row.source_text,
-    sourceQuote: row.source_quote,
+    detail: row.source_quote,
     retrievalText: row.retrieval_text,
     retrievalEmbedding: parseEmbedding(row.retrieval_embedding),
     retrievalModel: row.retrieval_model,
@@ -270,7 +270,7 @@ function mapManagedMemoryRow(row: ManagedMemorySqlRow): ManagedMemoryRowRecord {
     layer: row.layer,
     summary: row.summary,
     retrievalText: row.retrieval_text,
-    sourceQuote: row.source_quote,
+    detail: row.source_quote,
     retrievalEmbedding: parseEmbedding(row.retrieval_embedding),
     retrievalModel: row.retrieval_model,
     importance: row.importance,
@@ -564,6 +564,7 @@ export function createEpisodicMemory(input: {
   sessionId: string
   summary: string
   sourceText: string
+  detail?: string | null
   sourceQuote?: string | null
   retrievalText?: string | null
   retrievalEmbedding?: number[]
@@ -600,7 +601,7 @@ export function createEpisodicMemory(input: {
     input.sessionId,
     normalizeText(input.summary),
     input.sourceText,
-    input.sourceQuote?.trim() || null,
+    input.detail?.trim() || input.sourceQuote?.trim() || null,
     input.retrievalText?.trim() || normalizeText(input.summary),
     JSON.stringify(input.retrievalEmbedding?.filter((value) => typeof value === 'number' && Number.isFinite(value)) ?? []),
     input.retrievalModel?.trim() || '',

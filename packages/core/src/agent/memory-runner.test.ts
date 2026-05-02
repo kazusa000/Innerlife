@@ -559,7 +559,7 @@ test('runner does not execute entity mention recall before composing the main tu
       sessionId: 'session-1',
       summary: 'WJJ 在安特卫普旧书店提到过海盐焦糖。',
       sourceText: 'WJJ：旧书店那次我买了海盐焦糖。',
-      sourceQuote: '旧书店那次我买了海盐焦糖',
+      detail: '旧书店那次我买了海盐焦糖',
       importance: 0.72,
       observedStartAt: now,
       observedEndAt: now,
