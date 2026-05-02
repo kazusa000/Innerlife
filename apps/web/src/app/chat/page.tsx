@@ -162,7 +162,7 @@ function ChatPageInner() {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh' }}>
+    <div className="chat-shell">
       <Sidebar
         agentId={agent?.id}
         sessionId={currentId}
@@ -187,6 +187,35 @@ function ChatPageInner() {
       ) : (
         <div style={{ flex: 1 }} />
       )}
+
+      <style jsx>{`
+        .chat-shell {
+          display: flex;
+          height: 100vh;
+          position: relative;
+          overflow: hidden;
+          background:
+            linear-gradient(90deg, rgba(4, 7, 15, 0.96), rgba(4, 7, 15, 0.72) 36%, rgba(4, 7, 15, 0.92)),
+            url('/workbench-assets/chat-console-bg.png') center / cover no-repeat,
+            #03060d;
+        }
+
+        .chat-shell::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background:
+            radial-gradient(circle at 74% 18%, rgba(20, 184, 166, 0.12), transparent 34%),
+            radial-gradient(circle at 28% 84%, rgba(245, 158, 11, 0.08), transparent 32%);
+          z-index: 0;
+        }
+
+        .chat-shell > :global(*) {
+          position: relative;
+          z-index: 1;
+        }
+      `}</style>
     </div>
   )
 }

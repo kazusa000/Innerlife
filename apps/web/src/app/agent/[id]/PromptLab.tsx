@@ -14,6 +14,7 @@ export type PromptField = {
 type PromptLabProps = {
   title?: string
   copy?: string
+  layout?: 'stack' | 'grid'
   fields: PromptField[]
   onChange: (key: string, value: string) => void
 }
@@ -21,11 +22,12 @@ type PromptLabProps = {
 export default function PromptLab({
   title = 'Prompt Lab',
   copy = '这里编辑并保存的是当前会生效的文本。清空后保存会回退到系统默认。',
+  layout = 'stack',
   fields,
   onChange,
 }: PromptLabProps) {
   return (
-    <section className={styles.panel}>
+    <section className={`${styles.panel} ${layout === 'grid' ? styles.promptLabPanel : ''}`}>
       <div className={styles.panelHead}>
         <div>
           <p className={styles.panelLabel}>Prompt</p>
@@ -34,7 +36,7 @@ export default function PromptLab({
         <span className={styles.panelPill}>{fields.length} 项</span>
       </div>
       <p className={styles.panelCopy}>{copy}</p>
-      <div className={styles.promptStack}>
+      <div className={layout === 'grid' ? styles.promptGrid : styles.promptStack}>
         {fields.map((field) => (
           <label key={field.key} className={styles.promptCard}>
             <div className={styles.promptHead}>

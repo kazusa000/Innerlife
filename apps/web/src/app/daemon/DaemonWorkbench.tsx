@@ -241,7 +241,7 @@ export default function DaemonWorkbench() {
   }
 
   return (
-    <main className={styles.workspace}>
+    <main className={`${styles.workspace} daemon-workbench`}>
       <header className={styles.hero}>
         <div>
           <p className={styles.eyebrow}>后台系统</p>

@@ -680,7 +680,7 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
         }
         .chat-header {
           padding: 14px 24px;
-          border-bottom: 1px solid var(--border-subtle);
+          border-bottom: 1px solid rgba(148, 163, 184, 0.13);
           flex-shrink: 0;
           display: flex;
           align-items: center;
@@ -688,7 +688,9 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
           gap: 12px;
           backdrop-filter: blur(18px) saturate(140%);
           -webkit-backdrop-filter: blur(18px) saturate(140%);
-          background: rgba(10, 10, 15, 0.6);
+          background:
+            linear-gradient(90deg, rgba(5, 10, 20, 0.82), rgba(8, 13, 24, 0.48)),
+            rgba(10, 10, 15, 0.54);
         }
         .chat-header-title {
           display: flex;
@@ -1019,8 +1021,8 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
           gap: 8px;
           padding: 6px 6px 6px 16px;
           border-radius: 999px;
-          background: var(--bg-glass);
-          border: 1px solid var(--border);
+          background: rgba(4, 8, 16, 0.72);
+          border: 1px solid rgba(148, 163, 184, 0.18);
           backdrop-filter: blur(14px) saturate(140%);
           -webkit-backdrop-filter: blur(14px) saturate(140%);
           transition: border-color var(--dur) var(--ease),

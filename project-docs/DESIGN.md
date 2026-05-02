@@ -27,9 +27,9 @@
 | Web UI | Next.js（App Router） | 全栈框架，SSR + API Routes，未来可打包桌面应用 |
 | LLM 接入 | Provider 抽象层；当前已实现 Anthropic + OpenRouter | 聊天模型与模块子模型可独立配置，后续仍可继续扩展 |
 | 数据持久化 | SQLite + Drizzle ORM（业务数据）| 轻量嵌入，查询能力强，未来可迁移 PostgreSQL |
-| 记忆存储 | 当前 `sqlite` 本地记忆；未来可选 Python + ChromaDB 独立服务 | 先把轻量本地记忆打磨稳定，再引入独立向量服务 |
-| 记忆组织 | 宫殿隐喻：Wing（人/项目）→ Room（时间/话题）→ Drawer（原文） | 按实体组织比按类型分更实用，参考 MemPalace |
-| 记忆加载 | 4 层渐进（L0 身份 → L1 精华 → L2 按需 → L3 深搜） | 启动只花 ~600 token，不一次全塞 context |
+| 记忆存储 | 当前 `sqlite` 本地记忆；下一阶段演进为实体图 + 情景记忆 | 先把 persona 本地记忆网络做稳，不急于引入向量服务 |
+| 记忆组织 | Entity（人/地点/物品/项目/事件）图 → Episodic memory（情景记忆） | 长期记忆应像被点亮的联想网络，而不是扁平检索行 |
+| 记忆加载 | persona 级实体激活 → 一跳权重扩散 → top 5 情景记忆注入 | 根据当前被点亮的实体网络自然浮现记忆，不一次全塞 context |
 | 模块化架构 | System Registry + Lifecycle Hooks，共享 TurnContext | 可插拔系统（感知/内在/行为/表达），每个虚拟人独立配置方案 |
 | 感知层设计 | 子模型预处理管线，主模型只收文本 | 主模型不需要多模态能力，子模型可独立选型 |
 | Agent 间通信 | 消息总线接口，先内存实现，后升级 SQLite | 渐进式 |
@@ -102,7 +102,7 @@ multi-agent-system/
 │   │       ├── handler.ts       # /api/daemon/* 聚合逻辑
 │   │       └── shared.ts        # daemon state / event 序列化
 │   │
-│   ├── memory-service/          # 记忆服务（Python + ChromaDB，独立进程）
+│   ├── memory-service/          # 历史备选：Python + ChromaDB 记忆服务（非下一阶段默认方向）
 │   │   ├── server.py            # HTTP/MCP 服务入口
 │   │   ├── palace.py            # 宫殿操作（Wing/Room/Drawer）
 │   │   ├── searcher.py          # 语义搜索（向量 + BM25 混合）
@@ -544,9 +544,9 @@ toolExecutions
   createdAt   INTEGER
 ```
 
-### 7.3 可选 chromadb 记忆方案（未来，独立于 SQLite）
+### 7.3 历史备选：chromadb 记忆服务
 
-当前默认记忆方案是 `memory:sqlite`，真实数据仍落在主库 `memories` 表中。下面这套 ChromaDB 方案是**后续可选扩展**，不是当前默认实现。
+这套 ChromaDB / MemPalace 式方案曾作为向量记忆服务备选。当前下一阶段默认方向已改为 `memory:sqlite` 内的实体图 + 情景记忆；本节保留为历史参考，不作为近期任务路线。
 
 ```
 ChromaDB Collection: palace_drawers
@@ -563,13 +563,13 @@ ChromaDB Collection: palace_drawers
     last_accessed_at INTEGER
 ```
 
-4 层加载策略：
+历史 4 层加载策略：
 - **L0 身份**（~100 token）：虚拟人的"我是谁"，永远在 system prompt
 - **L1 精华**（~500-800 token）：最重要的记忆片段，永远在 system prompt
 - **L2 按需**（~200-500/次）：提到某人/某项目时加载对应 Wing
 - **L3 深搜**（无上限）：ChromaDB 全量语义检索
 
-主项目通过 HTTP/MCP 调用记忆服务，不直接操作 ChromaDB。
+如果未来实体图方案跑稳后仍需要向量服务，可以重新评估是否复用这里的 HTTP/MCP 独立服务形态。第一版实体图不引入 ChromaDB 或 embedding。
 
 ### 7.4 当前已落地 / 计划中的 SQLite Schema 扩展
 
@@ -988,31 +988,246 @@ Big Five / MBTI / freeform 这类 `personality:*` 运行时方案已移除。现
 
 ### 10.6 内在系统 — 记忆（Memory）
 
-#### sqlite 方案
+#### 目标模型：实体图 + 情景记忆
 
-本地关键词搜索，简单轻量，无需额外服务。
+长期记忆的下一阶段不再以 `tags`、`fixed` 或扁平 `long_term` 行作为核心，而是拆成两种结构：
 
-#### chromadb 方案
+- **实体节点（Entity）**：原先 tag 的升级版，表示可被点亮的真实对象。第一版只做 `person / place / object / project / event / unknown`。
+- **情景记忆（Episodic memory）**：已经从 STM 整合出来的长期经历片段。每条情景记忆必须绑定到一个或多个实体节点。
 
-借鉴 MemPalace 的宫殿隐喻 + ChromaDB 向量检索，作为独立 Python 服务运行。
+别名不是独立节点，而是实体节点的属性。物理存储上可以单独建 alias 表，以便按别名检索和记录置信度。
 
-存储结构：
 ```
-Palace（宫殿）= 一个虚拟人的全部记忆
-  └── Wing（翼）= 一个人 / 一个项目 / 一个话题领域
-        └── Room（房间）= 某一天 / 某次对话 / 某个子话题
-              └── Drawer（抽屉）= 一段原始对话文本
+EntityNode
+  canonicalName: 安特卫普旧书店
+  type: place
+  aliases: ["旧书店", "那家书店"]
+       │
+       ▼
+EpisodicMemory
+  summary: WJJ 在安特卫普旧书店提到过海盐焦糖。
+  linkedEntities:
+    - WJJ, weight 0.8
+    - 安特卫普旧书店, weight 1.0
+    - 海盐焦糖, weight 0.7
 ```
 
-4 层渐进加载：
-- **L0 身份**（~100 token）：虚拟人的"我是谁"，永远在 system prompt
-- **L1 精华**（~500-800 token）：最重要的记忆片段，永远在 system prompt
-- **L2 按需**（~200-500/次）：提到某人/项目时加载对应 Wing
-- **L3 深搜**（无上限）：ChromaDB 全量语义检索
+实体之间的边第一版是**无类型权重边**，只表示两个实体共同出现在情景记忆中。不要在第一版引入 `likes / visited / owns` 这类有类型边；具体关系先保留在情景记忆文本里。
 
-通信方式：主项目通过 HTTP/MCP 调用记忆服务。
+#### 情景记忆与语义记忆边界
 
-参考项目：MemPalace（`reference-project/mempalace/`）
+第一版只实现**情景记忆**：发生过什么、与哪些实体有关、这些实体如何共同唤起某段经历。
+
+语义记忆暂不实现为独立系统。后续语义记忆可以基于同一实体图继续扩展：每个 persona 对“爸爸”“家”“安全感”等概念的理解来自节点之间的个体化连接，而不是全局百科知识。第一版实体类型先收紧到人、地点、物品、项目、事件和 unknown，避免抽象概念节点过早膨胀。
+
+#### 推荐持久化结构
+
+第一版建议用 sqlite 表直接承载实体图，不引入 ChromaDB 或 embedding：
+
+```
+memory_entities
+  id
+  agent_id
+  type                         -- person | place | object | project | event | unknown
+  canonical_name
+  description
+  confidence
+  created_at
+  last_seen_at
+
+memory_entity_aliases
+  id
+  entity_id
+  alias
+  confidence
+  source_memory_id
+  created_at
+  last_seen_at
+
+memory_entity_edges
+  agent_id
+  source_entity_id
+  target_entity_id
+  weight
+  co_occurrence_count
+  last_seen_at
+
+episodic_memories
+  id
+  agent_id
+  session_id
+  summary
+  source_text
+  source_quote
+  importance
+  observed_start_at
+  observed_end_at
+  created_at
+
+episodic_memory_entities
+  memory_id
+  entity_id
+  weight
+
+memory_entity_activations
+  agent_id
+  entity_id
+  activation
+  reason
+  expires_at
+  updated_at
+```
+
+约束原则：
+
+- 同一 agent 下 `canonical_name` 不强制唯一；可能存在多个同名实体。
+- 同一 entity 下 alias 唯一。
+- `unknown` 允许存在，但 prompt 要要求 LLM 只有在无法稳定判断类型时才使用。
+- 第一版不保留 memory embedding；召回主路径完全走实体图。
+
+#### STM → Episodic 的后台整合
+
+短期记忆转情景记忆必须走后台整合，不在聊天当轮创建或合并长期实体。整合分两阶段：
+
+**阶段 A：抽取**
+
+LLM 只读 STM source text，输出本批次的本地实体和情景记忆草稿。它不知道已有实体库，也不直接写 entity id。
+
+```json
+{
+  "entities": [
+    {
+      "local_entity_id": "e1",
+      "surface": "WJJ",
+      "type": "person",
+      "context_hint": "当前对话对象",
+      "aliases": []
+    }
+  ],
+  "episodic_memories": [
+    {
+      "summary": "WJJ 在安特卫普旧书店提到过海盐焦糖。",
+      "source_quote": "可选，来自原 STM 的短证据",
+      "importance": 0.72,
+      "entity_links": [
+        { "local_entity_id": "e1", "weight": 0.8 },
+        { "local_entity_id": "e2", "weight": 1.0 }
+      ]
+    }
+  ]
+}
+```
+
+阶段 A 的硬规则：
+
+- 每条情景记忆最多绑定 5 个实体。
+- `weight < 0.3` 的实体不要输出。
+- `weight` 表示这个实体对该记忆成立的重要性，不表示实体本身的重要性。
+- 同一批 STM 中同一实体要复用同一个 `local_entity_id`。
+
+**阶段 B：归并**
+
+系统为每个 local entity 生成候选实体：同 agent 内同 type + `unknown` 的 canonical / alias 精确匹配、包含匹配。然后 LLM 在候选中判断 `merge` 或 `create_new`。
+
+```json
+{
+  "resolutions": [
+    {
+      "local_entity_id": "e2",
+      "action": "merge",
+      "entity_id": "existing-place-123",
+      "confidence": 0.82,
+      "alias_to_add": "那家旧书店"
+    },
+    {
+      "local_entity_id": "e3",
+      "action": "create_new",
+      "canonical_name": "海盐焦糖",
+      "type": "object",
+      "confidence": 0.78
+    }
+  ]
+}
+```
+
+阶段 B 的硬规则：
+
+- 只有 `confidence >= 0.75` 才允许 merge。
+- 不确定就 `create_new`，不要强行合并。
+- `alias_to_add` 只能来自原文或稳定叫法，不能编造。
+- 合并和新增 alias 只允许在后台整合阶段发生。
+
+写库时：
+
+- 写入或更新实体和 alias。
+- 写入 `episodic_memories`。
+- 写入 `episodic_memory_entities(weight)`。
+- 对同一条情景记忆里的实体两两增强无类型边：
+
+```
+edgeDelta = 0.1 * min(linkWeightA, linkWeightB) * memoryImportance
+edge.weight = min(1.0, oldWeight + edgeDelta)
+coOccurrenceCount += 1
+lastSeenAt = now
+```
+
+#### 聊天时的实体激活与召回
+
+聊天当轮只允许激活已有实体，不允许创建实体、合并实体或新增 alias。
+
+每轮流程：
+
+```
+当前输入
+  -> LLM 抽取 entity mentions（surface / type / context_hint / confidence）
+  -> 系统按 canonicalName / aliases 做精确和包含匹配
+  -> 找到的候选全部激活
+  -> 沿实体边一跳扩散
+  -> 清理过期激活，保留 top 20
+  -> 用激活实体召回 top 5 情景记忆
+  -> 注入主 prompt
+```
+
+多个候选不做聊天时消歧，而是全部低强度激活：
+
+- 精确单命中：`+1.0`
+- 精确多命中：`+0.7`
+- 模糊单命中：`+0.8`
+- 模糊多命中：`+0.5`
+
+激活状态挂 `agentId`，不挂 `sessionId`。同一个 persona 是同一个脑子；但激活是短余温：
+
+- 默认 TTL：30 分钟
+- 最大激活实体数：20
+- 扩散深度：1 跳
+- 初始扩散系数：`0.35`
+
+情景记忆召回主路径不走 embedding，只按实体绑定关系召回：
+
+```
+memoryScore =
+  sum(entityActivation * memoryEntityWeight)
+  + 0.15 * importance
+  + 0.1 * max(0, matchedActiveEntityCount - 1)
+```
+
+取 top 5 注入 prompt。注入文本不暴露节点名、分数或算法细节，只写成自然回忆：
+
+```
+以下是此刻自然浮现的情景记忆：
+- [发生于 2026-04-24 晚上] WJJ 在安特卫普旧书店提到过海盐焦糖。
+```
+
+#### 当前 sqlite 方案与 v2 的关系
+
+`STATUS.md` 仍以当前实现为准：现有 `memory:sqlite` 已经支持 `context / short_term / long_term / fixed` 的第一版流水线。下一阶段设计上：
+
+- `short_term` 保留，继续作为待整合材料。
+- `long_term` 概念改名为 `episodic`，表示已挂到实体图的情景记忆。
+- `fixed` 删除，不再作为记忆层概念存在。
+- `search_long_term_memory` 的语义后续应演进为基于实体激活的 `recall_memory` 或等价能力。
+
+ChromaDB / MemPalace 式宫殿方案不作为下一阶段默认方向。等实体图 + 情景记忆跑稳后，再评估是否需要用向量或外部服务辅助候选生成；第一版不引入 embedding。
 
 记忆系统的管理入口固定为 `/agent/[id]/memory`。D4 第一版只实现 `memory:sqlite` 的管理子系统，但入口路径和分发方式从第一天就按多架构设计：
 
@@ -1040,13 +1255,13 @@ interface PerceptionResult {
 
 感知结果写入 `ctx.input`，可同时存入记忆系统。
 
-#### 记忆生命周期（三层）
+#### 记忆生命周期：Context / STM / Episodic
 
 记忆在长期设计上不再只看作“一张 memories 表”，而是拆成三条职责明确的路径：
 
 - **Context**：当前回合直接进入 prompt 的活上下文。它服务当下回答，生命周期最短，不追求长期持久化语义。
 - **Short-term memory（STM）**：由最近若干轮对话、章节压缩、短期印象组成。它比 context 稳定，但仍允许被合并、重写、淘汰。
-- **Long-term memory（LTM）**：经过筛选和整理后沉淀下来的长期记忆。它服务“这个虚拟人长期记得什么”，而不是“这几轮刚聊了什么”。
+- **Episodic memory（情景记忆）**：经过后台整合后沉淀下来的长期经历片段。它不再是扁平 `long_term` 行，而是挂在实体图上的情景回忆。
 
 这三层的核心不是一次请求内同步完成，而是通过后台长期运行逐步搬运：
 
@@ -1060,18 +1275,18 @@ Context（即时使用）
 STM（章节/近期压缩）
       │
       ▼
-LTM（长期沉淀）
+Episodic（实体图上的长期情景记忆）
 ```
 
 当前主线已经把这条链路的第一版落地：
 
 - `context` 只作为 session 活跃消息窗口存在，不进入 memory 表，也不参与检索
 - `context -> STM` 由 daemon 在空闲或超窗时后台搬运，从最早完整回合块中提炼最多 N 条 `short_term`
-- `STM -> LTM` 由 daemon 每日一次“睡眠”任务沉淀
-- `fixed` 第一版仍通过后台手动从 `long_term` 提升
-- 主对话每轮只前置检索 `short_term + fixed`；`long_term` 改为按需 tool 深搜
+- 当前已实现的 `STM -> long_term` 是 v1 沉淀路径；下一阶段将其替换为 `STM -> episodic` 两阶段实体图整合
+- `fixed` 作为记忆层概念将被移除；稳定事实依靠实体图连接、重要性和激活机制体现
+- 主对话下一阶段不再前置检索 `short_term + fixed`，而是通过 persona 级实体激活召回 top 5 情景记忆
 
-也就是说，sqlite 记忆现在已经不是“一张 memories 表 + 每轮 afterTurn 直接写入”的形态，而是进入了后台持续搬运的分层流水线阶段。
+也就是说，sqlite 记忆已经不是“一张 memories 表 + 每轮 afterTurn 直接写入”的形态；下一阶段要从“分层流水线”继续演进到“实体网络被点亮后浮现情景记忆”。
 
 ### 10.8 后台层 — Daemon 与记忆演化（Phase 4）
 
@@ -1085,13 +1300,13 @@ Daemon v1 的目标：
 - 扫描并执行后台任务
 - 为记忆分层搬运提供长期运行环境
 
-Phase 4 的第一版里，daemon 优先服务：
+Phase 4 的第一版里，daemon 已优先服务：
 
 - Context → STM 的压缩与归档
 - STM → LTM 的筛选、整理、沉淀
 - 计划任务 / 定时触发的后台执行
 
-它之后才承载更强的自主行为。
+下一阶段 daemon 继续承载 `STM -> episodic` 的实体图整合与激活过期清理；之后才承载更强的自主行为。
 
 ### 10.9 后台层 — 自主行为引擎（Phase 4+）
 
@@ -1286,15 +1501,16 @@ Phase 1（已完成）
   - 整理范围：该 agent 全部 memories 一次过，上限默认 100（超了 400 拒绝提示用户手动分批）
   - 写回语义：单条 rewrite → `UPDATE` 保留 `id` + `createdAt`；多条合并 → `INSERT` 新条目（`createdAt` 取源中最早的）+ `DELETE` 源条目
   - 不限成本；无 cron / 自动触发；UI 按钮等 D4 再挂
-- [ ] **D2 Memory — chromadb 方案** — 向量语义检索记忆
-  - Python + ChromaDB 独立服务，主项目通过 HTTP/MCP 调用
-  - 宫殿结构：Wing（人/项目）→ Room（时间/话题）→ Drawer（原文）
-  - 4 层渐进加载（L0 身份 → L1 精华 → L2 按需 → L3 深搜）
-  - 参考：mempalace `palace.py`、`searcher.py`
-  - 效果：虚拟人"记住"你是谁，语义检索找到相关记忆
-- [ ] **D3 MemorySearchTool** — agent 主动搜索自己的记忆
-  - agent 在对话中可以调用这个工具检索过去的对话
-  - 效果：问"我之前跟你说过什么"，agent 能搜到
+- [ ] **D2 Memory — entity graph + episodic 方案** — 实体图驱动的长期情景记忆
+  - 新增实体、别名、无类型实体边、情景记忆、记忆-实体链接、实体激活状态
+  - `short_term` 保留为待整合材料；`long_term` 概念改名为 `episodic`；`fixed` 移除
+  - 整合采用两阶段后台流程：STM 抽取 entities + episodic drafts；系统找候选后由 LLM 判断 merge / create_new
+  - 聊天时只激活已有实体，不创建、不合并、不新增 alias
+  - 效果：长期记忆像被点亮的实体网络，而不是扁平向量或关键词搜索
+- [ ] **D3 MemoryRecallTool / recall_memory** — agent 主动触发实体网络召回
+  - 替代旧 `search_long_term_memory` 语义：不是直接搜 `long_term` 行，而是补充激活实体并召回情景记忆
+  - 每轮仍要限制调用次数，避免重复搜索和自我强化
+  - 效果：当前激活网络不足时，agent 能主动尝试唤起相关情景记忆
 - [x] **D4 记忆管理 UI** — 统一入口 + `sqlite` 记忆管理子系统
   - 路由固定为 `/agent/[id]/memory`，入口层按当前 `memory.scheme` 分发
   - 第一版只实现 `memory:sqlite` 的查看 / 搜索 / 删除 / consolidate 触发；`chromadb` 以后单独接到同一个入口下
@@ -1360,10 +1576,15 @@ Phase 1（已完成）
   - scheduled_tasks 表 + next_run_at / backoff / enabled
   - 参考：hermes-agent `cron/scheduler.py`、openclaw CronService
   - 效果：后台任务有统一调度入口，而不是零散挂在请求链路里
-- [x] **G3 记忆三层演化** — Context / STM / LTM 后台搬运
+- [x] **G3 记忆三层演化 v1** — Context / STM / LTM 后台搬运
   - Context → STM：章节压缩、近期对话归档、短期印象形成
   - STM → LTM：筛选高价值记忆、合并重复片段、沉淀长期事实
   - 效果：虚拟人逐步“消化经历”，而不是只靠当前上下文硬撑
+- [ ] **G3a 记忆实体图演化** — STM / Episodic / Entity graph 后台搬运
+  - STM → episodic：两阶段抽取和归并，写入情景记忆与实体链接
+  - Entity graph：根据情景记忆共同出现关系更新无类型边权
+  - Entity activation：维护 persona 级短余温激活状态，过期清理并限制上限
+  - 效果：daemon 不只是压缩记忆，而是在后台整理并更新虚拟人的联想网络
 - [ ] **G4 自主行为 v1** — daemon 上承载第一批主动行为
   - 主动问候（检测到用户长时间未互动）
   - 自我反思（定期回顾记忆，更新自我认知）

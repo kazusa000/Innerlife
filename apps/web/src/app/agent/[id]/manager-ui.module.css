@@ -28,6 +28,8 @@
   border-radius: 28px;
   border: 1px solid var(--border-strong);
   background:
+    linear-gradient(90deg, rgba(7, 14, 28, 0.96), rgba(7, 14, 28, 0.7) 52%, rgba(7, 14, 28, 0.94)),
+    var(--module-art, none) center / cover no-repeat,
     radial-gradient(circle at top left, rgba(59, 130, 246, 0.2), transparent 42%),
     linear-gradient(180deg, rgba(7, 14, 28, 0.98), rgba(11, 20, 39, 0.96));
   box-shadow: 0 22px 70px rgba(2, 6, 23, 0.42);
@@ -129,12 +131,45 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
+  align-items: start;
 }
 
 .controlGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
+  align-items: start;
+}
+
+.emotionTopGrid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.82fr) minmax(0, 1.18fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.relationshipGrid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.relationshipPromptSlot {
+  grid-column: 1 / -1;
+}
+
+.relationshipLeftStack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.emotionTopGrid > *,
+.relationshipGrid > *,
+.statusGrid > * {
+  align-self: start;
 }
 
 .verticalStack {
@@ -152,7 +187,7 @@
 
 .workspaceLayout {
   display: grid;
-  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -299,6 +334,24 @@
   min-width: 0;
 }
 
+.panelFrame {
+  background:
+    linear-gradient(180deg, rgba(11, 19, 36, 0.9), rgba(9, 16, 30, 0.96)),
+    url('/workbench-assets/memory-row-frame.png') center / cover no-repeat;
+}
+
+.emotionGaugePanel {
+  background:
+    linear-gradient(180deg, rgba(11, 19, 36, 0.86), rgba(9, 16, 30, 0.96)),
+    url('/workbench-assets/emotion-gauge-strip.png') center top / cover no-repeat;
+}
+
+.dossierPanel {
+  background:
+    linear-gradient(180deg, rgba(11, 19, 36, 0.88), rgba(9, 16, 30, 0.98)),
+    url('/workbench-assets/relationship-dossier-frame.png') center top / cover no-repeat;
+}
+
 .panelHead {
   display: flex;
   justify-content: space-between;
@@ -426,6 +479,18 @@
   gap: 12px;
 }
 
+.promptGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.promptLabPanel {
+  background:
+    linear-gradient(180deg, rgba(11, 19, 36, 0.92), rgba(9, 16, 30, 0.98)),
+    url('/workbench-assets/prompt-editor-frame.png') center top / cover no-repeat;
+}
+
 .promptCard {
   display: flex;
   flex-direction: column;
@@ -433,7 +498,17 @@
   padding: 14px;
   border-radius: 20px;
   border: 1px solid rgba(96, 165, 250, 0.22);
-  background: linear-gradient(180deg, rgba(17, 27, 49, 0.96), rgba(11, 19, 36, 0.96));
+  background:
+    linear-gradient(180deg, rgba(17, 27, 49, 0.88), rgba(11, 19, 36, 0.96)),
+    url('/workbench-assets/prompt-editor-frame.png') center / cover no-repeat;
+}
+
+.promptGrid .promptCard:first-child:nth-last-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.promptGrid .promptTextarea {
+  min-height: 180px;
 }
 
 .promptHead {
@@ -465,7 +540,7 @@
 
 .traitGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
 }
 
@@ -568,6 +643,47 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.personaEditorGrid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.86fr) minmax(0, 1.14fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.personaColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.personaDossier {
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  padding: 16px;
+  background:
+    linear-gradient(180deg, rgba(11, 19, 36, 0.72), rgba(9, 16, 30, 0.96)),
+    url('/workbench-assets/persona-dossier-art.png') center top / cover no-repeat;
+}
+
+.personaDossier::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(8, 14, 27, 0.94), rgba(8, 14, 27, 0.68));
+}
+
+.personaDossier > * {
+  position: relative;
+  z-index: 1;
 }
 
 .historyItem {
@@ -769,6 +885,9 @@
 @media (max-width: 1080px) {
   .workspaceLayout,
   .sectionLayout,
+  .emotionTopGrid,
+  .relationshipGrid,
+  .personaEditorGrid,
   .controlGrid,
   .grid,
   .statusGrid,
@@ -777,6 +896,10 @@
   .fieldGrid,
   .metricGrid {
     grid-template-columns: 1fr;
+  }
+
+  .relationshipPromptSlot {
+    grid-column: auto;
   }
 
   .sideNav {
