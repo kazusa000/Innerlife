@@ -312,6 +312,122 @@ test('runEpisodicConsolidationForAgent resolves local entities in batches of fiv
   }
 })
 
+test('runEpisodicConsolidationForAgent processes stage A in batches of three until no short term memory remains', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-episodic-job-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+    const agent = agentRepo.createAgent({
+      name: 'Amadeus',
+      description: '',
+      model: 'claude-sonnet-4-6',
+      provider: 'openrouter',
+      modules: { memory: { scheme: 'sqlite' } },
+    })
+
+    for (let index = 1; index <= 7; index += 1) {
+      memoryRepo.addMemory({
+        agentId: agent.id,
+        sessionId: 'session-1',
+        layer: 'short_term',
+        sourceText: `WJJ：第 ${index} 条短期记忆。`,
+        detail: `第 ${index} 条短期记忆 detail。`,
+        retrievalText: `第 ${index} 条短期记忆 retrieval。`,
+        retrievalEmbedding: [],
+        retrievalModel: 'none',
+        tags: [],
+        importance: 0.6,
+        createdAt: new Date(`2026-04-30T08:0${index}:00.000Z`),
+        observedStartAt: new Date(`2026-04-30T08:0${index}:00.000Z`),
+        observedEndAt: new Date(`2026-04-30T08:0${index}:30.000Z`),
+      })
+    }
+
+    const stageABatchSizes: number[] = []
+    const stageADetails: string[][] = []
+    let stageACalls = 0
+    const provider = {
+      async sendMessage(input: LLMRequest) {
+        const content = input.messages[0]?.content
+        const text = Array.isArray(content) && content[0]?.type === 'text' ? content[0].text : ''
+
+        if (input.systemPrompt.includes('阶段 A')) {
+          stageACalls += 1
+          const details = Array.from(text.matchAll(/第 \d+ 条短期记忆 detail。/g)).map((match) => match[0])
+          stageABatchSizes.push(details.length)
+          stageADetails.push(details)
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({
+              entities: [
+                {
+                  local_entity_id: `e${stageACalls}`,
+                  surface: `批次${stageACalls}`,
+                  type: 'event',
+                  context_hint: `第 ${stageACalls} 批 STM`,
+                },
+              ],
+              episodic_memories: [
+                {
+                  summary: `第 ${stageACalls} 批 STM 已沉淀。`,
+                  source_quote: details.join(' '),
+                  importance: 0.7,
+                  entity_links: [{ local_entity_id: `e${stageACalls}`, weight: 0.9 }],
+                },
+              ],
+            }) }],
+            stopReason: 'end_turn' as const,
+            usage: { inputTokens: 1, outputTokens: 1 },
+          }
+        }
+
+        const payload = JSON.parse(text) as Array<{ local_entity_id: string; type: 'event' }>
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            resolutions: payload.map((item) => ({
+              local_entity_id: item.local_entity_id,
+              action: 'create_new',
+              canonical_name: `节点-${item.local_entity_id}`,
+              type: item.type,
+              confidence: 0.86,
+            })),
+          }) }],
+          stopReason: 'end_turn' as const,
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+
+    const result = await runEpisodicConsolidationForAgent({
+      agentId: agent.id,
+      provider,
+      embedder: {
+        async embed(input) {
+          return input.map((_, index) => [index + 1, 0, 0])
+        },
+      },
+      now: new Date('2026-04-30T09:00:00.000Z'),
+    })
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(stageABatchSizes, [3, 3, 1])
+    assert.deepEqual(stageADetails, [
+      ['第 1 条短期记忆 detail。', '第 2 条短期记忆 detail。', '第 3 条短期记忆 detail。'],
+      ['第 4 条短期记忆 detail。', '第 5 条短期记忆 detail。', '第 6 条短期记忆 detail。'],
+      ['第 7 条短期记忆 detail。'],
+    ])
+    assert.equal(result.createdEntityCount, 3)
+    assert.equal(result.createdEpisodicCount, 3)
+    assert.equal(result.deletedShortTermCount, 7)
+    assert.equal(memoryRepo.listMemoriesByAgent(agent.id).filter((memory) => memory.layer === 'short_term').length, 0)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('runEpisodicConsolidationForAgent does not mutate entity graph when extraction has no episodic memories', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-episodic-job-'))
   const dbPath = join(dir, 'data.db')
@@ -388,14 +504,14 @@ test('runEpisodicConsolidationForAgent does not mutate entity graph when extract
     assert.equal(first.ok, true)
     assert.equal(first.createdEntityCount, 0)
     assert.equal(first.createdEpisodicCount, 0)
-    assert.equal(first.deletedShortTermCount, 0)
+    assert.equal(first.deletedShortTermCount, 1)
     assert.equal(second.ok, true)
     assert.equal(second.createdEntityCount, 0)
     assert.equal(second.createdEpisodicCount, 0)
     assert.equal(second.deletedShortTermCount, 0)
     assert.equal(stageBCalls, 0)
     assert.equal(entityCount, 0)
-    assert.ok(memoryRepo.getMemory(stm.id))
+    assert.equal(memoryRepo.getMemory(stm.id), undefined)
   } finally {
     resetDb()
     resetMemoryDb()
@@ -488,14 +604,14 @@ test('runEpisodicConsolidationForAgent does not mutate entity graph when episodi
     assert.equal(first.ok, true)
     assert.equal(first.createdEntityCount, 0)
     assert.equal(first.createdEpisodicCount, 0)
-    assert.equal(first.deletedShortTermCount, 0)
+    assert.equal(first.deletedShortTermCount, 1)
     assert.equal(second.ok, true)
     assert.equal(second.createdEntityCount, 0)
     assert.equal(second.createdEpisodicCount, 0)
     assert.equal(second.deletedShortTermCount, 0)
     assert.equal(stageBCalls, 0)
     assert.equal(entityCount, 0)
-    assert.ok(memoryRepo.getMemory(stm.id))
+    assert.equal(memoryRepo.getMemory(stm.id), undefined)
   } finally {
     resetDb()
     resetMemoryDb()
