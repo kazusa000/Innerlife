@@ -66,11 +66,11 @@ const MEMORY_WRITE_RESPONSE_FORMAT: MemoryResponseFormat = {
     schema: {
       type: 'object',
       properties: {
-        display_summary: { type: 'string' },
+        detail: { type: 'string' },
         retrieval_text: { type: 'string' },
         importance: { type: 'number' },
       },
-      required: ['display_summary', 'retrieval_text', 'importance'],
+      required: ['detail', 'retrieval_text', 'importance'],
       additionalProperties: false,
     },
   },
@@ -88,11 +88,11 @@ export const MEMORY_BATCH_WRITE_RESPONSE_FORMAT: MemoryResponseFormat = {
           items: {
             type: 'object',
             properties: {
-              display_summary: { type: 'string' },
+              detail: { type: 'string' },
               retrieval_text: { type: 'string' },
               importance: { type: 'number' },
             },
-            required: ['display_summary', 'retrieval_text', 'importance'],
+            required: ['detail', 'retrieval_text', 'importance'],
             additionalProperties: false,
           },
         },
@@ -115,7 +115,7 @@ export const SHORT_TERM_TO_LONG_TERM_RESPONSE_FORMAT: MemoryResponseFormat = {
           items: {
             type: 'object',
             properties: {
-              display_summary: { type: 'string' },
+              detail: { type: 'string' },
               retrieval_text: { type: 'string' },
               importance: { type: 'number' },
               source_stm_ids: {
@@ -123,7 +123,7 @@ export const SHORT_TERM_TO_LONG_TERM_RESPONSE_FORMAT: MemoryResponseFormat = {
                 items: { type: 'string' },
               },
             },
-            required: ['display_summary', 'retrieval_text', 'importance', 'source_stm_ids'],
+            required: ['detail', 'retrieval_text', 'importance', 'source_stm_ids'],
             additionalProperties: false,
           },
         },
@@ -189,17 +189,17 @@ const FALLBACK_MEMORY_ACTOR_LABELS: MemoryActorLabels = {
 }
 
 const WRITE_GUIDANCE = [
-  'display_summary 用简体中文，写成简洁、稳定、适合展示给模型看的记忆摘要。',
+  'detail 用简体中文，写成内部整理用的详细语境说明。',
   'retrieval_text 用自然语言完整描述可检索的事实、场景或事件，不要写成标签列表。',
-  '如果 source_text 或上文里已经明确出现当前对话对象的名字，display_summary 和 retrieval_text 优先直接使用这个名字，不要退回成泛化的“用户”。',
+  '如果 source_text 或上文里已经明确出现当前对话对象的名字，detail 和 retrieval_text 优先直接使用这个名字，不要退回成泛化的“用户”。',
   '描述助手自身时默认使用第一人称“我”，不要把“AI”或“助手”当成记忆主体，除非是在直接引用原话。',
 ].join('\n')
 
 const SHORT_TERM_WRITE_GUIDANCE = [
-  'display_summary 字段不是展示摘要；它是 detail/context detail，用简体中文写成给后续 Stage A 抽实体和情景记忆使用的详细语境说明。',
-  'display_summary 不参与 embedding，可以比 retrieval_text 更详细；必须保留原文 surface、昵称、名字、简称、别称、回指解释，以及“X 是 Y 的名字/简称/别称”等指向关系。',
+  'detail 字段不是展示摘要；它是 context detail，用简体中文写成给后续 Stage A 抽实体和情景记忆使用的详细语境说明。',
+  'detail 不参与 embedding，可以比 retrieval_text 更详细；必须保留原文 surface、昵称、名字、简称、别称、回指解释，以及“X 是 Y 的名字/简称/别称”等指向关系。',
   'retrieval_text 用于 embedding、检索和 UI 阅读；用自然语言完整描述可检索的事实、场景或事件，不要写成标签列表。',
-  '如果上文里已经明确出现当前对话对象的名字，display_summary 和 retrieval_text 优先直接使用这个名字，不要退回成泛化的“用户”。',
+  '如果上文里已经明确出现当前对话对象的名字，detail 和 retrieval_text 优先直接使用这个名字，不要退回成泛化的“用户”。',
   '描述助手自身时默认使用第一人称“我”，不要把“AI”或“助手”当成记忆主体，除非是在直接引用原话。',
 ].join('\n')
 
@@ -471,7 +471,7 @@ export function buildContextToShortTermPrompt(promptOverride?: string | null, ma
     `请从提供的消息片段里提炼最多 ${maxMemories} 条短期记忆。`,
     '不要逐句复述聊天记录，只保留对后续对话最有价值的几个近期印象。',
     '请严格返回如下 JSON 结构：',
-    '{"memories": Array<{"display_summary": string, "retrieval_text": string, "importance": number}>}',
+    '{"memories": Array<{"detail": string, "retrieval_text": string, "importance": number}>}',
     SHORT_TERM_WRITE_GUIDANCE,
     '如果这段上下文里没有值得留下的短期记忆，也必须返回 {"memories": []}。',
     '不要输出 markdown、代码块或任何额外说明。',
@@ -493,7 +493,7 @@ export function buildShortTermToLongTermPrompt(promptOverride?: string | null, m
     '只能引用输入中存在的短期记忆 id；不要引用与该长期记忆无关的短期记忆。',
     '如果无法判断一条长期记忆来自哪些短期记忆，就不要输出这条长期记忆。',
     '请严格返回如下 JSON 结构：',
-    '{"memories": Array<{"display_summary": string, "retrieval_text": string, "importance": number, "source_stm_ids": string[]}>}',
+    '{"memories": Array<{"detail": string, "retrieval_text": string, "importance": number, "source_stm_ids": string[]}>}',
     WRITE_GUIDANCE,
     '如果没有值得沉淀的长期记忆，也必须返回 {"memories": []}。',
     '不要输出 markdown、代码块或任何额外说明。',
@@ -611,7 +611,7 @@ function renderMemoryLayerResult(input: {
 
   const [primaryMemory, ...secondaryMemories] = input.memories
   const renderMemoryLine = (label: string, memory: MemoryRecord) =>
-    `${label}：[${formatMemoryLayerLabel(memory.layer)}][${formatMemoryPromptTime(memory)}] ${memory.displaySummary}`
+    `${label}：[${formatMemoryLayerLabel(memory.layer)}][${formatMemoryPromptTime(memory)}] ${memory.retrievalText}`
 
   return [
     input.prompt,
@@ -849,7 +849,7 @@ export function buildShortTermToLongTermSourceText(memories: MemoryRecord[]): st
     JSON.stringify(
       memories.map((memory) => ({
         id: memory.id,
-        display_summary: memory.displaySummary,
+        detail: memory.detail,
         retrieval_text: memory.retrievalText,
         importance: memory.importance,
         observedStartAt: memory.observedStartAt?.toISOString() ?? null,
@@ -923,15 +923,17 @@ export function parseMemoryWriteResponse(responseText: string): MemoryWriteResul
   }
 
   const record = parsed as Record<string, unknown>
-  const displaySummary = typeof record.display_summary === 'string' ? record.display_summary.trim() : ''
+  const detail = typeof record.detail === 'string'
+    ? record.detail.trim()
+    : (typeof record.display_summary === 'string' ? record.display_summary.trim() : '')
   const retrievalText = typeof record.retrieval_text === 'string' ? record.retrieval_text.trim() : ''
 
-  if (!displaySummary || !retrievalText) {
-    throw new Error('Memory summarize call returned missing display_summary or retrieval_text')
+  if (!detail || !retrievalText) {
+    throw new Error('Memory summarize call returned missing detail or retrieval_text')
   }
 
   return {
-    displaySummary,
+    detail,
     retrievalText,
     importance: normalizeImportance(record.importance),
   }
@@ -956,15 +958,17 @@ export function parseMemoryBatchWriteResponse(responseText: string, maxCount: nu
       }
 
       const record = memory as Record<string, unknown>
-      const displaySummary = typeof record.display_summary === 'string' ? record.display_summary.trim() : ''
+      const detail = typeof record.detail === 'string'
+        ? record.detail.trim()
+        : (typeof record.display_summary === 'string' ? record.display_summary.trim() : '')
       const retrievalText = typeof record.retrieval_text === 'string' ? record.retrieval_text.trim() : ''
 
-      if (!displaySummary || !retrievalText) {
-        throw new Error(`Memory batch item ${index} is missing display_summary or retrieval_text`)
+      if (!detail || !retrievalText) {
+        throw new Error(`Memory batch item ${index} is missing detail or retrieval_text`)
       }
 
       return {
-        displaySummary,
+        detail,
         retrievalText,
         importance: normalizeImportance(record.importance),
       }
@@ -996,11 +1000,13 @@ export function parseShortTermToLongTermResponse(
     }
 
     const record = memory as Record<string, unknown>
-    const displaySummary = typeof record.display_summary === 'string' ? record.display_summary.trim() : ''
+    const detail = typeof record.detail === 'string'
+      ? record.detail.trim()
+      : (typeof record.display_summary === 'string' ? record.display_summary.trim() : '')
     const retrievalText = typeof record.retrieval_text === 'string' ? record.retrieval_text.trim() : ''
 
-    if (!displaySummary || !retrievalText) {
-      throw new Error(`Short-term to long-term memory item ${index} is missing display_summary or retrieval_text`)
+    if (!detail || !retrievalText) {
+      throw new Error(`Short-term to long-term memory item ${index} is missing detail or retrieval_text`)
     }
 
     const sourceStmIds = normalizeSourceStmIds(record.source_stm_ids, validSourceIds)
@@ -1009,7 +1015,7 @@ export function parseShortTermToLongTermResponse(
     }
 
     results.push({
-      displaySummary,
+      detail,
       retrievalText,
       importance: normalizeImportance(record.importance),
       sourceStmIds,
@@ -1241,7 +1247,8 @@ export class MemorySqliteSystem implements AgentSystem {
 export function serializeMemoryHit(memory: MemoryRecord) {
   return {
     id: memory.id,
-    summary: memory.displaySummary,
+    detail: memory.detail,
+    retrievalText: memory.retrievalText,
     layer: memory.layer,
     importance: memory.importance,
   }

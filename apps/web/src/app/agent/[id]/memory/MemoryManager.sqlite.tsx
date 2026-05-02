@@ -23,7 +23,7 @@ interface MemoryRow {
   id: string
   sessionId: string
   layer: 'short_term' | 'long_term' | 'fixed' | 'episodic'
-  summary: string
+  detail: string
   retrievalText: string
   sourceQuote: string | null
   retrievalModel: string
@@ -1141,7 +1141,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 setQuery(event.target.value)
                 setPage(1)
               }}
-              placeholder="按摘要或检索文本搜索"
+              placeholder="按检索文本或 detail 搜索"
             />
           </label>
 
@@ -1194,7 +1194,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th>摘要</th>
+                    <th>检索文本</th>
                     <th>层级</th>
                     <th>时间</th>
                     <th>会话</th>
@@ -1215,7 +1215,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                               className={styles.tableRowButton}
                               onClick={() => setExpandedId(expanded ? null : memory.id)}
                             >
-                              <span className={styles.tablePrimary}>{memory.summary}</span>
+                              <span className={styles.tablePrimary}>{memory.retrievalText}</span>
                               <span className={styles.tableSecondary}>{expanded ? '点击收起详情' : '点击展开详情'}</span>
                             </button>
                           </td>
@@ -1241,28 +1241,30 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                         {expanded && (
                           <tr className={styles.expandedRow}>
                             <td colSpan={6}>
-	                              <div className={styles.expandedGrid}>
-	                                <div>
-	                                  <p className={styles.fieldLabel}>retrieval_text</p>
-	                                  <p className={styles.panelCopy}>{memory.retrievalText}</p>
-                                    {memory.kind === 'episodic' && (
-                                      <>
-                                        <p className={styles.fieldLabel}>source_quote</p>
-                                        <p className={styles.panelCopy}>{memory.sourceQuote ?? '无'}</p>
-                                        <p className={styles.fieldLabel}>entities</p>
-                                        <div className={styles.chips}>
-                                          {memory.entities.length === 0 ? (
-                                            <span className={styles.statusText}>无绑定实体</span>
-                                          ) : memory.entities.map((entity) => (
-                                            <span key={`${memory.id}-${entity.id}`} className={styles.chip}>
-                                              {entity.canonicalName} · {formatEntityType(entity.type)} · {entity.weight.toFixed(2)}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      </>
-                                    )}
-	                                </div>
-	                                <dl className={styles.metaList}>
+                              <div className={styles.expandedGrid}>
+                                <div>
+                                  <p className={styles.fieldLabel}>retrieval_text</p>
+                                  <p className={styles.panelCopy}>{memory.retrievalText}</p>
+                                  <p className={styles.fieldLabel}>detail</p>
+                                  <p className={styles.panelCopy}>{memory.detail || '无'}</p>
+                                  {memory.kind === 'episodic' && (
+                                    <>
+                                      <p className={styles.fieldLabel}>source_quote</p>
+                                      <p className={styles.panelCopy}>{memory.sourceQuote ?? '无'}</p>
+                                      <p className={styles.fieldLabel}>entities</p>
+                                      <div className={styles.chips}>
+                                        {memory.entities.length === 0 ? (
+                                          <span className={styles.statusText}>无绑定实体</span>
+                                        ) : memory.entities.map((entity) => (
+                                          <span key={`${memory.id}-${entity.id}`} className={styles.chip}>
+                                            {entity.canonicalName} · {formatEntityType(entity.type)} · {entity.weight.toFixed(2)}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                                <dl className={styles.metaList}>
                                   <div>
                                     <dt>ID</dt>
                                     <dd className={styles.mono}>{memory.id}</dd>
@@ -1271,23 +1273,23 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                                     <dt>生成时间</dt>
                                     <dd className={styles.statusText}>{formatDateTime(memory.createdAt)}</dd>
                                   </div>
-	                                  <div>
-	                                    <dt>层级</dt>
-	                                    <dd>
-	                                      {!isEditableSqlite ? (
-	                                        <span className={styles.statusText}>{MEMORY_LAYER_LABELS[memory.layer]}</span>
-	                                      ) : (
-	                                        <select
-	                                          className={styles.input}
-	                                          value={memory.layer}
-	                                          onChange={(event) => void handleLayerChange(memory.id, event.target.value as EditableMemoryLayer)}
-	                                        >
-	                                          <option value="short_term">短期记忆</option>
-	                                          <option value="fixed">固化记忆</option>
-	                                        </select>
-	                                      )}
-	                                    </dd>
-	                                  </div>
+                                  <div>
+                                    <dt>层级</dt>
+                                    <dd>
+                                      {!isEditableSqlite ? (
+                                        <span className={styles.statusText}>{MEMORY_LAYER_LABELS[memory.layer]}</span>
+                                      ) : (
+                                        <select
+                                          className={styles.input}
+                                          value={memory.layer}
+                                          onChange={(event) => void handleLayerChange(memory.id, event.target.value as EditableMemoryLayer)}
+                                        >
+                                          <option value="short_term">短期记忆</option>
+                                          <option value="fixed">固化记忆</option>
+                                        </select>
+                                      )}
+                                    </dd>
+                                  </div>
                                     {memory.kind === 'episodic' && (
                                       <>
                                         <div>
@@ -1302,8 +1304,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                                         </div>
                                       </>
                                     )}
-	                                </dl>
-	                              </div>
+                                </dl>
+                              </div>
                             </td>
                           </tr>
                         )}

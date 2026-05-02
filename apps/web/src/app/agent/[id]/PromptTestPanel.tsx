@@ -82,12 +82,12 @@ export const DEFAULT_PROMPT_TEST_INPUTS = {
   memoryEpisodicExtraction: {
     memories: [
       {
-        displaySummary: '用户说最喜欢的游戏从魔兽世界改成了星际2。',
+        detail: '原文说明用户说最喜欢的游戏从魔兽世界改成了星际2。',
         retrievalText: '用户最喜欢的游戏曾是魔兽世界，后来改成星际2。',
         importance: 0.82,
       },
       {
-        displaySummary: '用户关心星际2和星际争霸2 alias 是否能合并。',
+        detail: '原文说明用户关心星际2和星际争霸2 alias 是否能合并。',
         retrievalText: '星际2是星际争霸2的简称，用户希望实体 alias 稳定。',
         importance: 0.76,
       },
@@ -106,7 +106,6 @@ export const DEFAULT_PROMPT_TEST_INPUTS = {
             canonical_name: '星际争霸2',
             type: 'object',
             description: '用户喜欢的游戏',
-            match_kind: 'alias',
           },
         ],
       },
@@ -115,7 +114,7 @@ export const DEFAULT_PROMPT_TEST_INPUTS = {
   memoryShortTermFragment: {
     memories: [
       {
-        displaySummary: '用户刚刚提到星际2是喜欢的游戏。',
+        detail: '原文说明用户刚刚提到星际2是喜欢的游戏。',
         retrievalText: '用户喜欢星际2。',
         importance: 0.7,
         observedStartAt: '2026-04-30T10:00:00.000Z',
@@ -126,7 +125,7 @@ export const DEFAULT_PROMPT_TEST_INPUTS = {
   memoryFixedFragment: {
     memories: [
       {
-        displaySummary: '用户稳定偏好科幻即时战略游戏。',
+        detail: '原文说明用户稳定偏好科幻即时战略游戏。',
         retrievalText: '用户喜欢科幻即时战略游戏。',
         importance: 0.8,
         createdAt: '2026-04-30T10:00:00.000Z',

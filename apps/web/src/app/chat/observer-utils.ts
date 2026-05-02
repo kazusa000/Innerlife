@@ -39,7 +39,8 @@ export interface RelationshipVector {
 
 export interface MemoryHit {
   id: string
-  summary: string
+  detail?: string
+  retrievalText: string
   layer?: string
   tags: string[]
   importance: number
@@ -47,9 +48,9 @@ export interface MemoryHit {
 
 export interface MemoryWritten {
   id?: string
-  summary: string
+  detail?: string
   layer?: string
-  retrievalText?: string
+  retrievalText: string
   tags: string[]
   importance: number
 }
@@ -200,15 +201,16 @@ export function getMemoryHits(call: LiveCall): MemoryHit[] {
     }
 
     const id = readString(hit.id)
-    const summary = readString(hit.summary)
+    const retrievalText = readString(hit.retrievalText) ?? readString(hit.summary)
     const importance = readNumber(hit.importance)
-    if (!id || !summary || importance === null) {
+    if (!id || !retrievalText || importance === null) {
       return []
     }
 
     return [{
       id,
-      summary,
+      detail: readString(hit.detail) ?? undefined,
+      retrievalText,
       layer: readString(hit.layer) ?? undefined,
       tags: readStringArray(hit.tags),
       importance,
@@ -222,17 +224,17 @@ export function getMemoryWritten(call: LiveCall): MemoryWritten | null {
     return null
   }
 
-  const summary = readString(written.summary)
+  const retrievalText = readString(written.retrievalText) ?? readString(written.summary)
   const importance = readNumber(written.importance)
-  if (!summary || importance === null) {
+  if (!retrievalText || importance === null) {
     return null
   }
 
   return {
     id: readString(written.id) ?? undefined,
-    summary,
+    detail: readString(written.detail) ?? undefined,
     layer: readString(written.layer) ?? undefined,
-    retrievalText: readString(written.retrievalText) ?? undefined,
+    retrievalText,
     tags: readStringArray(written.tags),
     importance,
   }

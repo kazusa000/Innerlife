@@ -50,18 +50,18 @@ export async function runPendingMemoryWrite(
         usage: response.usage,
         metadata: {
           phase: 'summarize',
-              written: written
+          written: written
             ? {
                 id: written.id,
-                summary: written.displaySummary,
-                layer: written.layer,
+                detail: written.detail,
                 retrievalText: written.retrievalText,
+                layer: written.layer,
                 importance: written.importance,
               }
             : {
-                summary: result.displaySummary,
-                layer: 'short_term',
+                detail: result.detail,
                 retrievalText: result.retrievalText,
+                layer: 'short_term',
                 importance: result.importance,
               },
         },

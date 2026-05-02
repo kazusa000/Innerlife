@@ -93,7 +93,7 @@ function addMemory(input: {
     sessionId: input.sessionId,
     layer: input.layer,
     sourceText: input.summary,
-    displaySummary: input.summary,
+    detail: input.summary,
     retrievalText: input.retrievalText ?? input.summary,
     retrievalEmbedding: [1, 0],
     retrievalModel: 'qwen/qwen3-embedding-0.6b',
@@ -242,6 +242,9 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.deepEqual(listData.legacyLayers, ['short_term', 'fixed'])
     assert.equal(listData.total, 2)
     assert.deepEqual(listData.memories.map((memory: { id: string }) => memory.id), [older.id, oldest.id])
+    assert.equal('summary' in listData.memories[0], false)
+    assert.equal(listData.memories[0]?.detail, '用户希望被称为 WJJ')
+    assert.equal(listData.memories[0]?.retrievalText, '用户希望被称为 WJJ')
     assert.equal(listData.memories[0]?.layer, 'short_term')
     assert.equal(listData.memories[0]?.observedStartAt, '2026-04-17T08:55:00.000Z')
     assert.equal(listData.memories[0]?.observedEndAt, '2026-04-17T09:05:00.000Z')
@@ -523,7 +526,8 @@ test('listSqliteMemories filters by layer', async () => {
     assert.equal(filteredData.total, 1)
     assert.deepEqual(filteredData.memories.map((memory: { layer: string }) => memory.layer), ['long_term'])
 
-    assert.equal(filteredData.memories[0]?.summary, '用户提到长期事项')
+    assert.equal(filteredData.memories[0]?.detail, '用户提到长期事项')
+    assert.equal('summary' in filteredData.memories[0], false)
   } finally {
     resetDb()
     resetMemoryDb()

@@ -9,7 +9,7 @@ export interface MemoryRecord {
   sessionId: string
   layer: MemoryLayer
   sourceText: string
-  displaySummary: string
+  detail: string
   retrievalText: string
   retrievalEmbedding: number[]
   retrievalModel: string
@@ -84,7 +84,7 @@ function mapMemory(row: MemoryRow): MemoryRecord {
     sessionId: row.session_id,
     layer: normalizeLayer(row.layer),
     sourceText: row.source_text,
-    displaySummary: row.display_summary,
+    detail: row.display_summary,
     retrievalText: row.retrieval_text,
     retrievalEmbedding: parseEmbedding(row.retrieval_embedding),
     retrievalModel: row.retrieval_model,
@@ -124,7 +124,8 @@ export function addMemory(data: {
   sessionId: string
   layer?: MemoryLayer
   sourceText: string
-  displaySummary: string
+  detail?: string
+  displaySummary?: string
   retrievalText: string
   retrievalEmbedding: number[]
   retrievalModel: string
@@ -136,6 +137,11 @@ export function addMemory(data: {
 }) {
   const sqlite = getMemoryRawSqlite()
   const id = randomUUID()
+  const detail = data.detail ?? data.displaySummary
+
+  if (!detail?.trim()) {
+    throw new Error('memory detail is required')
+  }
 
   sqlite.prepare(`
     INSERT INTO memories (
@@ -160,7 +166,7 @@ export function addMemory(data: {
     data.sessionId,
     normalizeLayer(data.layer),
     data.sourceText,
-    data.displaySummary.trim(),
+    detail.trim(),
     data.retrievalText.trim(),
     JSON.stringify(data.retrievalEmbedding),
     data.retrievalModel,

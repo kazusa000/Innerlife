@@ -113,7 +113,7 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
       agentId: 'agent-1',
       sessionId: 'session-1',
       sourceText: '用户说自己的猫叫橘子',
-      displaySummary: '用户养了一只叫橘子的猫',
+      detail: '用户养了一只叫橘子的猫',
       retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
@@ -127,7 +127,7 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
       agentId: 'agent-1',
       sessionId: 'session-1',
       sourceText: '用户说自己晚上更有空',
-      displaySummary: '用户喜欢晚上聊天',
+      detail: '用户喜欢晚上聊天',
       retrievalText: '用户平时更喜欢在夜里找我聊天',
       retrievalEmbedding: [0, 1],
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
@@ -165,7 +165,7 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
     ctx.state.memories = [...(retrieved?.shortTerm ?? []), ...(retrieved?.fixed ?? [])]
     await system.beforeLLM?.(ctx)
 
-    const loaded = ctx.state.memories as Array<{ id: string; displaySummary: string }>
+    const loaded = ctx.state.memories as Array<{ id: string; detail: string }>
     assert.deepEqual(loaded.map((memory) => memory.id), [catMemory.id])
     assert.equal(ctx.promptFragments[0]?.priority, 30)
     assert.match(ctx.promptFragments[0]?.content ?? '', /以下是你可直接依赖的记忆/)
@@ -253,7 +253,7 @@ test('memory sqlite retrieval skips semantic embeddings for pure time recall and
       agentId: 'agent-1',
       sessionId: 'session-1',
       sourceText: '用户之前问过刚刚说了什么。',
-      displaySummary: '对话伊始用户询问自己刚才说了什么',
+      detail: '对话伊始用户询问自己刚才说了什么',
       retrievalText: '用户问我刚刚和他说了什么，助手表示这是对话开头。',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -267,7 +267,7 @@ test('memory sqlite retrieval skips semantic embeddings for pure time recall and
       agentId: 'agent-1',
       sessionId: 'session-1',
       sourceText: '用户要求记住琥珀纸鹤。',
-      displaySummary: '用户要求记住短语“琥珀纸鹤”',
+      detail: '用户要求记住短语“琥珀纸鹤”',
       retrievalText: '用户明确要求我记住“琥珀纸鹤”这句话。',
       retrievalEmbedding: [0, 1],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -534,7 +534,7 @@ test('memory sqlite retrieval uses per-layer topK and minSimilarity settings', a
       sessionId: 'session-1',
       layer: 'short_term',
       sourceText: '短期记忆 1',
-      displaySummary: '短期记忆 1',
+      detail: '短期记忆 1',
       retrievalText: '短期记忆 1',
       retrievalEmbedding: [0.95, Math.sqrt(1 - 0.95 ** 2)],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -547,7 +547,7 @@ test('memory sqlite retrieval uses per-layer topK and minSimilarity settings', a
       sessionId: 'session-1',
       layer: 'short_term',
       sourceText: '短期记忆 2',
-      displaySummary: '短期记忆 2',
+      detail: '短期记忆 2',
       retrievalText: '短期记忆 2',
       retrievalEmbedding: [0.9, Math.sqrt(1 - 0.9 ** 2)],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -560,7 +560,7 @@ test('memory sqlite retrieval uses per-layer topK and minSimilarity settings', a
       sessionId: 'session-1',
       layer: 'short_term',
       sourceText: '短期记忆 3',
-      displaySummary: '短期记忆 3',
+      detail: '短期记忆 3',
       retrievalText: '短期记忆 3',
       retrievalEmbedding: [0.82, Math.sqrt(1 - 0.82 ** 2)],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -573,7 +573,7 @@ test('memory sqlite retrieval uses per-layer topK and minSimilarity settings', a
       sessionId: 'session-1',
       layer: 'fixed',
       sourceText: '固化记忆 1',
-      displaySummary: '固化记忆 1',
+      detail: '固化记忆 1',
       retrievalText: '固化记忆 1',
       retrievalEmbedding: [0.96, Math.sqrt(1 - 0.96 ** 2)],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -586,7 +586,7 @@ test('memory sqlite retrieval uses per-layer topK and minSimilarity settings', a
       sessionId: 'session-1',
       layer: 'fixed',
       sourceText: '固化记忆 2',
-      displaySummary: '固化记忆 2',
+      detail: '固化记忆 2',
       retrievalText: '固化记忆 2',
       retrievalEmbedding: [0.9, Math.sqrt(1 - 0.9 ** 2)],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -599,7 +599,7 @@ test('memory sqlite retrieval uses per-layer topK and minSimilarity settings', a
       sessionId: 'session-1',
       layer: 'fixed',
       sourceText: '固化记忆 3',
-      displaySummary: '固化记忆 3',
+      detail: '固化记忆 3',
       retrievalText: '固化记忆 3',
       retrievalEmbedding: [0.84, Math.sqrt(1 - 0.84 ** 2)],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -612,7 +612,7 @@ test('memory sqlite retrieval uses per-layer topK and minSimilarity settings', a
       sessionId: 'session-1',
       layer: 'fixed',
       sourceText: '固化记忆 4',
-      displaySummary: '固化记忆 4',
+      detail: '固化记忆 4',
       retrievalText: '固化记忆 4',
       retrievalEmbedding: [0.8, Math.sqrt(1 - 0.8 ** 2)],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -680,7 +680,7 @@ test('memory sqlite renders short-term observed time and keeps fixed created tim
       sessionId: 'session-1',
       layer: 'short_term',
       sourceText: 'source',
-      displaySummary: '用户昨晚吃了番茄鸡蛋面',
+      detail: '用户昨晚吃了番茄鸡蛋面',
       retrievalText: '用户昨晚吃了番茄鸡蛋面。',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'model',
@@ -696,7 +696,7 @@ test('memory sqlite renders short-term observed time and keeps fixed created tim
       sessionId: 'session-1',
       layer: 'short_term',
       sourceText: 'source',
-      displaySummary: '旧短期记忆缺少 observed range',
+      detail: '旧短期记忆缺少 observed range',
       retrievalText: '旧短期记忆缺少 observed range。',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'model',
@@ -714,7 +714,7 @@ test('memory sqlite renders short-term observed time and keeps fixed created tim
       sessionId: 'session-1',
       layer: 'fixed',
       sourceText: 'source',
-      displaySummary: '用户偏好本地数据库',
+      detail: '用户偏好本地数据库',
       retrievalText: '用户偏好本地数据库。',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'model',
@@ -761,7 +761,7 @@ test('short-term to long-term source text prefers observed range over creation t
       sessionId: 'session-1',
       layer: 'short_term',
       sourceText: 'source',
-      displaySummary: '用户昨晚吃了番茄鸡蛋面',
+      detail: '用户昨晚吃了番茄鸡蛋面',
       retrievalText: '用户昨晚吃了番茄鸡蛋面。',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'model',
@@ -841,15 +841,18 @@ test('memory sqlite structured prompt overrides replace the default prompt direc
   assert.equal(sleepPrompt, '整理短期记忆')
 })
 
-test('context-to-short-term prompt treats display_summary as stage A detail', () => {
+test('context-to-short-term prompt writes detail for stage A and retrieval_text for display', () => {
   const prompt = buildContextToShortTermPrompt(null, 3)
 
-  assert.match(prompt, /display_summary 字段不是展示摘要/)
+  assert.match(prompt, /"detail": string/)
+  assert.doesNotMatch(prompt, /"display_summary": string/)
+  assert.match(prompt, /detail 字段不是展示摘要/)
   assert.match(prompt, /Stage A/)
   assert.match(prompt, /不参与 embedding/)
   assert.match(prompt, /原文 surface/)
   assert.match(prompt, /名字、简称、别称/)
   assert.match(prompt, /retrieval_text .*embedding/)
+  assert.match(prompt, /retrieval_text .*UI 阅读/)
   assert.doesNotMatch(prompt, /display_summary 用简体中文，写成简洁、稳定、适合展示给模型看的记忆摘要。/)
 })
 
@@ -878,12 +881,12 @@ test('memory sqlite batch parser no longer requires tags', () => {
   const parsed = parseMemoryBatchWriteResponse(JSON.stringify({
     memories: [
       {
-        display_summary: '用户叫王家骏',
+        detail: '原文说明用户叫王家骏，Stage A 应保留 surface“王家骏”。',
         retrieval_text: '用户告诉过我他的名字是王家骏',
         importance: 0.9,
       },
       {
-        display_summary: '用户喜欢番茄鸡蛋面',
+        detail: '原文说明用户喜欢番茄鸡蛋面。',
         retrieval_text: '用户最喜欢的食物是番茄鸡蛋面',
         importance: 0.8,
       },
@@ -892,12 +895,12 @@ test('memory sqlite batch parser no longer requires tags', () => {
 
   assert.deepEqual(parsed, [
     {
-      displaySummary: '用户叫王家骏',
+      detail: '原文说明用户叫王家骏，Stage A 应保留 surface“王家骏”。',
       retrievalText: '用户告诉过我他的名字是王家骏',
       importance: 0.9,
     },
     {
-      displaySummary: '用户喜欢番茄鸡蛋面',
+      detail: '原文说明用户喜欢番茄鸡蛋面。',
       retrievalText: '用户最喜欢的食物是番茄鸡蛋面',
       importance: 0.8,
     },
@@ -908,13 +911,13 @@ test('short-term to long-term parser keeps only candidates with valid source stm
   const parsed = parseShortTermToLongTermResponse(JSON.stringify({
     memories: [
       {
-        display_summary: '用户养过一只橘猫',
+        detail: '原文说明用户小时候养过一只橘猫。',
         retrieval_text: '用户告诉过我他小时候养过一只橘猫。',
         importance: 0.8,
         source_stm_ids: ['stm-cat', 'stm-cat', 'missing'],
       },
       {
-        display_summary: '缺少来源',
+        detail: '缺少来源',
         retrieval_text: '这条没有合法来源。',
         importance: 0.5,
         source_stm_ids: ['missing'],
@@ -924,7 +927,7 @@ test('short-term to long-term parser keeps only candidates with valid source stm
 
   assert.deepEqual(parsed, [
     {
-      displaySummary: '用户养过一只橘猫',
+      detail: '原文说明用户小时候养过一只橘猫。',
       retrievalText: '用户告诉过我他小时候养过一只橘猫。',
       importance: 0.8,
       sourceStmIds: ['stm-cat'],

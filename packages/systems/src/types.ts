@@ -46,7 +46,7 @@ export interface MemoryRecord {
   sessionId: string
   layer: 'short_term' | 'long_term' | 'fixed'
   sourceText: string
-  displaySummary: string
+  detail: string
   retrievalText: string
   retrievalEmbedding: number[]
   retrievalModel: string
@@ -58,7 +58,7 @@ export interface MemoryRecord {
 }
 
 export interface MemoryWriteResult {
-  displaySummary: string
+  detail: string
   retrievalText: string
   importance: number
 }

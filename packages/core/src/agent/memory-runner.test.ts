@@ -267,7 +267,7 @@ test('runAgent records embedding retrieval metadata without writing a short-term
       agentId: 'agent-1',
       sessionId: 'session-1',
       sourceText: '用户说自己的猫叫橘子',
-      displaySummary: '用户养了一只叫橘子的猫',
+      detail: '用户养了一只叫橘子的猫',
       retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
@@ -345,7 +345,7 @@ test('runAgent records embedding retrieval metadata without writing a short-term
         return
       }
 
-      if (params.systemPrompt.includes('"display_summary": string')) {
+      if (params.systemPrompt.includes('"detail": string')) {
         yield {
           type: 'message_complete',
           response: {
@@ -353,7 +353,7 @@ test('runAgent records embedding retrieval metadata without writing a short-term
               {
                 type: 'text',
                 text: JSON.stringify({
-                  display_summary: '用户养了一只叫橘子的猫',
+                  detail: '用户养了一只叫橘子的猫',
                   retrieval_text: '用户曾告诉我，他养了一只名叫橘子的猫',
                   importance: 0.9,
                 }),
@@ -429,7 +429,7 @@ test('runAgent records embedding retrieval metadata without writing a short-term
           : undefined,
         kind: isMemorySemanticPrompt(request.systemPrompt)
             ? 'retrieve_semantic'
-          : request.systemPrompt.includes('"display_summary": string')
+          : request.systemPrompt.includes('"detail": string')
             ? 'summarize'
             : 'turn',
       })),
@@ -486,7 +486,8 @@ test('runAgent records embedding retrieval metadata without writing a short-term
       shortTermHits: [
         {
           id: existingMemory.id,
-          summary: '用户养了一只叫橘子的猫',
+          detail: '用户养了一只叫橘子的猫',
+          retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
           layer: 'short_term',
           importance: 0.9,
         },
@@ -496,7 +497,8 @@ test('runAgent records embedding retrieval metadata without writing a short-term
       hits: [
         {
           id: existingMemory.id,
-          summary: '用户养了一只叫橘子的猫',
+          detail: '用户养了一只叫橘子的猫',
+          retrievalText: '用户曾告诉我，他养了一只名叫橘子的猫',
           layer: 'short_term',
           importance: 0.9,
         },
@@ -509,7 +511,7 @@ test('runAgent records embedding retrieval metadata without writing a short-term
 
     const rows = memoryRepo.listMemoriesByAgent('agent-1')
     assert.equal(rows.length, 1)
-    assert.equal(rows[0]!.displaySummary, '用户养了一只叫橘子的猫')
+    assert.equal(rows[0]!.detail, '用户养了一只叫橘子的猫')
     assert.equal(rows[0]!.retrievalText, '用户曾告诉我，他养了一只名叫橘子的猫')
     assert.deepEqual(rows[0]!.retrievalEmbedding, [1, 0])
     assert.equal(rows[0]!.layer, 'short_term')
@@ -648,7 +650,7 @@ test('runAgent supports pure time-range recall without a retrieval query', async
       agentId: 'agent-1',
       sessionId: 'session-1',
       sourceText: '用户昨天晚饭吃了番茄鸡蛋面。',
-      displaySummary: '用户昨晚吃了番茄鸡蛋面',
+      detail: '用户昨晚吃了番茄鸡蛋面',
       retrievalText: '用户昨晚晚饭吃了番茄鸡蛋面，还加了很多胡椒。',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
@@ -680,7 +682,7 @@ test('runAgent supports pure time-range recall without a retrieval query', async
         return
       }
 
-      if (params.systemPrompt.includes('"display_summary": string')) {
+      if (params.systemPrompt.includes('"detail": string')) {
         yield {
           type: 'message_complete',
           response: {
@@ -688,7 +690,7 @@ test('runAgent supports pure time-range recall without a retrieval query', async
               {
                 type: 'text',
                 text: JSON.stringify({
-                  display_summary: '用户昨天提到自己昨晚吃了番茄鸡蛋面',
+                  detail: '用户昨天提到自己昨晚吃了番茄鸡蛋面',
                   retrieval_text: '用户昨天提到自己昨晚吃了很多胡椒的番茄鸡蛋面。',
                   importance: 0.7,
                 }),
@@ -811,7 +813,7 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
       throw new Error('memory query failed')
     }
 
-    if (params.systemPrompt.includes('"display_summary": string')) {
+    if (params.systemPrompt.includes('"detail": string')) {
       yield {
         type: 'message_complete',
         response: {
@@ -819,7 +821,7 @@ test('runAgent emits system_error and skips memory retrieval when memory query c
             {
               type: 'text',
               text: JSON.stringify({
-                display_summary: '用户养了一只叫橘子的猫',
+                detail: '用户养了一只叫橘子的猫',
                 retrieval_text: '用户曾告诉我，他养了一只名叫橘子的猫',
                 tags: ['猫', 'pet'],
                 importance: 0.8,
@@ -1070,7 +1072,7 @@ test('runAgent emits system_error without fallback retrieval when semantic analy
       return
     }
 
-    if (params.systemPrompt.includes('"display_summary": string')) {
+    if (params.systemPrompt.includes('"detail": string')) {
       yield {
         type: 'message_complete',
         response: {
@@ -1078,7 +1080,7 @@ test('runAgent emits system_error without fallback retrieval when semantic analy
             {
               type: 'text',
               text: JSON.stringify({
-                display_summary: '用户养了一只叫橘子的猫',
+                detail: '用户养了一只叫橘子的猫',
                 retrieval_text: '用户曾告诉我，他养了一只名叫橘子的猫',
                 tags: ['猫', 'pet'],
                 importance: 0.8,
@@ -1205,7 +1207,7 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
           sourceText: '用户：你好\n助手：你好呀',
           parse() {
             return {
-              displaySummary: '用户打了招呼',
+              detail: '用户打了招呼',
               retrievalText: '用户刚刚向我打了招呼',
               tags: ['打招呼'],
               importance: 0.4,
@@ -1296,7 +1298,7 @@ test('runAgent executes post-turn emotion, relationship, and memory LLM calls in
 
       if (params.systemPrompt === '记忆总结 prompt') {
         return {
-          content: [{ type: 'text', text: '{"display_summary":"用户打了招呼","retrieval_text":"用户刚刚向我打了招呼","importance":0.4}' }],
+          content: [{ type: 'text', text: '{"detail":"用户打了招呼","retrieval_text":"用户刚刚向我打了招呼","importance":0.4}' }],
           stopReason: 'end_turn',
           usage: { inputTokens: 3, outputTokens: 3 },
         }

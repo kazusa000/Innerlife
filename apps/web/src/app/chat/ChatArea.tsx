@@ -112,10 +112,10 @@ function HybridMemoryToolSummary({ metadata }: { metadata: Record<string, unknow
   const hits = Array.isArray(metadata.hits)
     ? metadata.hits.flatMap((hit) => {
       const record = isRecord(hit) ? hit : null
-      const summary = readText(record?.summary)
-      return summary
+      const retrievalText = readText(record?.retrievalText) ?? readText(record?.summary)
+      return retrievalText
         ? [{
-            summary,
+            retrievalText,
             graphScore: record?.graphScore,
             textScore: record?.textScore,
             score: record?.score,
@@ -135,8 +135,8 @@ function HybridMemoryToolSummary({ metadata }: { metadata: Record<string, unknow
         <code>{mentions.length ? mentions.map((mention) => `${mention.surface}${mention.type ? `/${mention.type}` : ''}`).join(', ') : '无'}</code>
       </div>
       {hits.map((hit, index) => (
-        <div key={`${hit.summary}-${index}`} className="tool-memory-hit">
-          <strong>{hit.summary}</strong>
+        <div key={`${hit.retrievalText}-${index}`} className="tool-memory-hit">
+          <strong>{hit.retrievalText}</strong>
           <span>
             图 {formatToolScore(hit.graphScore)} · 文本 {formatToolScore(hit.textScore)} · 最终 {formatToolScore(hit.score)}
           </span>

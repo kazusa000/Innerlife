@@ -310,7 +310,7 @@ export const SearchLongTermMemoryTool: Tool = {
       return {
         output: [
           '情景记忆召回结果：',
-          ...episodic.map((hit) => `[情景记忆] ${hit.memory.summary}`),
+          ...episodic.map((hit) => `[情景记忆] ${hit.memory.retrievalText || hit.memory.summary}`),
         ].join('\n'),
         metadata: {
           noResults: false,
@@ -321,7 +321,8 @@ export const SearchLongTermMemoryTool: Tool = {
           hits: episodic.map((hit) => ({
             id: hit.memory.id,
             sessionId: hit.memory.sessionId,
-            summary: hit.memory.summary,
+            detail: hit.memory.summary,
+            retrievalText: hit.memory.retrievalText,
             observedStartAt: hit.memory.observedStartAt?.toISOString() ?? null,
             observedEndAt: hit.memory.observedEndAt?.toISOString() ?? null,
             importance: hit.memory.importance,
@@ -361,7 +362,7 @@ export const SearchLongTermMemoryTool: Tool = {
     return {
       output: [
         '长期记忆检索结果：',
-        ...hits.map((memory) => `[长期记忆][${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.displaySummary}`),
+        ...hits.map((memory) => `[长期记忆][${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.retrievalText}`),
       ].join('\n'),
       metadata: {
         noResults: false,
@@ -370,7 +371,8 @@ export const SearchLongTermMemoryTool: Tool = {
           id: memory.id,
           sessionId: memory.sessionId,
           layer: memory.layer,
-          displaySummary: memory.displaySummary,
+          detail: memory.detail,
+          retrievalText: memory.retrievalText,
           createdAt: memory.createdAt.toISOString(),
           importance: memory.importance,
         })),
