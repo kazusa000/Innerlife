@@ -210,8 +210,8 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
       {notice && <p className={styles.notice}>{notice}</p>}
       {error && <p className={styles.error}>{error}</p>}
 
-      <div className={styles.grid}>
-        <section className={styles.panel}>
+      <div className={styles.relationshipGrid}>
+        <section className={`${styles.panel} ${styles.panelFrame}`}>
           <div className={styles.panelHead}>
             <div>
               <p className={styles.panelLabel}>结构配置</p>
@@ -277,44 +277,46 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
           </div>
         </section>
 
-        <PromptLab
-          agentId={agentId}
-          fields={[
-            {
-              key: 'fragmentPrompt',
-              label: 'Fragment Prompt',
-              helper: '控制 trust / affinity / familiarity / respect 如何轻微渗入主对话语气。',
-              value: fragmentPrompt,
-              placeholder: '例如：让关系状态轻微影响亲疏感和分寸，不要播报数值。清空后保存会继续使用系统默认片段。',
-              rows: 7,
-            },
-            {
-              key: 'analysisPrompt',
-              label: 'Analysis Prompt',
-              helper: '控制每轮关系分析如何读上下文、如何输出四维 delta。',
-              value: analysisPrompt,
-              placeholder: '例如：请判断这一轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。清空后保存会回退系统默认。',
-              rows: 10,
-            },
-          ]}
-          tests={{
-            fragmentPrompt: {
-              testId: 'relationship.fragment',
-              defaultInput: DEFAULT_PROMPT_TEST_INPUTS.relationshipFragment,
-            },
-            analysisPrompt: {
-              testId: 'relationship.analysis',
-              defaultInput: DEFAULT_PROMPT_TEST_INPUTS.relationshipAnalysis,
-            },
-          }}
-          onChange={(key, value) => {
-            if (key === 'fragmentPrompt') {
-              setFragmentPrompt(value)
-            } else if (key === 'analysisPrompt') {
-              setAnalysisPrompt(value)
-            }
-          }}
-        />
+        <div className={styles.relationshipPromptSlot}>
+          <PromptLab
+            agentId={agentId}
+            fields={[
+              {
+                key: 'fragmentPrompt',
+                label: 'Fragment Prompt',
+                helper: '控制 trust / affinity / familiarity / respect 如何轻微渗入主对话语气。',
+                value: fragmentPrompt,
+                placeholder: '例如：让关系状态轻微影响亲疏感和分寸，不要播报数值。清空后保存会继续使用系统默认片段。',
+                rows: 7,
+              },
+              {
+                key: 'analysisPrompt',
+                label: 'Analysis Prompt',
+                helper: '控制每轮关系分析如何读上下文、如何输出四维 delta。',
+                value: analysisPrompt,
+                placeholder: '例如：请判断这一轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。清空后保存会回退系统默认。',
+                rows: 8,
+              },
+            ]}
+            tests={{
+              fragmentPrompt: {
+                testId: 'relationship.fragment',
+                defaultInput: DEFAULT_PROMPT_TEST_INPUTS.relationshipFragment,
+              },
+              analysisPrompt: {
+                testId: 'relationship.analysis',
+                defaultInput: DEFAULT_PROMPT_TEST_INPUTS.relationshipAnalysis,
+              },
+            }}
+            onChange={(key, value) => {
+              if (key === 'fragmentPrompt') {
+                setFragmentPrompt(value)
+              } else if (key === 'analysisPrompt') {
+                setAnalysisPrompt(value)
+              }
+            }}
+          />
+        </div>
       </div>
 
       <div className={styles.statusGrid}>

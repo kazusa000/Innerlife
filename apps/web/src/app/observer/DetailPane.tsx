@@ -53,13 +53,13 @@ export function DetailPane({ callId }: Props) {
 
   if (!callId) {
     return (
-        <div style={{ flex: 1, padding: 40, color: '#666', fontSize: 13 }}>
+        <div className="observer-detail observer-detail-empty">
         {OBSERVER_UI_COPY.selectCall}
         </div>
     )
   }
   if (!detail) {
-    return <div style={{ flex: 1, padding: 40, color: '#666' }}>{OBSERVER_UI_COPY.loading}</div>
+    return <div className="observer-detail observer-detail-empty">{OBSERVER_UI_COPY.loading}</div>
   }
 
   const inputTabs: Tab[] = [
@@ -74,72 +74,38 @@ export function DetailPane({ callId }: Props) {
   const duration = formatDurationLabel(detail.startedAt, detail.finishedAt)
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-      <div style={{ padding: '8px 14px', borderBottom: '1px solid #222', fontSize: 12, color: '#888' }}>
+    <main className="observer-detail">
+      <div className="observer-detail-meta">
         {translateCallKind(detail.kind)} · {detail.model} · {OBSERVER_UI_COPY.inputTokens} {detail.inputTokens ?? '?'} / {OBSERVER_UI_COPY.outputTokens} {detail.outputTokens ?? '?'} tokens · {detail.stopReason ?? OBSERVER_UI_COPY.pending}{duration ? ` · ${duration}` : ''}
       </div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-          padding: '6px 10px',
-          borderBottom: '1px solid #222',
-        }}
-      >
-        <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
+      <div className="observer-tabs">
+        <span className="observer-tabs-label">
           {OBSERVER_UI_COPY.input}
         </span>
         {inputTabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            style={{
-              padding: '4px 10px',
-              borderRadius: 4,
-              border: 'none',
-              background: tab === t ? '#1a1a2e' : 'transparent',
-              color: tab === t ? '#ededed' : '#888',
-              cursor: 'pointer',
-              fontSize: 12,
-            }}
+            className={`observer-tab${tab === t ? ' observer-tab-active' : ''}`}
           >
             {translateObserverTab(t)}
           </button>
         ))}
-        <span style={{ flex: 1 }} />
-        <span style={{ color: '#555', fontSize: 10, textTransform: 'uppercase', marginRight: 2 }}>
+        <span className="observer-tabs-spacer" />
+        <span className="observer-tabs-label">
           {OBSERVER_UI_COPY.output}
         </span>
         {OUTPUT_TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            style={{
-              padding: '4px 10px',
-              borderRadius: 4,
-              border: 'none',
-              background: tab === t ? '#1a1a2e' : 'transparent',
-              color: tab === t ? '#ededed' : '#888',
-              cursor: 'pointer',
-              fontSize: 12,
-            }}
+            className={`observer-tab${tab === t ? ' observer-tab-active' : ''}`}
           >
             {translateObserverTab(t)}
           </button>
         ))}
       </div>
-      <div
-        style={{
-          flex: 1,
-          overflow: 'auto',
-          padding: 12,
-          fontSize: 12,
-          fontFamily: 'ui-monospace, monospace',
-          whiteSpace: 'pre-wrap',
-          color: '#cdd9e5',
-        }}
-      >
+      <div className="observer-detail-body">
         {tab === 'system' && detail.systemPrompt}
         {tab === 'tools' && JSON.stringify(detail.tools, null, 2)}
         {tab === 'history' && <MessagesView messages={detail.messages} />}
@@ -167,6 +133,6 @@ export function DetailPane({ callId }: Props) {
           />
         )}
       </div>
-    </div>
+    </main>
   )
 }

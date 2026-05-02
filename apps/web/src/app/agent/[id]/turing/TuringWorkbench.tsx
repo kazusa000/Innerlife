@@ -350,7 +350,7 @@ export default function TuringWorkbench({ agentId }: { agentId: string }) {
   const transcript = currentRun?.transcript ?? []
 
   return (
-    <div className={styles.workspace}>
+    <div className={`${styles.workspace} turing-workbench`}>
       <section className={styles.hero}>
         <div>
           <p className={styles.eyebrow}>图灵测试系统</p>

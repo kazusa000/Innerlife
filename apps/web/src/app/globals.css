@@ -234,6 +234,161 @@ select {
   background: var(--bg-glass-hover);
 }
 
+/* Internal workbench pages */
+.personality-page,
+.emotion-page,
+.relationship-page,
+.memory-page,
+.tools-page {
+  --workbench-art: url('/workbench-assets/workbench-bg.png');
+  --module-art: url('/workbench-assets/workbench-bg.png');
+  position: relative;
+  isolation: isolate;
+  overflow-x: hidden;
+  background:
+    linear-gradient(180deg, rgba(3, 6, 13, 0.78), rgba(3, 6, 13, 0.94)),
+    var(--workbench-art) center top / cover no-repeat,
+    #03060d;
+}
+
+.personality-page { --module-art: url('/workbench-assets/persona-dossier-art.png'); }
+.emotion-page { --module-art: url('/workbench-assets/emotion-panel-art.png'); }
+.relationship-page { --module-art: url('/workbench-assets/relationship-network-art.png'); }
+.memory-page { --module-art: url('/workbench-assets/memory-panel-art.png'); }
+.tools-page { --module-art: url('/workbench-assets/tool-forge-art.png'); }
+
+.personality-page::before,
+.emotion-page::before,
+.relationship-page::before,
+.memory-page::before,
+.tools-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 82% 14%, rgba(20, 184, 166, 0.16), transparent 30%),
+    radial-gradient(circle at 18% 82%, rgba(245, 158, 11, 0.08), transparent 32%),
+    linear-gradient(90deg, rgba(2, 6, 15, 0.74), rgba(2, 6, 15, 0.36), rgba(2, 6, 15, 0.82));
+}
+
+.personality-head,
+.emotion-head,
+.relationship-head,
+.memory-head,
+.tools-head {
+  padding: 0 2px 6px;
+}
+
+.personality-wrap,
+.emotion-wrap,
+.relationship-wrap,
+.tools-wrap {
+  max-width: 1320px !important;
+}
+
+.personality-title,
+.emotion-title,
+.relationship-title,
+.memory-title,
+.tools-title {
+  text-shadow: 0 20px 68px rgba(0, 0, 0, 0.62);
+}
+
+.personality-sub,
+.emotion-sub,
+.relationship-sub,
+.memory-sub,
+.tools-sub {
+  color: #bfd0df !important;
+}
+
+.personality-card,
+.emotion-card,
+.relationship-card,
+.memory-card,
+.tools-card {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(45, 212, 191, 0.22) !important;
+  background:
+    linear-gradient(90deg, rgba(5, 13, 24, 0.93), rgba(5, 13, 24, 0.72) 54%, rgba(5, 13, 24, 0.94)),
+    var(--module-art) center top / cover no-repeat,
+    rgba(5, 13, 24, 0.86) !important;
+  box-shadow:
+    0 32px 100px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+.personality-card::before,
+.emotion-card::before,
+.relationship-card::before,
+.memory-card::before,
+.tools-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(6, 13, 25, 0.28), rgba(6, 13, 25, 0.9) 300px),
+    radial-gradient(circle at 18% 4%, rgba(45, 212, 191, 0.16), transparent 30%);
+  z-index: 0;
+}
+
+.personality-card > *,
+.emotion-card > *,
+.relationship-card > *,
+.memory-card > *,
+.tools-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.personality-link,
+.emotion-link,
+.relationship-link,
+.memory-link,
+.tools-link {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(5, 10, 22, 0.52);
+  color: #c9d7e8 !important;
+  text-decoration: none;
+}
+
+.personality-link-primary,
+.emotion-link-primary,
+.relationship-link-primary,
+.memory-link-primary,
+.tools-link-primary {
+  border-color: rgba(45, 212, 191, 0.28);
+  background: rgba(20, 184, 166, 0.13);
+  color: #d9fff8 !important;
+}
+
+.daemon-workbench {
+  --module-art: url('/workbench-assets/observer-inspector-bg.png');
+  min-height: 100vh;
+  padding: 28px;
+  background:
+    linear-gradient(180deg, rgba(3, 6, 13, 0.78), rgba(3, 6, 13, 0.96)),
+    url('/workbench-assets/observer-inspector-bg.png') center top / cover fixed no-repeat,
+    #03060d;
+}
+
+.daemon-workbench > :first-child {
+  background:
+    linear-gradient(90deg, rgba(7, 14, 28, 0.94), rgba(7, 14, 28, 0.66) 52%, rgba(7, 14, 28, 0.92)),
+    url('/workbench-assets/observer-inspector-bg.png') center / cover no-repeat,
+    rgba(7, 14, 28, 0.92) !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

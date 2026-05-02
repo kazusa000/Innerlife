@@ -563,6 +563,13 @@ export default function HomePage() {
                     <button className="btn btn-ghost" onClick={() => startEdit(selectedAgent)}>
                       编辑基础信息
                     </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      onClick={() => handleDelete(selectedAgent.id)}
+                    >
+                      删除虚拟人
+                    </button>
                   </div>
                 </div>
               </div>

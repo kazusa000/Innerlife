@@ -28,31 +28,18 @@ function describeCallKind(kind: TurnNode['calls'][number]['kind']) {
 
 export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
   return (
-    <div
-      style={{
-        width: 320,
-        borderRight: '1px solid #222',
-        overflowY: 'auto',
-        padding: 8,
-        flexShrink: 0,
-      }}
-    >
+    <section className="observer-turns">
+      <div className="observer-panel-head observer-panel-head-compact">
+        <span className="observer-eyebrow">Timeline</span>
+        <strong>调用轨迹</strong>
+      </div>
       {turns.length === 0 && (
-        <p style={{ color: '#666', textAlign: 'center', marginTop: 40, fontSize: 13 }}>
-          当前会话还没有观测记录。
-        </p>
+        <p className="observer-empty">当前会话还没有观测记录。</p>
       )}
       {turns.map((turn) => (
-        <div key={turn.userMessageId} style={{ marginBottom: 12 }}>
+        <div key={turn.userMessageId} className="observer-turn-group">
           <div
-            style={{
-              fontSize: 12,
-              color: '#888',
-              padding: '4px 8px',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
+            className="observer-user-text"
             title={turn.userText}
           >
             用户：{turn.userText || '（空）'}
@@ -60,28 +47,20 @@ export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
           {turn.calls.map((c) => {
             const active = c.id === currentCallId
             return (
-              <div
+              <button
                 key={c.id}
                 onClick={() => onSelectCall(c.id)}
-                style={{
-                  padding: '6px 10px 6px 20px',
-                  borderRadius: 4,
-                  marginTop: 2,
-                  background: active ? '#1a1a2e' : 'transparent',
-                  color: active ? '#ededed' : '#bbb',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                }}
+                className={`observer-call-item${active ? ' observer-call-item-active' : ''}`}
               >
-                └ {describeCallKind(c.kind)} #{c.turnIndex}{' '}
-                <span style={{ color: '#666' }}>
+                <span>{describeCallKind(c.kind)} #{c.turnIndex}</span>
+                <span>
                   {c.stopReason ?? (c.finishedAt ? '?' : OBSERVER_UI_COPY.pending)}
                 </span>
-              </div>
+              </button>
             )
           })}
         </div>
       ))}
-    </div>
+    </section>
   )
 }

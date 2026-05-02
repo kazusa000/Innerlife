@@ -205,8 +205,8 @@ export default function EmotionManagerDimensional({ agentId }: EmotionManagerPro
       {notice && <p className={styles.notice}>{notice}</p>}
       {error && <p className={styles.error}>{error}</p>}
 
-      <div className={styles.grid}>
-        <section className={styles.panel}>
+      <div className={styles.emotionTopGrid}>
+        <section className={`${styles.panel} ${styles.emotionGaugePanel}`}>
           <div className={styles.panelHead}>
             <div>
               <p className={styles.panelLabel}>运行时状态</p>

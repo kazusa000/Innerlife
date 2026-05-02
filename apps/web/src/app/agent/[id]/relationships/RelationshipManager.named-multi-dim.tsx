@@ -340,8 +340,9 @@ export default function RelationshipManagerNamedMultiDim({ agentId }: Relationsh
         </aside>
 
         <div className={styles.workspaceMain}>
-          <div className={styles.grid}>
-            <section className={styles.panel}>
+          <div className={styles.relationshipGrid}>
+            <div className={styles.relationshipLeftStack}>
+              <section className={`${styles.panel} ${styles.panelFrame}`}>
               <div className={styles.panelHead}>
                 <div>
                   <p className={styles.panelLabel}>结构配置</p>
@@ -404,9 +405,46 @@ export default function RelationshipManagerNamedMultiDim({ agentId }: Relationsh
                   />
                 </label>
               </div>
-            </section>
+              </section>
 
-            <section className={styles.panel}>
+              <PromptLab
+                agentId={agentId}
+                fields={[
+                  {
+                    key: 'fragmentPrompt',
+                    label: 'Fragment Prompt',
+                    helper: '控制当前绑定对象的 trust / affinity / familiarity / respect 如何轻微渗入主对话语气。',
+                    value: fragmentPrompt,
+                    placeholder: '例如：让当前对象的关系状态轻微影响亲疏感和分寸，不要播报数值。清空后保存会继续使用系统默认片段。',
+                    rows: 7,
+                  },
+                  {
+                    key: 'analysisPrompt',
+                    label: 'Analysis Prompt',
+                    helper: '控制每轮关系分析如何读上下文、如何输出四维 delta。',
+                    value: analysisPrompt,
+                    placeholder: '例如：请判断这一轮对当前对象 trust/affinity/familiarity/respect 的变化，只输出 JSON。清空后保存会回退系统默认。',
+                    rows: 8,
+                  },
+                ]}
+                onChange={(key, value) => {
+                  if (key === 'fragmentPrompt') setFragmentPrompt(value)
+                  if (key === 'analysisPrompt') setAnalysisPrompt(value)
+                }}
+                tests={{
+                  fragmentPrompt: {
+                    testId: 'relationshipNamed.fragment',
+                    defaultInput: DEFAULT_PROMPT_TEST_INPUTS.relationshipFragment,
+                  },
+                  analysisPrompt: {
+                    testId: 'relationshipNamed.analysis',
+                    defaultInput: DEFAULT_PROMPT_TEST_INPUTS.relationshipAnalysis,
+                  },
+                }}
+              />
+            </div>
+
+            <section className={`${styles.panel} ${styles.dossierPanel}`}>
               <div className={styles.panelHead}>
                 <div>
                   <p className={styles.panelLabel}>当前对象</p>
@@ -534,41 +572,6 @@ export default function RelationshipManagerNamedMultiDim({ agentId }: Relationsh
               )}
             </section>
 
-            <PromptLab
-              agentId={agentId}
-              fields={[
-                {
-                  key: 'fragmentPrompt',
-                  label: 'Fragment Prompt',
-                  helper: '控制当前绑定对象的 trust / affinity / familiarity / respect 如何轻微渗入主对话语气。',
-                  value: fragmentPrompt,
-                  placeholder: '例如：让当前对象的关系状态轻微影响亲疏感和分寸，不要播报数值。清空后保存会继续使用系统默认片段。',
-                  rows: 8,
-                },
-                {
-                  key: 'analysisPrompt',
-                  label: 'Analysis Prompt',
-                  helper: '控制每轮关系分析如何读上下文、如何输出四维 delta。',
-                  value: analysisPrompt,
-                  placeholder: '例如：请判断这一轮对当前对象 trust/affinity/familiarity/respect 的变化，只输出 JSON。清空后保存会回退系统默认。',
-                  rows: 10,
-                },
-              ]}
-              tests={{
-                fragmentPrompt: {
-                  testId: 'relationshipNamed.fragment',
-                  defaultInput: DEFAULT_PROMPT_TEST_INPUTS.relationshipFragment,
-                },
-                analysisPrompt: {
-                  testId: 'relationshipNamed.analysis',
-                  defaultInput: DEFAULT_PROMPT_TEST_INPUTS.relationshipAnalysis,
-                },
-              }}
-              onChange={(key, value) => {
-                if (key === 'fragmentPrompt') setFragmentPrompt(value)
-                if (key === 'analysisPrompt') setAnalysisPrompt(value)
-              }}
-            />
           </div>
         </div>
       </div>

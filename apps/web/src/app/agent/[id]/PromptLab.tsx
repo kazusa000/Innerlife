@@ -16,6 +16,7 @@ type PromptLabProps = {
   title?: string
   copy?: string
   agentId?: string
+  layout?: 'stack' | 'grid'
   fields: PromptField[]
   tests?: Partial<Record<string, PromptTestConfig>>
   onChange: (key: string, value: string) => void
@@ -25,12 +26,13 @@ export default function PromptLab({
   title = 'Prompt Lab',
   copy = '这里编辑并保存的是当前会生效的文本。清空后保存会回退到系统默认。',
   agentId,
+  layout = 'stack',
   fields,
   tests,
   onChange,
 }: PromptLabProps) {
   return (
-    <section className={styles.panel}>
+    <section className={`${styles.panel} ${layout === 'grid' ? styles.promptLabPanel : ''}`}>
       <div className={styles.panelHead}>
         <div>
           <p className={styles.panelLabel}>Prompt</p>
@@ -39,7 +41,7 @@ export default function PromptLab({
         <span className={styles.panelPill}>{fields.length} 项</span>
       </div>
       <p className={styles.panelCopy}>{copy}</p>
-      <div className={styles.promptStack}>
+      <div className={layout === 'grid' ? styles.promptGrid : styles.promptStack}>
         {fields.map((field) => {
           const testConfig = tests?.[field.key]
           return (

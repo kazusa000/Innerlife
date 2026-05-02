@@ -264,8 +264,9 @@ export function Sidebar({
           gap: 18px;
           border-right: 1px solid var(--border-subtle);
           background:
-            radial-gradient(circle at top, rgba(255, 255, 255, 0.08), transparent 45%),
-            rgba(255, 255, 255, 0.015);
+            linear-gradient(180deg, rgba(5, 9, 18, 0.88), rgba(4, 7, 14, 0.72)),
+            radial-gradient(circle at top, rgba(20, 184, 166, 0.11), transparent 46%),
+            rgba(255, 255, 255, 0.018);
           backdrop-filter: blur(8px);
           -webkit-backdrop-filter: blur(8px);
           padding-bottom: 18px;

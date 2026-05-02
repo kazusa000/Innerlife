@@ -710,7 +710,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
 
       <div className={styles.contentStack}>
         <div className={styles.controlGrid}>
-          <section className={`${styles.panel} ${styles.sectionPanel}`}>
+          <section className={`${styles.panel} ${styles.sectionPanel} ${styles.panelFrame}`}>
             <div className={styles.panelHead}>
               <div>
                 <p className={styles.panelLabel}>前置检索</p>
@@ -747,7 +747,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             </div>
           </section>
 
-          <section className={`${styles.panel} ${styles.sectionPanel}`}>
+          <section className={`${styles.panel} ${styles.sectionPanel} ${styles.panelFrame}`}>
             <div className={styles.panelHead}>
               <div>
                 <p className={styles.panelLabel}>前置检索</p>
@@ -784,7 +784,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             </div>
           </section>
 
-          <section className={`${styles.panel} ${styles.sectionPanel}`}>
+          <section className={`${styles.panel} ${styles.sectionPanel} ${styles.panelFrame}`}>
             <div className={styles.panelHead}>
               <div>
                 <p className={styles.panelLabel}>语义分析</p>
@@ -833,7 +833,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         </div>
 
         <div className={styles.controlGrid}>
-          <section className={`${styles.panel} ${styles.sectionPanel}`}>
+          <section className={`${styles.panel} ${styles.sectionPanel} ${styles.panelFrame}`}>
           <div className={styles.panelHead}>
             <div>
               <p className={styles.panelLabel}>运行节奏</p>
@@ -918,7 +918,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </dl>
           </section>
 
-          <section className={`${styles.panel} ${styles.sectionPanel}`}>
+          <section className={`${styles.panel} ${styles.sectionPanel} ${styles.panelFrame}`}>
           <div className={styles.panelHead}>
             <div>
               <p className={styles.panelLabel}>运行节奏</p>
@@ -969,7 +969,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </dl>
           </section>
 
-          <section className={`${styles.panel} ${styles.sectionPanel}`}>
+          <section className={`${styles.panel} ${styles.sectionPanel} ${styles.panelFrame}`}>
           <div className={styles.panelHead}>
             <div>
               <p className={styles.panelLabel}>模型设置</p>
@@ -1120,7 +1120,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </div>
         </section>
 
-        <section className={`${styles.panel} ${styles.sectionPanel}`}>
+        <section className={`${styles.panel} ${styles.sectionPanel} ${styles.panelFrame}`}>
         <div className={styles.panelHead}>
           <div>
             <p className={styles.tableLabel}>记忆表</p>
@@ -1354,6 +1354,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         <section className={styles.sectionPanel}>
           <PromptLab
             agentId={agentId}
+            layout="grid"
             fields={[
               {
                 key: 'semanticAnalyzerPrompt',

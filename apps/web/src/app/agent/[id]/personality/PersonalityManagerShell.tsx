@@ -198,99 +198,111 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                   agent 名称和描述生成的默认身份提示。
                 </p>
 
-                <div className={styles.fieldGrid}>
-                  <label className={styles.wideField}>
-                    <span className={styles.fieldLabel}>Avatar URL</span>
-                    <div className="avatar-editor">
-                      <div className="avatar-preview" aria-label="头像预览">
-                        {avatarUrl.trim() ? (
-                          <img src={avatarUrl.trim()} alt="" />
-                        ) : (
-                          <span>头像</span>
-                        )}
+                <div className={styles.personaEditorGrid}>
+                  <div className={`${styles.personaColumn} ${styles.personaDossier}`}>
+                    <label className={styles.wideField}>
+                      <span className={styles.fieldLabel}>Avatar URL</span>
+                      <div className="avatar-editor">
+                        <div className="avatar-preview" aria-label="头像预览">
+                          {avatarUrl.trim() ? (
+                            <img src={avatarUrl.trim()} alt="" />
+                          ) : (
+                            <span>头像</span>
+                          )}
+                        </div>
+                        <div className="avatar-controls">
+                          <input
+                            className={styles.input}
+                            value={avatarUrl}
+                            onChange={(event) => setAvatarUrl(event.target.value)}
+                            placeholder="https://example.com/avatar.png 或 data:image/png;base64,..."
+                          />
+                          {avatarUrl.trim() && (
+                            <button
+                              type="button"
+                              className={styles.secondaryButton}
+                              onClick={() => setAvatarUrl('')}
+                            >
+                              清除头像
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="avatar-controls">
-                        <input
-                          className={styles.input}
-                          value={avatarUrl}
-                          onChange={(event) => setAvatarUrl(event.target.value)}
-                          placeholder="https://example.com/avatar.png 或 data:image/png;base64,..."
-                        />
-                        {avatarUrl.trim() && (
-                          <button
-                            type="button"
-                            className={styles.secondaryButton}
-                            onClick={() => setAvatarUrl('')}
-                          >
-                            清除头像
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </label>
+                    </label>
 
-                  <label className={styles.wideField}>
-                    <span className={styles.fieldLabel}>System Prompt</span>
-                    <textarea
-                      className={styles.textarea}
-                      rows={7}
-                      value={systemPrompt}
-                      onChange={(event) => setSystemPrompt(event.target.value)}
-                      placeholder="例如：你是真实存在的人，不要自称 AI，不要用系统口吻解释自己。"
-                    />
-                    <PromptTestPanel
-                      agentId={agentId}
-                      testId="personality.systemPrompt"
-                      defaultInput={DEFAULT_PROMPT_TEST_INPUTS.personalitySystem}
-                      prompt={systemPrompt}
-                    />
-                  </label>
-
-                  <label className={styles.wideField}>
-                    <span className={styles.fieldLabel}>Persona Prompt</span>
-                    <textarea
-                      className={styles.textarea}
-                      rows={7}
-                      value={personaPrompt}
-                      onChange={(event) => setPersonaPrompt(event.target.value)}
-                      placeholder="例如：像熟人一样交流，少一点客服感，克制一点，不把话说太满。"
-                    />
-                    <PromptTestPanel
-                      agentId={agentId}
-                      testId="personality.personaPrompt"
-                      defaultInput={DEFAULT_PROMPT_TEST_INPUTS.personalityPersona}
-                      prompt={personaPrompt}
-                    />
-                  </label>
-                </div>
-
-                <label className={styles.promptCard}>
-                  <div className={styles.promptHead}>
-                    <div>
-                      <span className={styles.promptLabel}>Thinking Mode Prompt</span>
-                      <p className={styles.promptHelper}>
-                        开启思考模式时追加到最终 system prompt 末尾。留空则不追加任何思考沉浸规则。
-                      </p>
-                    </div>
-                    <span className={styles.statusPill}>modules.personality</span>
+                    <label className={styles.wideField}>
+                      <span className={styles.fieldLabel}>System Prompt</span>
+                      <textarea
+                        className={styles.textarea}
+                        rows={8}
+                        value={systemPrompt}
+                        onChange={(event) => setSystemPrompt(event.target.value)}
+                        placeholder="例如：你是真实存在的人，不要自称 AI，不要用系统口吻解释自己。"
+                      />
+                      <PromptTestPanel
+                        agentId={agentId}
+                        testId="personality.systemPrompt"
+                        defaultInput={DEFAULT_PROMPT_TEST_INPUTS.personalitySystem}
+                        prompt={systemPrompt}
+                      />
+                    </label>
                   </div>
-                  <textarea
-                    className={styles.promptTextarea}
-                    rows={8}
-                    value={thinkingRoleImmersionPrompt}
-                    onChange={(event) => setThinkingRoleImmersionPrompt(event.target.value)}
-                    placeholder="例如：【角色沉浸要求】&#10;在你的思考过程（<think>标签内）中，请遵守以下规则：..."
-                  />
-                  <PromptTestPanel
-                    agentId={agentId}
-                    testId="personality.thinkingModePrompt"
-                    defaultInput={DEFAULT_PROMPT_TEST_INPUTS.personalityThinking}
-                    prompt={thinkingRoleImmersionPrompt}
-                  />
-                  <p className={styles.promptMeta}>
-                    生效条件：主聊天思考模式开启，且这里保存了非空内容。
-                  </p>
-                </label>
+
+                  <div className={styles.personaColumn}>
+                    <label className={styles.promptCard}>
+                      <div className={styles.promptHead}>
+                        <div>
+                          <span className={styles.promptLabel}>Persona Prompt</span>
+                          <p className={styles.promptHelper}>
+                            负责说话方式、边界感和角色语气。这里通常比 System Prompt 更像可调的表演层。
+                          </p>
+                        </div>
+                        <span className={styles.statusPill}>visible style</span>
+                      </div>
+                      <textarea
+                        className={styles.promptTextarea}
+                        rows={8}
+                        value={personaPrompt}
+                        onChange={(event) => setPersonaPrompt(event.target.value)}
+                        placeholder="例如：像熟人一样交流，少一点客服感，克制一点，不把话说太满。"
+                      />
+                      <PromptTestPanel
+                        agentId={agentId}
+                        testId="personality.personaPrompt"
+                        defaultInput={DEFAULT_PROMPT_TEST_INPUTS.personalityPersona}
+                        prompt={personaPrompt}
+                      />
+                    </label>
+
+                    <label className={styles.promptCard}>
+                      <div className={styles.promptHead}>
+                        <div>
+                          <span className={styles.promptLabel}>Thinking Mode Prompt</span>
+                          <p className={styles.promptHelper}>
+                            开启思考模式时追加到最终 system prompt 末尾。留空则不追加任何思考沉浸规则。
+                          </p>
+                        </div>
+                        <span className={styles.statusPill}>modules.personality</span>
+                      </div>
+                      <textarea
+                        className={styles.promptTextarea}
+                        rows={8}
+                        value={thinkingRoleImmersionPrompt}
+                        onChange={(event) => setThinkingRoleImmersionPrompt(event.target.value)}
+                        placeholder="例如：【角色沉浸要求】&#10;在你的思考过程（<think>标签内）中，请遵守以下规则：..."
+                      />
+                      <PromptTestPanel
+                        agentId={agentId}
+                        testId="personality.thinkingModePrompt"
+                        defaultInput={DEFAULT_PROMPT_TEST_INPUTS.personalityThinking}
+                        prompt={thinkingRoleImmersionPrompt}
+                      />
+                      <p className={styles.promptMeta}>
+                        生效条件：主聊天思考模式开启，且这里保存了非空内容。
+                      </p>
+                    </label>
+                  </div>
+                </div>
               </section>
             </section>
           )}
