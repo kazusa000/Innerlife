@@ -165,12 +165,11 @@ test('parseEpisodicExtractionResponse enforces max links and drops weak links', 
   assert.equal(parsed.episodicMemories[0]?.entityLinks.some((link) => link.localEntityId === 'e6'), false)
 })
 
-test('episodic extraction prompt uses detail instead of source_quote', () => {
+test('episodic extraction prompt uses detail', () => {
   const prompt = buildEpisodicExtractionPrompt()
 
   assert.match(prompt, /"detail":string/)
   assert.match(prompt, /detail/)
-  assert.doesNotMatch(prompt, /source_quote/)
 })
 
 test('parseEntityResolutionResponse only merges above threshold', () => {

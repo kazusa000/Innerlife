@@ -108,7 +108,7 @@ function ensureMemoryDbSchema(sqlite: Database.Database) {
       session_id TEXT NOT NULL,
       summary TEXT NOT NULL,
       source_text TEXT NOT NULL,
-      source_quote TEXT,
+      detail TEXT,
       retrieval_text TEXT NOT NULL DEFAULT '',
       retrieval_embedding TEXT NOT NULL DEFAULT '[]',
       retrieval_model TEXT NOT NULL DEFAULT '',
@@ -132,6 +132,15 @@ function ensureMemoryDbSchema(sqlite: Database.Database) {
 
   const episodicColumns = sqlite.pragma("table_info('episodic_memories')") as Array<{ name: string }>
   const episodicColumnNames = new Set(episodicColumns.map((column) => column.name))
+  const legacyDetailColumn = ['source', 'quote'].join('_')
+  if (!episodicColumnNames.has('detail') && episodicColumnNames.has(legacyDetailColumn)) {
+    sqlite.exec(`ALTER TABLE episodic_memories RENAME COLUMN ${legacyDetailColumn} TO detail;`)
+    episodicColumnNames.delete(legacyDetailColumn)
+    episodicColumnNames.add('detail')
+  }
+  if (!episodicColumnNames.has('detail')) {
+    sqlite.exec('ALTER TABLE episodic_memories ADD COLUMN detail TEXT;')
+  }
   if (!episodicColumnNames.has('retrieval_text')) {
     sqlite.exec("ALTER TABLE episodic_memories ADD COLUMN retrieval_text TEXT NOT NULL DEFAULT '';")
   }

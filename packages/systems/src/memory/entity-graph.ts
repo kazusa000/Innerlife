@@ -289,7 +289,7 @@ export function parseEpisodicExtractionResponse(responseText: string): {
 
     return [{
       summary,
-      detail: readText(record.detail) || readText(record.source_quote) || null,
+      detail: readText(record.detail) || null,
       importance: readConfidence(record.importance),
       entityLinks,
     }]

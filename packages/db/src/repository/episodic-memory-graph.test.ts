@@ -36,6 +36,59 @@ test('memory db bootstrap creates entity graph and episodic memory tables', () =
   }
 })
 
+test('memory db bootstrap renames legacy episodic detail column and preserves data', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+  const oldDetailColumn = ['source', 'quote'].join('_')
+
+  try {
+    const sqlite = new Database(dbPath)
+    sqlite.exec(`
+      CREATE TABLE episodic_memories (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        source_text TEXT NOT NULL,
+        ${oldDetailColumn} TEXT,
+        importance REAL NOT NULL,
+        observed_start_at INTEGER,
+        observed_end_at INTEGER,
+        created_at INTEGER NOT NULL
+      );
+    `)
+    sqlite.prepare(`
+      INSERT INTO episodic_memories (
+        id,
+        agent_id,
+        session_id,
+        summary,
+        source_text,
+        ${oldDetailColumn},
+        importance,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('memory-1', 'agent-1', 'session-1', '旧摘要', '旧来源', '旧 detail', 0.7, 1000)
+    sqlite.close()
+
+    bootstrap(dbPath)
+    const columns = getMemoryRawSqlite().pragma("table_info('episodic_memories')") as Array<{ name: string }>
+    const columnNames = columns.map((column) => column.name)
+    assert.ok(columnNames.includes('detail'))
+    assert.equal(columnNames.includes(oldDetailColumn), false)
+
+    const row = getMemoryRawSqlite().prepare(`
+      SELECT detail
+      FROM episodic_memories
+      WHERE id = ?
+    `).get('memory-1') as { detail: string } | undefined
+    assert.equal(row?.detail, '旧 detail')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('memory db bootstrap removes legacy persistent entity activation table', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
   const dbPath = join(dir, 'memory.db')

@@ -101,7 +101,7 @@ type EpisodicMemoryRow = {
   session_id: string
   summary: string
   source_text: string
-  source_quote: string | null
+  detail: string | null
   retrieval_text: string
   retrieval_embedding: string
   retrieval_model: string
@@ -146,7 +146,7 @@ type ManagedMemorySqlRow = {
   layer: ManagedMemoryRowLayer
   summary: string
   retrieval_text: string
-  source_quote: string | null
+  detail: string | null
   retrieval_embedding: string
   retrieval_model: string
   importance: number
@@ -250,7 +250,7 @@ function mapEpisodicMemory(row: EpisodicMemoryRow): EpisodicMemoryRecord {
     sessionId: row.session_id,
     summary: row.summary,
     sourceText: row.source_text,
-    detail: row.source_quote,
+    detail: row.detail,
     retrievalText: row.retrieval_text,
     retrievalEmbedding: parseEmbedding(row.retrieval_embedding),
     retrievalModel: row.retrieval_model,
@@ -270,7 +270,7 @@ function mapManagedMemoryRow(row: ManagedMemorySqlRow): ManagedMemoryRowRecord {
     layer: row.layer,
     summary: row.summary,
     retrievalText: row.retrieval_text,
-    detail: row.source_quote,
+    detail: row.detail,
     retrievalEmbedding: parseEmbedding(row.retrieval_embedding),
     retrievalModel: row.retrieval_model,
     importance: row.importance,
@@ -565,7 +565,6 @@ export function createEpisodicMemory(input: {
   summary: string
   sourceText: string
   detail?: string | null
-  sourceQuote?: string | null
   retrievalText?: string | null
   retrievalEmbedding?: number[]
   retrievalModel?: string | null
@@ -586,7 +585,7 @@ export function createEpisodicMemory(input: {
       session_id,
       summary,
       source_text,
-      source_quote,
+      detail,
       retrieval_text,
       retrieval_embedding,
       retrieval_model,
@@ -601,7 +600,7 @@ export function createEpisodicMemory(input: {
     input.sessionId,
     normalizeText(input.summary),
     input.sourceText,
-    input.detail?.trim() || input.sourceQuote?.trim() || null,
+    input.detail?.trim() || null,
     input.retrievalText?.trim() || normalizeText(input.summary),
     JSON.stringify(input.retrievalEmbedding?.filter((value) => typeof value === 'number' && Number.isFinite(value)) ?? []),
     input.retrievalModel?.trim() || '',
@@ -636,7 +635,7 @@ export function getEpisodicMemory(memoryId: string) {
       session_id,
       summary,
       source_text,
-      source_quote,
+      detail,
       retrieval_text,
       retrieval_embedding,
       retrieval_model,
@@ -664,7 +663,7 @@ export function listEpisodicMemoriesByAgent(input: {
       session_id,
       summary,
       source_text,
-      source_quote,
+      detail,
       retrieval_text,
       retrieval_embedding,
       retrieval_model,
@@ -711,7 +710,7 @@ export function listManagedMemoryRowsByAgent(input: {
         layer,
         display_summary AS summary,
         retrieval_text,
-        NULL AS source_quote,
+        NULL AS detail,
         retrieval_embedding,
         retrieval_model,
         importance,
@@ -735,7 +734,7 @@ export function listManagedMemoryRowsByAgent(input: {
         'episodic' AS layer,
         summary,
         retrieval_text,
-        source_quote,
+        detail,
         retrieval_embedding,
         retrieval_model,
         importance,
@@ -756,7 +755,7 @@ export function listManagedMemoryRowsByAgent(input: {
     ? `WHERE (
         lower(summary) LIKE ?
         OR lower(retrieval_text) LIKE ?
-        OR lower(COALESCE(source_quote, '')) LIKE ?
+        OR lower(COALESCE(detail, '')) LIKE ?
       )`
     : ''
   const queryValues = query ? [`%${query}%`, `%${query}%`, `%${query}%`] : []
@@ -999,7 +998,7 @@ export function findRelevantEpisodicMemories(input: {
       session_id,
       summary,
       source_text,
-      source_quote,
+      detail,
       retrieval_text,
       retrieval_embedding,
       retrieval_model,
