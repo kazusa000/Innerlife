@@ -286,7 +286,16 @@ test('runEpisodicConsolidationForAgent resolves local entities in batches of fiv
       agentId: agent.id,
       provider,
       embedder: {
-        async embed(input) {
+        async embed(input, options) {
+          if (options?.inputType === 'search_document' && input.some((text) => text.includes('canonical_name'))) {
+            assert.equal(input.length, 7)
+            return input.map((_, index) => [index + 1, 0, 0])
+          }
+          if (options?.inputType === 'search_query') {
+            assert.equal(input.length, 12)
+            return input.map((_, index) => [index + 1, 0, 0])
+          }
+          assert.equal(options?.inputType, 'search_document')
           assert.equal(input.length, 3)
           return input.map((_, index) => [index + 1, 0, 0])
         },
@@ -304,6 +313,150 @@ test('runEpisodicConsolidationForAgent resolves local entities in batches of fiv
     assert.equal(stageBCandidateSizes[0], 5)
     assert.equal(result.createdEntityCount, 12)
     assert.equal(result.createdEpisodicCount, 3)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('runEpisodicConsolidationForAgent ranks stage B candidates by entity card embeddings', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-episodic-job-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+    const agent = agentRepo.createAgent({
+      name: 'Amadeus',
+      description: '',
+      model: 'claude-sonnet-4-6',
+      provider: 'openrouter',
+      modules: { memory: { scheme: 'sqlite' } },
+    })
+    const existing = episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: 'event',
+      canonicalName: '起飞',
+      description: '王家骏喜欢的一种玩法，也会用别的个人习惯叫法来称呼。',
+      confidence: 0.9,
+      aliases: [],
+      now: new Date('2026-04-30T07:00:00.000Z'),
+    })
+    episodicMemoryGraphRepo.createEntity({
+      agentId: agent.id,
+      type: 'object',
+      canonicalName: '星际争霸2',
+      description: '王家骏喜欢的科幻即时战略游戏。',
+      confidence: 0.9,
+      aliases: [],
+      now: new Date('2026-04-30T07:00:00.000Z'),
+    })
+    memoryRepo.addMemory({
+      agentId: agent.id,
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: '王家骏：跳皮就是起飞的别称。',
+      detail: '王家骏解释“跳皮”是“起飞”的别称。',
+      retrievalText: '王家骏说跳皮就是起飞的别称。',
+      retrievalEmbedding: [],
+      retrievalModel: 'none',
+      tags: [],
+      importance: 0.8,
+      observedStartAt: new Date('2026-04-30T08:00:00.000Z'),
+      observedEndAt: new Date('2026-04-30T08:05:00.000Z'),
+    })
+
+    const provider = {
+      async sendMessage(input: LLMRequest) {
+        if (input.systemPrompt.includes('episodic_memories')) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({
+              entities: [
+                {
+                  local_entity_id: 'e1',
+                  surface: '跳皮',
+                  type: 'event',
+                  context_hint: '王家骏解释该词是起飞的别称',
+                },
+              ],
+              episodic_memories: [
+                {
+                  summary: '王家骏说跳皮就是起飞的别称。',
+                  detail: '王家骏解释“跳皮”是“起飞”的别称。',
+                  importance: 0.8,
+                  entity_links: [{ local_entity_id: 'e1', weight: 1 }],
+                },
+              ],
+            }) }],
+            stopReason: 'end_turn' as const,
+            usage: { inputTokens: 1, outputTokens: 1 },
+          }
+        }
+
+        const content = input.messages[0]?.content
+        const text = Array.isArray(content) && content[0]?.type === 'text' ? content[0].text : '[]'
+        const payload = JSON.parse(text) as Array<{
+          local_entity_id: string
+          candidates: Array<{ entity_id: string; canonical_name: string }>
+        }>
+        assert.equal(payload[0]?.local_entity_id, 'e1')
+        assert.equal(payload[0]?.candidates[0]?.entity_id, existing.id)
+        assert.equal(payload[0]?.candidates[0]?.canonical_name, '起飞')
+
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            resolutions: [
+              {
+                local_entity_id: 'e1',
+                action: 'merge',
+                entity_id: existing.id,
+                confidence: 0.94,
+                alias_to_add: '跳皮',
+              },
+            ],
+          }) }],
+          stopReason: 'end_turn' as const,
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+
+    const result = await runEpisodicConsolidationForAgent({
+      agentId: agent.id,
+      provider,
+      embedder: {
+        async embed(input, options) {
+          if (options?.inputType === 'search_query') {
+            assert.deepEqual(options, { model: 'BAAI/bge-m3', inputType: 'search_query' })
+            assert.equal(input.length, 1)
+            assert.match(input[0] ?? '', /跳皮/)
+            return [[1, 0]]
+          }
+          if (options?.inputType === 'search_document' && input.some((text) => text.includes('canonical_name'))) {
+            assert.deepEqual(options, { model: 'BAAI/bge-m3', inputType: 'search_document' })
+            return input.map((text) =>
+              text.includes('起飞') ? [1, 0] : [0, 1],
+            )
+          }
+          assert.equal(options?.inputType, 'search_document')
+          return input.map(() => [1, 0])
+        },
+      },
+      now: new Date('2026-04-30T09:00:00.000Z'),
+    })
+
+    assert.equal(result.ok, true)
+    assert.equal(result.createdEntityCount, 0)
+    assert.equal(result.createdEpisodicCount, 1)
+    assert.deepEqual(
+      getMemoryRawSqlite().prepare(`
+        SELECT alias
+        FROM memory_entity_aliases
+        WHERE entity_id = ?
+      `).all(existing.id),
+      [{ alias: '跳皮' }],
+    )
   } finally {
     resetDb()
     resetMemoryDb()

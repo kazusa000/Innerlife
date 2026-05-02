@@ -38,6 +38,16 @@ type DbMessage = ReturnType<typeof messageRepo.getSessionMessages>[number]
 const EPISODIC_STAGE_B_LOCAL_ENTITY_BATCH_SIZE = 5
 const EPISODIC_STAGE_B_CANDIDATE_LIMIT = 5
 const EPISODIC_STAGE_A_STM_BATCH_SIZE = 3
+const DEFAULT_ENTITY_CANDIDATE_EMBEDDING_MODEL = 'BAAI/bge-m3'
+
+type StageBLocalEntity = {
+  localEntityId: string
+  surface: string
+  type: 'person' | 'place' | 'object' | 'event'
+  contextHint: string
+}
+
+type MemoryEntityWithStats = ReturnType<typeof episodicMemoryGraphRepo.listMemoryEntitiesByAgent>[number]
 
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = []
@@ -51,6 +61,95 @@ function extractTextFromContent(content: Array<{ type: string; text?: string }>)
   return content
     .map((block) => block.type === 'text' ? block.text ?? '' : '')
     .join('\n')
+}
+
+function resolveEntityCandidateEmbeddingModel() {
+  return process.env.MAS_ENTITY_EMBEDDING_MODEL?.trim() || DEFAULT_ENTITY_CANDIDATE_EMBEDDING_MODEL
+}
+
+function compactLines(lines: Array<string | null | undefined>) {
+  return lines
+    .map((line) => line?.trim())
+    .filter((line): line is string => Boolean(line))
+    .join('\n')
+}
+
+function buildLocalEntityEmbeddingText(entity: StageBLocalEntity) {
+  return compactLines([
+    `surface: ${entity.surface}`,
+    `type: ${entity.type}`,
+    entity.contextHint ? `context_hint: ${entity.contextHint}` : null,
+  ])
+}
+
+function buildMemoryEntityEmbeddingText(entity: MemoryEntityWithStats) {
+  return compactLines([
+    `canonical_name: ${entity.canonicalName}`,
+    `type: ${entity.type}`,
+    entity.aliases.length > 0 ? `aliases: ${entity.aliases.join(', ')}` : null,
+    entity.description ? `description: ${entity.description}` : null,
+    `episodic_memory_count: ${entity.episodicMemoryCount}`,
+  ])
+}
+
+function cosineSimilarity(left: number[], right: number[]) {
+  if (left.length === 0 || right.length === 0 || left.length !== right.length) {
+    return 0
+  }
+
+  let dot = 0
+  let leftNorm = 0
+  let rightNorm = 0
+  for (let index = 0; index < left.length; index += 1) {
+    const leftValue = left[index]!
+    const rightValue = right[index]!
+    dot += leftValue * rightValue
+    leftNorm += leftValue * leftValue
+    rightNorm += rightValue * rightValue
+  }
+
+  return leftNorm > 0 && rightNorm > 0
+    ? dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm))
+    : 0
+}
+
+async function rankStageBEntityCandidatesByEmbedding(input: {
+  agentId: string
+  localEntities: StageBLocalEntity[]
+  embedder: MemoryEmbedder
+  model: string
+  limit: number
+}) {
+  const existingEntities = episodicMemoryGraphRepo.listMemoryEntitiesByAgent(input.agentId)
+  if (existingEntities.length === 0 || input.localEntities.length === 0) {
+    return new Map<string, MemoryEntityWithStats[]>()
+  }
+
+  const entityEmbeddings = await input.embedder.embed(
+    existingEntities.map(buildMemoryEntityEmbeddingText),
+    { model: input.model, inputType: 'search_document' },
+  )
+  const localEmbeddings = await input.embedder.embed(
+    input.localEntities.map(buildLocalEntityEmbeddingText),
+    { model: input.model, inputType: 'search_query' },
+  )
+  const candidatesByLocalId = new Map<string, MemoryEntityWithStats[]>()
+
+  for (const [localIndex, localEntity] of input.localEntities.entries()) {
+    const localEmbedding = localEmbeddings[localIndex] ?? []
+    const candidates = existingEntities
+      .map((entity, entityIndex) => ({
+        entity,
+        score: cosineSimilarity(localEmbedding, entityEmbeddings[entityIndex] ?? []),
+      }))
+      .sort((left, right) => right.score - left.score)
+      .slice(0, input.limit)
+      .map((candidate) => candidate.entity)
+
+    candidatesByLocalId.set(localEntity.localEntityId, candidates)
+  }
+
+  return candidatesByLocalId
 }
 
 function toConversationMessage(message: DbMessage): ConversationMessage {
@@ -705,23 +804,26 @@ export async function runEpisodicConsolidationForAgent(input: {
           draft.entityLinks.map((link) => link.localEntityId),
         ),
       )
-      const candidatePayloads = extraction.entities
+      const resolutionLocalEntities = extraction.entities
         .filter((entity) => referencedLocalEntityIds.has(entity.localEntityId))
+      const candidatesByLocalId = await rankStageBEntityCandidatesByEmbedding({
+        agentId: agent.id,
+        localEntities: resolutionLocalEntities,
+        embedder,
+        model: resolveEntityCandidateEmbeddingModel(),
+        limit: EPISODIC_STAGE_B_CANDIDATE_LIMIT,
+      })
+      const candidatePayloads = resolutionLocalEntities
         .map((entity) => ({
           local_entity_id: entity.localEntityId,
           surface: entity.surface,
           type: entity.type,
           context_hint: entity.contextHint,
-          candidates: episodicMemoryGraphRepo.findEntityCandidates({
-            agentId: agent.id,
-            type: entity.type,
-            surface: entity.surface,
-            limit: EPISODIC_STAGE_B_CANDIDATE_LIMIT,
-          }).map((candidate) => ({
-            entity_id: candidate.entity.id,
-            canonical_name: candidate.entity.canonicalName,
-            type: candidate.entity.type,
-            description: candidate.entity.description,
+          candidates: (candidatesByLocalId.get(entity.localEntityId) ?? []).map((candidate) => ({
+            entity_id: candidate.id,
+            canonical_name: candidate.canonicalName,
+            type: candidate.type,
+            description: candidate.description,
           })),
         }))
       const extractionEntitiesById = new Map(
