@@ -373,6 +373,40 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
         return [{ surface, type }]
       })
       : []
+    const entityCandidates = Array.isArray(record?.entityCandidates)
+      ? record.entityCandidates.flatMap((candidate) => {
+        const candidateRecord = readRecord(candidate)
+        const mentionRecord = readRecord(candidateRecord?.mention)
+        const entityRecord = readRecord(candidateRecord?.entity)
+        const surface = readText(mentionRecord?.surface)
+        const canonicalName = readText(entityRecord?.canonicalName)
+        if (!surface || !canonicalName) {
+          return []
+        }
+        return [{
+          surface,
+          canonicalName,
+          entityId: readText(entityRecord?.id),
+          type: readText(entityRecord?.type),
+          matchKind: readText(candidateRecord?.matchKind),
+        }]
+      })
+      : []
+    const activatedEntities = Array.isArray(record?.activatedEntities)
+      ? record.activatedEntities.flatMap((entity) => {
+        const entityRecord = readRecord(entity)
+        const canonicalName = readText(entityRecord?.canonicalName)
+        if (!canonicalName) {
+          return []
+        }
+        return [{
+          canonicalName,
+          entityId: readText(entityRecord?.id),
+          type: readText(entityRecord?.type),
+          activation: readNumber(entityRecord?.activation),
+        }]
+      })
+      : []
     const hits = Array.isArray(record?.hits)
       ? record.hits.flatMap((hit) => {
         const hitRecord = readRecord(hit)
@@ -434,6 +468,61 @@ export function MemoryView({ metadata }: { metadata: unknown }) {
                   }}
                 >
                   {mention.surface}{mention.type ? ` · ${mention.type}` : ''}
+                </span>
+              ))}
+            </div>
+          )}
+        </MemorySection>
+        <MemorySection title="Mention Candidates">
+          {entityCandidates.length === 0 ? (
+            <pre style={{ fontSize: 11, color: '#cdd9e5' }}>[]</pre>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {entityCandidates.map((candidate, index) => (
+                <div
+                  key={`${candidate.surface}-${candidate.entityId ?? candidate.canonicalName}-${index}`}
+                  style={{
+                    border: '1px solid rgba(96, 165, 250, 0.22)',
+                    borderRadius: 10,
+                    padding: 9,
+                    color: '#dbeafe',
+                    background: 'rgba(96, 165, 250, 0.07)',
+                    fontSize: 12,
+                  }}
+                >
+                  <strong>{candidate.surface}</strong>
+                  <span style={{ color: '#93c5fd' }}> → </span>
+                  <strong>{candidate.canonicalName}</strong>
+                  <span style={{ color: '#93c5fd' }}>
+                    {candidate.type ? ` · ${candidate.type}` : ''}
+                    {candidate.matchKind ? ` · ${candidate.matchKind}` : ''}
+                    {candidate.entityId ? ` · ${candidate.entityId}` : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </MemorySection>
+        <MemorySection title="Activated Entities">
+          {activatedEntities.length === 0 ? (
+            <pre style={{ fontSize: 11, color: '#cdd9e5' }}>[]</pre>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {activatedEntities.map((entity, index) => (
+                <span
+                  key={`${entity.entityId ?? entity.canonicalName}-${index}`}
+                  style={{
+                    color: '#fde68a',
+                    background: 'rgba(251, 191, 36, 0.1)',
+                    border: '1px solid rgba(251, 191, 36, 0.22)',
+                    borderRadius: 999,
+                    padding: '5px 9px',
+                    fontSize: 12,
+                  }}
+                >
+                  {entity.canonicalName}
+                  {entity.type ? ` · ${entity.type}` : ''}
+                  {entity.activation !== null ? ` · ${entity.activation.toFixed(2)}` : ''}
                 </span>
               ))}
             </div>

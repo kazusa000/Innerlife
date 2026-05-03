@@ -17,6 +17,7 @@ export interface ConversationBlock {
   tool_use_id?: string
   content?: unknown
   is_error?: boolean
+  metadata?: Record<string, unknown>
 }
 
 export interface ConversationMessage {
@@ -366,6 +367,7 @@ export function toBlocks(content: unknown): ConversationBlock[] {
       tool_use_id: readString(item.tool_use_id) ?? undefined,
       content: item.content,
       is_error: typeof item.is_error === 'boolean' ? item.is_error : undefined,
+      metadata: isRecord(item.metadata) ? item.metadata : undefined,
     }
   })
 }

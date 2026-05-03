@@ -263,6 +263,41 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
     assert.equal(sawMentionPrompt, true)
     assert.equal(result.metadata?.noResults, false)
     assert.equal(result.metadata?.mode, 'episodic_hybrid')
+    assert.deepEqual(
+      (result.metadata?.entityCandidates as Array<{ mention: { surface: string }; entity: { id: string; canonicalName: string }; matchKind: string }>).map((candidate) => ({
+        mention: candidate.mention.surface,
+        entityId: candidate.entity.id,
+        canonicalName: candidate.entity.canonicalName,
+        matchKind: candidate.matchKind,
+      })),
+      [
+        { mention: '安特卫普旧书店', entityId: bookstore.id, canonicalName: '安特卫普旧书店', matchKind: 'exact' },
+        { mention: '焦糖咖啡', entityId: coffee.id, canonicalName: '焦糖咖啡', matchKind: 'exact' },
+      ],
+    )
+    assert.deepEqual(
+      (result.metadata?.activatedEntities as Array<{ id: string; canonicalName: string; type: string; activation: number }>).map((entity) => ({
+        id: entity.id,
+        canonicalName: entity.canonicalName,
+        type: entity.type,
+        activation: entity.activation,
+      })),
+      [
+        { id: bookstore.id, canonicalName: '安特卫普旧书店', type: 'place', activation: 0.7 },
+        { id: coffee.id, canonicalName: '焦糖咖啡', type: 'object', activation: 0.7 },
+      ],
+    )
+    assert.deepEqual(
+      (result.metadata?.hits as Array<{ entities: Array<{ id: string; canonicalName: string; weight: number }> }>)[0]?.entities.map((entity) => ({
+        id: entity.id,
+        canonicalName: entity.canonicalName,
+        weight: entity.weight,
+      })),
+      [
+        { id: bookstore.id, canonicalName: '安特卫普旧书店', weight: 1 },
+        { id: coffee.id, canonicalName: '焦糖咖啡', weight: 0.8 },
+      ],
+    )
     assert.match(result.output, /WJJ 在安特卫普旧书店边喝焦糖咖啡边复盘 memory v2/)
   } finally {
     resetDb()

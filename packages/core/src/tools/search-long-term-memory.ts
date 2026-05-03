@@ -312,16 +312,33 @@ export const SearchLongTermMemoryTool: Tool = {
       })),
     )
     const graphCandidates = mentionCandidates
+    const graphActivation = graphCandidates.length === 1 ? 1 : 0.7
+    const activatedEntityById = new Map<string, {
+      id: string
+      canonicalName: string
+      type: string
+      description: string | null
+      activation: number
+    }>()
+    for (const candidate of graphCandidates) {
+      const existing = activatedEntityById.get(candidate.entity.id)
+      activatedEntityById.set(candidate.entity.id, {
+        id: candidate.entity.id,
+        canonicalName: candidate.entity.canonicalName,
+        type: candidate.entity.type,
+        description: candidate.entity.description,
+        activation: Math.max(existing?.activation ?? 0, graphActivation),
+      })
+    }
 
     let graphHits: ReturnType<typeof episodicMemoryGraphRepo.recallEpisodicMemories> = []
     if (graphCandidates.length > 0) {
-      const activation = graphCandidates.length === 1 ? 1 : 0.7
       graphHits = episodicMemoryGraphRepo.recallEpisodicMemories({
         agentId,
         topK: Math.max(5, topK * 3),
         activations: graphCandidates.map((candidate) => ({
           entityId: candidate.entity.id,
-          activation,
+          activation: graphActivation,
         })),
         spreadFactor: 0.35,
       })
@@ -400,6 +417,22 @@ export const SearchLongTermMemoryTool: Tool = {
           effectiveQueries,
           textQuery,
           entityMentions: mentions,
+          entityCandidates: mentionCandidates.map((candidate) => ({
+            mention: {
+              surface: candidate.mention.surface,
+              type: candidate.mention.type,
+              contextHint: candidate.mention.contextHint,
+              confidence: candidate.mention.confidence,
+            },
+            entity: {
+              id: candidate.entity.id,
+              canonicalName: candidate.entity.canonicalName,
+              type: candidate.entity.type,
+              description: candidate.entity.description,
+            },
+            matchKind: candidate.matchKind,
+          })),
+          activatedEntities: [...activatedEntityById.values()],
           hits: episodic.map((hit) => ({
             id: hit.memory.id,
             sessionId: hit.memory.sessionId,
@@ -411,6 +444,13 @@ export const SearchLongTermMemoryTool: Tool = {
             graphScore: hit.graphScore,
             textScore: hit.textScore,
             score: hit.finalScore,
+            entities: episodicMemoryGraphRepo.getEpisodicMemoryWithEntities(hit.memory.id)?.entities.map((link) => ({
+              id: link.entity.id,
+              canonicalName: link.entity.canonicalName,
+              type: link.entity.type,
+              description: link.entity.description,
+              weight: link.weight,
+            })) ?? [],
           })),
         },
       }

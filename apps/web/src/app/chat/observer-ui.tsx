@@ -6,6 +6,9 @@ import type { LiveCall } from './observer-types'
 import {
   blockText,
   formatJson,
+  isRecord,
+  readNumber,
+  readString,
   summarizeInput,
   toBlocks,
   toMessages,
@@ -297,11 +300,125 @@ function RenderBlock({ block }: { block: ConversationBlock }) {
           <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{preview || '（空）'}</span>
         </div>
         <CodeBlock value={blockText(block.content)} />
+        <MemoryToolGraphTrace metadata={block.metadata} />
       </div>
     )
   }
 
   return <CodeBlock value={formatJson(block)} />
+}
+
+function MemoryToolGraphTrace({ metadata }: { metadata?: Record<string, unknown> }) {
+  if (metadata?.mode !== 'episodic_hybrid') {
+    return null
+  }
+
+  const mentions = Array.isArray(metadata.entityMentions)
+    ? metadata.entityMentions.flatMap((mention) => {
+      const record = isRecord(mention) ? mention : null
+      const surface = readString(record?.surface)
+      return surface ? [{ surface, type: readString(record?.type) }] : []
+    })
+    : []
+  const candidates = Array.isArray(metadata.entityCandidates)
+    ? metadata.entityCandidates.flatMap((candidate) => {
+      const record = isRecord(candidate) ? candidate : null
+      const mention = isRecord(record?.mention) ? record.mention : null
+      const entity = isRecord(record?.entity) ? record.entity : null
+      const surface = readString(mention?.surface)
+      const canonicalName = readString(entity?.canonicalName)
+      if (!surface || !canonicalName) {
+        return []
+      }
+      return [{
+        surface,
+        canonicalName,
+        type: readString(entity?.type),
+        matchKind: readString(record?.matchKind),
+      }]
+    })
+    : []
+  const activatedEntities = Array.isArray(metadata.activatedEntities)
+    ? metadata.activatedEntities.flatMap((entity) => {
+      const record = isRecord(entity) ? entity : null
+      const canonicalName = readString(record?.canonicalName)
+      return canonicalName
+        ? [{ canonicalName, type: readString(record?.type), activation: readNumber(record?.activation) }]
+        : []
+    })
+    : []
+  const hits = Array.isArray(metadata.hits)
+    ? metadata.hits.flatMap((hit) => {
+      const record = isRecord(hit) ? hit : null
+      const summary = readString(record?.summary)
+      if (!summary) {
+        return []
+      }
+      const entities = Array.isArray(record?.entities)
+        ? record.entities.flatMap((entity) => {
+          const entityRecord = isRecord(entity) ? entity : null
+          const canonicalName = readString(entityRecord?.canonicalName)
+          return canonicalName
+            ? [{ canonicalName, weight: readNumber(entityRecord?.weight) }]
+            : []
+        })
+        : []
+      return [{ summary, entities }]
+    })
+    : []
+
+  return (
+    <div
+      style={{
+        border: '1px solid rgba(96, 165, 250, 0.2)',
+        borderRadius: 12,
+        background: 'rgba(96, 165, 250, 0.07)',
+        padding: 10,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}
+    >
+      <div style={{ color: '#93c5fd', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>Graph Trace</div>
+      <TraceRow label="Text Query" value={readString(metadata.textQuery) ?? '无'} />
+      <TraceRow
+        label="Mentions"
+        value={mentions.length ? mentions.map((mention) => `${mention.surface}${mention.type ? `/${mention.type}` : ''}`).join(', ') : '无'}
+      />
+      <TraceRow
+        label="Mention Candidates"
+        value={candidates.length ? candidates.map((candidate) =>
+          `${candidate.surface} -> ${candidate.canonicalName}${candidate.type ? `/${candidate.type}` : ''}${candidate.matchKind ? ` (${candidate.matchKind})` : ''}`,
+        ).join('\n') : '无'}
+      />
+      <TraceRow
+        label="Activated Entities"
+        value={activatedEntities.length ? activatedEntities.map((entity) =>
+          `${entity.canonicalName}${entity.type ? `/${entity.type}` : ''}${entity.activation !== null ? ` ${entity.activation.toFixed(2)}` : ''}`,
+        ).join(', ') : '无'}
+      />
+      {hits.length > 0 && (
+        <TraceRow
+          label="Hit Entity Links"
+          value={hits.map((hit) => {
+            const entities = hit.entities.length
+              ? hit.entities.map((entity) => `${entity.canonicalName}${entity.weight !== null ? ` ${entity.weight.toFixed(2)}` : ''}`).join(', ')
+              : '无'
+            return `${hit.summary}\n${entities}`
+          }).join('\n\n')}
+        />
+      )}
+    </div>
+  )
+}
+
+function TraceRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '120px minmax(0, 1fr)', gap: 10, fontSize: 12 }}>
+      <div style={{ color: 'var(--fg-subtle)', fontWeight: 700 }}>{label}</div>
+      <div style={{ color: '#dbeafe', whiteSpace: 'pre-wrap', minWidth: 0 }}>{value}</div>
+    </div>
+  )
 }
 
 function MessageCard({
