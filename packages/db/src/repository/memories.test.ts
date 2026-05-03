@@ -717,3 +717,66 @@ test('updateSqliteMemoryLayer changes only the targeted memory layer', () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('updateSqliteMemoryByAgent updates editable STM fields and replaces retrieval embedding', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapMemoryDb(dbPath)
+
+    const target = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      sourceText: 'User stores a local preference.',
+      detail: '用户偏好使用本地数据库',
+      retrievalText: '用户偏好本地 sqlite 数据库',
+      retrievalEmbedding: vector([1, 0]),
+      retrievalModel: 'old-embed',
+      tags: ['database', 'sqlite'],
+      importance: 0.7,
+      createdAt: new Date('2026-04-17T10:00:00.000Z'),
+    })
+
+    const updated = memoryRepo.updateSqliteMemoryByAgent({
+      agentId: 'agent-1',
+      memoryId: target.id,
+      layer: 'fixed',
+      detail: '用户更喜欢可手动编辑的本地记忆',
+      retrievalText: '用户偏好可手动编辑的本地记忆',
+      retrievalEmbedding: vector([0.2, 0.8]),
+      retrievalModel: 'new-embed',
+      importance: 0.91,
+      observedStartAt: new Date('2026-04-18T08:00:00.000Z'),
+      observedEndAt: new Date('2026-04-18T09:00:00.000Z'),
+    })
+    const foreignBlocked = memoryRepo.updateSqliteMemoryByAgent({
+      agentId: 'agent-2',
+      memoryId: target.id,
+      layer: 'fixed',
+      detail: '不应写入',
+      retrievalText: '不应写入',
+      retrievalEmbedding: vector([9, 9]),
+      retrievalModel: 'bad',
+      importance: 1,
+      observedStartAt: null,
+      observedEndAt: null,
+    })
+
+    assert.equal(updated, true)
+    assert.equal(foreignBlocked, false)
+
+    const memory = memoryRepo.getMemory(target.id)
+    assert.equal(memory?.layer, 'fixed')
+    assert.equal(memory?.detail, '用户更喜欢可手动编辑的本地记忆')
+    assert.equal(memory?.retrievalText, '用户偏好可手动编辑的本地记忆')
+    assert.deepEqual(memory?.retrievalEmbedding, [0.2, 0.8])
+    assert.equal(memory?.retrievalModel, 'new-embed')
+    assert.equal(memory?.importance, 0.91)
+    assert.equal(memory?.observedStartAt?.toISOString(), '2026-04-18T08:00:00.000Z')
+    assert.equal(memory?.observedEndAt?.toISOString(), '2026-04-18T09:00:00.000Z')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

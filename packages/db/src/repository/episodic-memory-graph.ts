@@ -448,6 +448,11 @@ export function getEntity(entityId: string) {
   return row ? mapEntity(row) : undefined
 }
 
+function getEntityByAgent(agentId: string, entityId: string) {
+  const entity = getEntity(entityId)
+  return entity?.agentId === agentId ? entity : undefined
+}
+
 export function updateEntityEmbedding(input: {
   entityId: string
   embeddingText: string
@@ -473,6 +478,80 @@ export function updateEntityEmbedding(input: {
   )
 
   return result.changes > 0
+}
+
+export function updateEntityByAgent(input: {
+  agentId: string
+  entityId: string
+  type: EntityType
+  canonicalName: string
+  description?: string | null
+  confidence: number
+  aliases: string[]
+  embeddingText: string
+  embedding: number[]
+  embeddingModel: string
+  now?: Date
+}) {
+  const canonicalName = normalizeText(input.canonicalName)
+  if (!canonicalName || !getEntityByAgent(input.agentId, input.entityId)) {
+    return false
+  }
+
+  const sqlite = getMemoryRawSqlite()
+  const now = input.now ?? new Date()
+  const update = sqlite.transaction(() => {
+    const result = sqlite.prepare(`
+      UPDATE memory_entities
+      SET
+        type = ?,
+        canonical_name = ?,
+        description = ?,
+        confidence = ?,
+        embedding_text = ?,
+        embedding = ?,
+        embedding_model = ?,
+        embedding_updated_at = ?,
+        last_seen_at = ?
+      WHERE agent_id = ? AND id = ?
+    `).run(
+      normalizeType(input.type),
+      canonicalName,
+      input.description?.trim() || null,
+      clip01(input.confidence),
+      input.embeddingText.trim(),
+      JSON.stringify(input.embedding.filter((value) => typeof value === 'number' && Number.isFinite(value))),
+      input.embeddingModel.trim(),
+      now.getTime(),
+      now.getTime(),
+      input.agentId,
+      input.entityId,
+    )
+    if (result.changes === 0) {
+      return false
+    }
+
+    sqlite.prepare(`DELETE FROM memory_entity_aliases WHERE entity_id = ?`).run(input.entityId)
+    for (const alias of [...new Set(input.aliases.map(normalizeText).filter(Boolean))]) {
+      if (normalizeMatchText(alias) === normalizeMatchText(canonicalName)) {
+        continue
+      }
+      sqlite.prepare(`
+        INSERT OR IGNORE INTO memory_entity_aliases (
+          id,
+          entity_id,
+          alias,
+          confidence,
+          source_memory_id,
+          created_at,
+          last_seen_at
+        ) VALUES (?, ?, ?, ?, NULL, ?, ?)
+      `).run(randomUUID(), input.entityId, alias, 1, now.getTime(), now.getTime())
+    }
+    return true
+  })
+
+  return update()
 }
 
 function clearEntityEmbedding(entityId: string) {
@@ -531,6 +610,156 @@ export function addEntityAlias(input: {
   }
 
   return false
+}
+
+export function deleteEntityByAgent(agentId: string, entityId: string) {
+  if (!getEntityByAgent(agentId, entityId)) {
+    return false
+  }
+
+  const sqlite = getMemoryRawSqlite()
+  const remove = sqlite.transaction(() => {
+    sqlite.prepare(`DELETE FROM memory_entity_aliases WHERE entity_id = ?`).run(entityId)
+    sqlite.prepare(`
+      DELETE FROM memory_entity_edges
+      WHERE agent_id = ?
+        AND (source_entity_id = ? OR target_entity_id = ?)
+    `).run(agentId, entityId, entityId)
+    sqlite.prepare(`DELETE FROM episodic_memory_entities WHERE entity_id = ?`).run(entityId)
+    const result = sqlite.prepare(`
+      DELETE FROM memory_entities
+      WHERE agent_id = ? AND id = ?
+    `).run(agentId, entityId)
+    return result.changes > 0
+  })
+
+  return remove()
+}
+
+export function mergeEntitiesByAgent(input: {
+  agentId: string
+  sourceEntityId: string
+  targetEntityId: string
+  now?: Date
+}) {
+  if (input.sourceEntityId === input.targetEntityId) {
+    return false
+  }
+  const source = getEntityByAgent(input.agentId, input.sourceEntityId)
+  const target = getEntityByAgent(input.agentId, input.targetEntityId)
+  if (!source || !target) {
+    return false
+  }
+
+  const sqlite = getMemoryRawSqlite()
+  const now = input.now ?? new Date()
+  const merge = sqlite.transaction(() => {
+    const aliases = sqlite.prepare(`
+      SELECT alias
+      FROM memory_entity_aliases
+      WHERE entity_id = ?
+    `).all(input.sourceEntityId) as AliasRow[]
+    const aliasCandidates = [source.canonicalName, ...aliases.map((row) => row.alias)]
+    for (const alias of [...new Set(aliasCandidates.map(normalizeText).filter(Boolean))]) {
+      if (normalizeMatchText(alias) === normalizeMatchText(target.canonicalName)) {
+        continue
+      }
+      sqlite.prepare(`
+        INSERT OR IGNORE INTO memory_entity_aliases (
+          id,
+          entity_id,
+          alias,
+          confidence,
+          source_memory_id,
+          created_at,
+          last_seen_at
+        ) VALUES (?, ?, ?, ?, NULL, ?, ?)
+      `).run(randomUUID(), input.targetEntityId, alias, 1, now.getTime(), now.getTime())
+    }
+
+    const links = sqlite.prepare(`
+      SELECT memory_id, weight
+      FROM episodic_memory_entities
+      WHERE entity_id = ?
+    `).all(input.sourceEntityId) as Array<{ memory_id: string; weight: number }>
+    for (const link of links) {
+      const existing = sqlite.prepare(`
+        SELECT weight
+        FROM episodic_memory_entities
+        WHERE memory_id = ? AND entity_id = ?
+      `).get(link.memory_id, input.targetEntityId) as { weight: number } | undefined
+      if (existing) {
+        sqlite.prepare(`
+          UPDATE episodic_memory_entities
+          SET weight = ?
+          WHERE memory_id = ? AND entity_id = ?
+        `).run(Math.max(clip01(existing.weight), clip01(link.weight)), link.memory_id, input.targetEntityId)
+      } else {
+        sqlite.prepare(`
+          INSERT INTO episodic_memory_entities (memory_id, entity_id, weight)
+          VALUES (?, ?, ?)
+        `).run(link.memory_id, input.targetEntityId, clip01(link.weight))
+      }
+    }
+    sqlite.prepare(`DELETE FROM episodic_memory_entities WHERE entity_id = ?`).run(input.sourceEntityId)
+
+    const edges = sqlite.prepare(`
+      SELECT source_entity_id, target_entity_id, weight, co_occurrence_count
+      FROM memory_entity_edges
+      WHERE agent_id = ?
+        AND (source_entity_id = ? OR target_entity_id = ?)
+    `).all(input.agentId, input.sourceEntityId, input.sourceEntityId) as Array<{
+      source_entity_id: string
+      target_entity_id: string
+      weight: number
+      co_occurrence_count: number
+    }>
+    sqlite.prepare(`
+      DELETE FROM memory_entity_edges
+      WHERE agent_id = ?
+        AND (source_entity_id = ? OR target_entity_id = ?)
+    `).run(input.agentId, input.sourceEntityId, input.sourceEntityId)
+    for (const edge of edges) {
+      const otherEntityId = edge.source_entity_id === input.sourceEntityId
+        ? edge.target_entity_id
+        : edge.source_entity_id
+      if (otherEntityId === input.targetEntityId) {
+        continue
+      }
+      const [left, right] = sortedPair(input.targetEntityId, otherEntityId)
+      sqlite.prepare(`
+        INSERT INTO memory_entity_edges (
+          agent_id,
+          source_entity_id,
+          target_entity_id,
+          weight,
+          co_occurrence_count,
+          last_seen_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(agent_id, source_entity_id, target_entity_id) DO UPDATE SET
+          weight = max(weight, excluded.weight),
+          co_occurrence_count = co_occurrence_count + excluded.co_occurrence_count,
+          last_seen_at = excluded.last_seen_at
+      `).run(
+        input.agentId,
+        left,
+        right,
+        clip01(edge.weight),
+        Math.max(0, Math.floor(edge.co_occurrence_count)),
+        now.getTime(),
+      )
+    }
+
+    sqlite.prepare(`DELETE FROM memory_entity_aliases WHERE entity_id = ?`).run(input.sourceEntityId)
+    const result = sqlite.prepare(`
+      DELETE FROM memory_entities
+      WHERE agent_id = ? AND id = ?
+    `).run(input.agentId, input.sourceEntityId)
+    clearEntityEmbedding(input.targetEntityId)
+    return result.changes > 0
+  })
+
+  return merge()
 }
 
 export function hasEntitiesForAgent(agentId: string) {
@@ -701,6 +930,109 @@ export function getEpisodicMemory(memoryId: string) {
   `).get(memoryId) as EpisodicMemoryRow | undefined
 
   return row ? mapEpisodicMemory(row) : undefined
+}
+
+export function getEpisodicMemoryWithEntities(memoryId: string): EpisodicMemoryWithEntitiesRecord | undefined {
+  const memory = getEpisodicMemory(memoryId)
+  if (!memory) {
+    return undefined
+  }
+  return attachEpisodicEntityLinks([{ ...memory, entities: [] as EpisodicMemoryEntityLinkRecord[] }])[0]
+}
+
+export function updateEpisodicMemoryByAgent(input: {
+  agentId: string
+  memoryId: string
+  summary: string
+  sourceText: string
+  detail?: string | null
+  retrievalEmbedding: number[]
+  retrievalModel: string
+  importance: number
+  observedStartAt?: Date | null
+  observedEndAt?: Date | null
+  entityLinks: Array<{ entityId: string; weight: number }>
+}) {
+  const summary = normalizeText(input.summary)
+  if (!summary) {
+    return false
+  }
+
+  const sqlite = getMemoryRawSqlite()
+  const existing = sqlite.prepare(`
+    SELECT 1 AS value
+    FROM episodic_memories
+    WHERE agent_id = ? AND id = ?
+  `).get(input.agentId, input.memoryId) as { value: number } | undefined
+  if (!existing) {
+    return false
+  }
+
+  const update = sqlite.transaction(() => {
+    const result = sqlite.prepare(`
+      UPDATE episodic_memories
+      SET
+        summary = ?,
+        source_text = ?,
+        detail = ?,
+        retrieval_embedding = ?,
+        retrieval_model = ?,
+        importance = ?,
+        observed_start_at = ?,
+        observed_end_at = ?
+      WHERE agent_id = ? AND id = ?
+    `).run(
+      summary,
+      input.sourceText,
+      input.detail?.trim() || null,
+      JSON.stringify(input.retrievalEmbedding.filter((value) => typeof value === 'number' && Number.isFinite(value))),
+      input.retrievalModel.trim(),
+      clip01(input.importance),
+      input.observedStartAt?.getTime() ?? null,
+      input.observedEndAt?.getTime() ?? null,
+      input.agentId,
+      input.memoryId,
+    )
+    if (result.changes === 0) {
+      return false
+    }
+
+    sqlite.prepare(`DELETE FROM episodic_memory_entities WHERE memory_id = ?`).run(input.memoryId)
+    for (const link of input.entityLinks.slice(0, 5)) {
+      if (link.weight < 0.3 || !getEntityByAgent(input.agentId, link.entityId)) {
+        continue
+      }
+      sqlite.prepare(`
+        INSERT OR REPLACE INTO episodic_memory_entities (memory_id, entity_id, weight)
+        VALUES (?, ?, ?)
+      `).run(input.memoryId, link.entityId, clip01(link.weight))
+    }
+    return true
+  })
+
+  return update()
+}
+
+export function deleteEpisodicMemoryByAgent(agentId: string, memoryId: string) {
+  const sqlite = getMemoryRawSqlite()
+  const remove = sqlite.transaction(() => {
+    const existing = sqlite.prepare(`
+      SELECT 1 AS value
+      FROM episodic_memories
+      WHERE agent_id = ? AND id = ?
+    `).get(agentId, memoryId) as { value: number } | undefined
+    if (!existing) {
+      return false
+    }
+    sqlite.prepare(`DELETE FROM episodic_memory_entities WHERE memory_id = ?`).run(memoryId)
+    const result = sqlite.prepare(`
+      DELETE FROM episodic_memories
+      WHERE agent_id = ? AND id = ?
+    `).run(agentId, memoryId)
+    return result.changes > 0
+  })
+
+  return remove()
 }
 
 export function listEpisodicMemoriesByAgent(input: {
@@ -1203,6 +1535,64 @@ export function upsertEntityEdge(input: {
       co_occurrence_count = co_occurrence_count + 1,
       last_seen_at = excluded.last_seen_at
   `).run(input.agentId, source, target, clip01(input.delta), now.getTime())
+}
+
+export function setEntityEdgeByAgent(input: {
+  agentId: string
+  sourceEntityId: string
+  targetEntityId: string
+  weight: number
+  coOccurrenceCount: number
+  now?: Date
+}) {
+  if (input.sourceEntityId === input.targetEntityId) {
+    return false
+  }
+  if (!getEntityByAgent(input.agentId, input.sourceEntityId) || !getEntityByAgent(input.agentId, input.targetEntityId)) {
+    return false
+  }
+
+  const [source, target] = sortedPair(input.sourceEntityId, input.targetEntityId)
+  const now = input.now ?? new Date()
+  getMemoryRawSqlite().prepare(`
+    INSERT INTO memory_entity_edges (
+      agent_id,
+      source_entity_id,
+      target_entity_id,
+      weight,
+      co_occurrence_count,
+      last_seen_at
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(agent_id, source_entity_id, target_entity_id) DO UPDATE SET
+      weight = excluded.weight,
+      co_occurrence_count = excluded.co_occurrence_count,
+      last_seen_at = excluded.last_seen_at
+  `).run(
+    input.agentId,
+    source,
+    target,
+    clip01(input.weight),
+    Math.max(0, Math.floor(input.coOccurrenceCount)),
+    now.getTime(),
+  )
+
+  return true
+}
+
+export function deleteEntityEdgeByAgent(input: {
+  agentId: string
+  sourceEntityId: string
+  targetEntityId: string
+}) {
+  const [source, target] = sortedPair(input.sourceEntityId, input.targetEntityId)
+  const result = getMemoryRawSqlite().prepare(`
+    DELETE FROM memory_entity_edges
+    WHERE agent_id = ?
+      AND source_entity_id = ?
+      AND target_entity_id = ?
+  `).run(input.agentId, source, target)
+
+  return result.changes > 0
 }
 
 export function recallEpisodicMemories(input: {

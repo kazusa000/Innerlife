@@ -13,7 +13,9 @@ import {
   resetDb,
   resetMemoryDb,
 } from '@mas/db'
+import type { MemoryEmbedder } from '@mas/systems'
 import { deleteSqliteMemory, updateSqliteMemory } from './[memoryId]/handler'
+import { editSqliteMemoryGraph } from './edit/handler'
 import { clearSqliteMemories, listSqliteMemories, updateSqliteMemorySettings } from './handler'
 
 function bootstrapDb(dbPath: string, memoryDbPath: string) {
@@ -103,6 +105,15 @@ function addMemory(input: {
     observedStartAt: input.observedStartAt ? new Date(input.observedStartAt) : null,
     observedEndAt: input.observedEndAt ? new Date(input.observedEndAt) : null,
   })
+}
+
+function makeEmbedder(vectors: number[][], calls: string[] = []): MemoryEmbedder {
+  return {
+    async embed(input) {
+      calls.push(...input)
+      return input.map((_text, index) => vectors[index] ?? vectors[0] ?? [])
+    },
+  }
 }
 
 test('listSqliteMemories returns 404 when the agent does not exist', async () => {
@@ -928,6 +939,311 @@ test('updateSqliteMemory updates a single memory layer', async () => {
     assert.equal(memoryRepo.getMemory(memory.id)?.layer, 'fixed')
     assert.equal(data.memory.observedStartAt, '2026-04-17T09:45:00.000Z')
     assert.equal(data.memory.observedEndAt, '2026-04-17T10:00:00.000Z')
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('editSqliteMemoryGraph updates STM content with a fresh retrieval embedding', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const memory = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '旧的短期记忆',
+      retrievalText: '旧检索文本',
+      tags: ['old'],
+      createdAt: '2026-04-17T10:00:00.000Z',
+      observedStartAt: '2026-04-17T09:45:00.000Z',
+      observedEndAt: '2026-04-17T10:00:00.000Z',
+    })
+    const embedCalls: string[] = []
+
+    const response = await editSqliteMemoryGraph('agent-1', {
+      action: 'sqliteMemory.update',
+      memoryId: memory.id,
+      layer: 'fixed',
+      detail: 'WJJ 最近把星际2重新设为当前最喜欢的游戏。',
+      retrievalText: 'WJJ 当前最喜欢的游戏是星际2。',
+      importance: 0.92,
+      observedStartAt: '2026-04-18T09:00:00.000Z',
+      observedEndAt: '2026-04-18T09:05:00.000Z',
+    }, { embedder: makeEmbedder([[0.2, 0.8]], embedCalls) })
+    const data = await response.json()
+    const updated = memoryRepo.getMemory(memory.id)!
+
+    assert.equal(response.status, 200)
+    assert.equal(data.memory.id, memory.id)
+    assert.equal(updated.layer, 'fixed')
+    assert.equal(updated.detail, 'WJJ 最近把星际2重新设为当前最喜欢的游戏。')
+    assert.equal(updated.retrievalText, 'WJJ 当前最喜欢的游戏是星际2。')
+    assert.deepEqual(updated.retrievalEmbedding, [0.2, 0.8])
+    assert.equal(updated.retrievalModel, 'memory-embed')
+    assert.equal(updated.importance, 0.92)
+    assert.deepEqual(embedCalls, ['WJJ 当前最喜欢的游戏是星际2。'])
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('editSqliteMemoryGraph edits entities, aliases, episodic memories and manual edges', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const sc2 = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '星际争霸2',
+      description: 'WJJ 喜欢的即时战略游戏',
+      confidence: 0.9,
+      aliases: [{ alias: '星际2', confidence: 0.9 }],
+      now: new Date('2026-04-24T10:02:00.000Z'),
+    })
+    const wow = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '魔兽世界',
+      description: 'WJJ 以前常玩的游戏',
+      confidence: 0.85,
+      aliases: [],
+      now: new Date('2026-04-24T10:03:00.000Z'),
+    })
+    const embedCalls: string[] = []
+
+    const updateEntityResponse = await editSqliteMemoryGraph('agent-1', {
+      action: 'entity.update',
+      entityId: sc2.id,
+      type: 'object',
+      canonicalName: '星际争霸2',
+      description: 'WJJ 当前最喜欢的即时战略游戏',
+      confidence: 0.96,
+      aliases: ['星际2', 'SC2'],
+    }, { embedder: makeEmbedder([[0.1, 0.2, 0.7]], embedCalls) })
+    const entityRows = episodicMemoryGraphRepo.listMemoryEntitiesByAgent('agent-1')
+    const updatedSc2 = entityRows.find((entity) => entity.id === sc2.id)!
+
+    assert.equal(updateEntityResponse.status, 200)
+    assert.equal(updatedSc2.description, 'WJJ 当前最喜欢的即时战略游戏')
+    assert.deepEqual(updatedSc2.aliases.sort(), ['SC2', '星际2'])
+    assert.deepEqual(episodicMemoryGraphRepo.getEntity(sc2.id)?.embedding, [0.1, 0.2, 0.7])
+    assert.match(embedCalls[0], /canonical_name: 星际争霸2/)
+    assert.match(embedCalls[0], /aliases: 星际2, SC2/)
+
+    const createEpisodicResponse = await editSqliteMemoryGraph('agent-1', {
+      action: 'episodic.create',
+      summary: 'WJJ 现在最喜欢的游戏是星际2。',
+      detail: 'WJJ 最近又开始玩星际2，并说明星际2就是星际争霸2的简称；他现在最喜欢的游戏是星际2，不是之前常玩的魔兽世界。',
+      importance: 0.88,
+      observedStartAt: '2026-04-25T10:00:00.000Z',
+      observedEndAt: '2026-04-25T10:05:00.000Z',
+      entityLinks: [
+        { entityId: sc2.id, weight: 1 },
+        { entityId: wow.id, weight: 0.55 },
+      ],
+    }, { embedder: makeEmbedder([[0.9, 0.1]], embedCalls) })
+    const createEpisodicData = await createEpisodicResponse.json()
+    const createdEpisodic = episodicMemoryGraphRepo.getEpisodicMemoryWithEntities(createEpisodicData.memory.id)!
+
+    assert.equal(createEpisodicResponse.status, 200)
+    assert.equal(createdEpisodic.sessionId, 'session-2')
+    assert.equal(createdEpisodic.summary, 'WJJ 现在最喜欢的游戏是星际2。')
+    assert.equal(createdEpisodic.detail, 'WJJ 最近又开始玩星际2，并说明星际2就是星际争霸2的简称；他现在最喜欢的游戏是星际2，不是之前常玩的魔兽世界。')
+    assert.equal(createdEpisodic.sourceText, createdEpisodic.detail)
+    assert.deepEqual(createdEpisodic.retrievalEmbedding, [0.9, 0.1])
+    assert.deepEqual(
+      createdEpisodic.entities.map((link) => [link.entity.id, link.weight]).sort(),
+      [[sc2.id, 1], [wow.id, 0.55]].sort(),
+    )
+
+    const updateEpisodicResponse = await editSqliteMemoryGraph('agent-1', {
+      action: 'episodic.update',
+      memoryId: createdEpisodic.id,
+      summary: 'WJJ 当前最喜欢星际2。',
+      detail: 'WJJ 把当前最喜欢的游戏更新为星际2。',
+      importance: 0.9,
+      observedStartAt: null,
+      observedEndAt: null,
+      entityLinks: [{ entityId: sc2.id, weight: 1 }],
+    }, { embedder: makeEmbedder([[0.8, 0.2]], embedCalls) })
+    const updatedEpisodic = episodicMemoryGraphRepo.getEpisodicMemoryWithEntities(createdEpisodic.id)!
+
+    assert.equal(updateEpisodicResponse.status, 200)
+    assert.equal(updatedEpisodic.summary, 'WJJ 当前最喜欢星际2。')
+    assert.equal(updatedEpisodic.detail, 'WJJ 把当前最喜欢的游戏更新为星际2。')
+    assert.deepEqual(updatedEpisodic.entities.map((link) => link.entity.id), [sc2.id])
+    assert.deepEqual(updatedEpisodic.retrievalEmbedding, [0.8, 0.2])
+
+    const edgeResponse = await editSqliteMemoryGraph('agent-1', {
+      action: 'edge.upsert',
+      sourceEntityId: sc2.id,
+      targetEntityId: wow.id,
+      weight: 0.46,
+      coOccurrenceCount: 3,
+    })
+    assert.equal(edgeResponse.status, 200)
+    assert.equal(episodicMemoryGraphRepo.listMemoryEntityEdgesByAgent('agent-1')[0].weight, 0.46)
+
+    const deleteEdgeResponse = await editSqliteMemoryGraph('agent-1', {
+      action: 'edge.delete',
+      sourceEntityId: sc2.id,
+      targetEntityId: wow.id,
+    })
+    assert.equal(deleteEdgeResponse.status, 200)
+    assert.equal(episodicMemoryGraphRepo.listMemoryEntityEdgesByAgent('agent-1').length, 0)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('editSqliteMemoryGraph merges and deletes graph records without deleting episodic text', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const target = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '星际争霸2',
+      description: '正式节点',
+      confidence: 0.9,
+      aliases: [{ alias: '星际2', confidence: 0.9 }],
+    })
+    const source = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: 'SC2',
+      description: '英文简称节点',
+      confidence: 0.7,
+      aliases: [],
+    })
+    const wow = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '魔兽世界',
+      description: null,
+      confidence: 0.8,
+      aliases: [],
+    })
+    const episodic = episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: 'SC2 和魔兽世界都被提到。',
+      sourceText: 'SC2 和魔兽世界都被提到。',
+      detail: 'SC2 和魔兽世界都被提到。',
+      retrievalEmbedding: [1],
+      retrievalModel: 'memory-embed',
+      importance: 0.7,
+      entityLinks: [
+        { entityId: source.id, weight: 1 },
+        { entityId: wow.id, weight: 0.6 },
+      ],
+    })
+    episodicMemoryGraphRepo.setEntityEdgeByAgent({
+      agentId: 'agent-1',
+      sourceEntityId: source.id,
+      targetEntityId: wow.id,
+      weight: 0.4,
+      coOccurrenceCount: 2,
+    })
+
+    const mergeResponse = await editSqliteMemoryGraph('agent-1', {
+      action: 'entity.merge',
+      sourceEntityId: source.id,
+      targetEntityId: target.id,
+    }, { embedder: makeEmbedder([[0.3, 0.3, 0.4]]) })
+    const mergedTarget = episodicMemoryGraphRepo.listMemoryEntitiesByAgent('agent-1').find((entity) => entity.id === target.id)!
+    const linkedAfterMerge = episodicMemoryGraphRepo.getEpisodicMemoryWithEntities(episodic.id)!
+
+    assert.equal(mergeResponse.status, 200)
+    assert.equal(episodicMemoryGraphRepo.getEntity(source.id), undefined)
+    assert.deepEqual(mergedTarget.aliases.sort(), ['SC2', '星际2'])
+    assert.deepEqual(linkedAfterMerge.entities.map((link) => link.entity.id).sort(), [target.id, wow.id].sort())
+    assert.equal(episodicMemoryGraphRepo.listMemoryEntityEdgesByAgent('agent-1')[0].weight, 0.4)
+    assert.deepEqual(episodicMemoryGraphRepo.getEntity(target.id)?.embedding, [0.3, 0.3, 0.4])
+
+    const deleteEntityResponse = await editSqliteMemoryGraph('agent-1', {
+      action: 'entity.delete',
+      entityId: target.id,
+    })
+    const memoryAfterEntityDelete = episodicMemoryGraphRepo.getEpisodicMemoryWithEntities(episodic.id)!
+
+    assert.equal(deleteEntityResponse.status, 200)
+    assert.equal(memoryAfterEntityDelete.summary, 'SC2 和魔兽世界都被提到。')
+    assert.deepEqual(memoryAfterEntityDelete.entities.map((link) => link.entity.id), [wow.id])
+
+    const deleteEpisodicResponse = await editSqliteMemoryGraph('agent-1', {
+      action: 'episodic.delete',
+      memoryId: episodic.id,
+    })
+
+    assert.equal(deleteEpisodicResponse.status, 200)
+    assert.equal(episodicMemoryGraphRepo.getEpisodicMemory(episodic.id), undefined)
+    assert.notEqual(episodicMemoryGraphRepo.getEntity(wow.id), undefined)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('editSqliteMemoryGraph does not write when embedding fails', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-memory-sqlite-'))
+  const dbPath = join(dir, 'test.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+
+    const memory = addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '原始记忆',
+      retrievalText: '原始检索',
+      tags: [],
+      createdAt: '2026-04-17T10:00:00.000Z',
+    })
+    const failingEmbedder: MemoryEmbedder = {
+      async embed() {
+        throw new Error('embedding unavailable')
+      },
+    }
+
+    const response = await editSqliteMemoryGraph('agent-1', {
+      action: 'sqliteMemory.update',
+      memoryId: memory.id,
+      layer: 'fixed',
+      detail: '不应该写入',
+      retrievalText: '不应该写入检索',
+      importance: 0.9,
+      observedStartAt: null,
+      observedEndAt: null,
+    }, { embedder: failingEmbedder })
+    const data = await response.json()
+    const unchanged = memoryRepo.getMemory(memory.id)!
+
+    assert.equal(response.status, 502)
+    assert.equal(data.error, 'embedding unavailable')
+    assert.equal(unchanged.layer, 'short_term')
+    assert.equal(unchanged.detail, '原始记忆')
+    assert.equal(unchanged.retrievalText, '原始检索')
   } finally {
     resetDb()
     resetMemoryDb()

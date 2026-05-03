@@ -330,6 +330,52 @@ export function updateSqliteMemoryLayerByAgent(agentId: string, memoryId: string
   return result.changes > 0
 }
 
+export function updateSqliteMemoryByAgent(input: {
+  agentId: string
+  memoryId: string
+  layer: MemoryLayer
+  detail: string
+  retrievalText: string
+  retrievalEmbedding: number[]
+  retrievalModel: string
+  importance: number
+  observedStartAt: Date | null
+  observedEndAt: Date | null
+}) {
+  const detail = input.detail.trim()
+  const retrievalText = input.retrievalText.trim()
+  if (!detail || !retrievalText) {
+    return false
+  }
+
+  const result = getMemoryRawSqlite().prepare(`
+    UPDATE memories
+    SET
+      layer = ?,
+      display_summary = ?,
+      retrieval_text = ?,
+      retrieval_embedding = ?,
+      retrieval_model = ?,
+      importance = ?,
+      observed_start_at = ?,
+      observed_end_at = ?
+    WHERE agent_id = ? AND id = ?
+  `).run(
+    normalizeLayer(input.layer),
+    detail,
+    retrievalText,
+    JSON.stringify(input.retrievalEmbedding.filter((value) => typeof value === 'number' && Number.isFinite(value))),
+    input.retrievalModel.trim(),
+    normalizeImportance(input.importance),
+    input.observedStartAt?.getTime() ?? null,
+    input.observedEndAt?.getTime() ?? null,
+    input.agentId,
+    input.memoryId,
+  )
+
+  return result.changes > 0
+}
+
 export function findRelevantMemories(input: {
   agentId: string
   queryEmbeddings: number[][]
