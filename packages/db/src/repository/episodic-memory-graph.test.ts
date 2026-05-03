@@ -516,3 +516,323 @@ test('episodic memories persist summary embeddings and can be ranked by text sim
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('updateEntityByAgent replaces entity fields aliases and embedding', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const entity = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '魔兽世界',
+      description: '旧的游戏节点',
+      confidence: 0.7,
+      aliases: [{ alias: 'wow', confidence: 0.8 }],
+    })
+
+    const updated = graphRepo.updateEntityByAgent({
+      agentId: 'agent-1',
+      entityId: entity.id,
+      type: 'object',
+      canonicalName: '星际争霸2',
+      description: '用户现在最喜欢的游戏',
+      confidence: 0.94,
+      aliases: ['星际2', 'SC2'],
+      embeddingText: 'canonical_name: 星际争霸2\ntype: object',
+      embedding: [0.4, 0.6],
+      embeddingModel: 'BAAI/bge-m3',
+      now: new Date('2026-05-01T10:00:00.000Z'),
+    })
+    const foreignBlocked = graphRepo.updateEntityByAgent({
+      agentId: 'agent-2',
+      entityId: entity.id,
+      type: 'event',
+      canonicalName: '不应写入',
+      description: null,
+      confidence: 1,
+      aliases: [],
+      embeddingText: 'bad',
+      embedding: [9],
+      embeddingModel: 'bad',
+    })
+
+    assert.equal(updated, true)
+    assert.equal(foreignBlocked, false)
+
+    const saved = graphRepo.listMemoryEntitiesByAgent('agent-1')[0]
+    assert.equal(saved?.canonicalName, '星际争霸2')
+    assert.equal(saved?.description, '用户现在最喜欢的游戏')
+    assert.equal(saved?.confidence, 0.94)
+    assert.deepEqual(saved?.aliases.sort(), ['SC2', '星际2'].sort())
+    assert.deepEqual(saved?.embedding, [0.4, 0.6])
+    assert.equal(saved?.embeddingModel, 'BAAI/bge-m3')
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('deleteEntityByAgent unlinks episodic memories and removes related edges without deleting memories', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const now = new Date('2026-05-01T10:00:00.000Z')
+    const cat = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '呱呱',
+      confidence: 0.9,
+      aliases: [{ alias: '猫', confidence: 0.8 }],
+      now,
+    })
+    const umbrella = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '蓝色雨伞',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+    const memory = graphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '呱呱躲在蓝色雨伞旁边。',
+      sourceText: '呱呱在书房。',
+      detail: '呱呱躲在书房的蓝色雨伞旁边。',
+      importance: 0.8,
+      entityLinks: [
+        { entityId: cat.id, weight: 1 },
+        { entityId: umbrella.id, weight: 0.8 },
+      ],
+      now,
+    })
+    graphRepo.upsertEntityEdge({
+      agentId: 'agent-1',
+      sourceEntityId: cat.id,
+      targetEntityId: umbrella.id,
+      delta: 0.5,
+      now,
+    })
+
+    const deleted = graphRepo.deleteEntityByAgent('agent-1', cat.id)
+
+    assert.equal(deleted, true)
+    assert.equal(graphRepo.getEntity(cat.id), undefined)
+    assert.equal(graphRepo.getEpisodicMemory(memory.id)?.summary, '呱呱躲在蓝色雨伞旁边。')
+    assert.deepEqual(
+      graphRepo.getEpisodicMemoryWithEntities(memory.id)?.entities.map((link) => link.entity.id),
+      [umbrella.id],
+    )
+    assert.deepEqual(graphRepo.listMemoryEntityEdgesByAgent('agent-1'), [])
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergeEntitiesByAgent migrates aliases links and edges into target entity', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const now = new Date('2026-05-01T10:00:00.000Z')
+    const target = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '星际争霸2',
+      confidence: 0.9,
+      aliases: [{ alias: '星际2', confidence: 0.9 }],
+      now,
+    })
+    const source = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: 'SC2',
+      confidence: 0.8,
+      aliases: [{ alias: 'starcraft2', confidence: 0.7 }],
+      now,
+    })
+    const battleNet = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '战网',
+      confidence: 0.8,
+      aliases: [],
+      now,
+    })
+    const memory = graphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '用户最近重新开始玩 SC2。',
+      sourceText: '用户说最近又玩 SC2。',
+      detail: '用户最近又开始玩 SC2。',
+      importance: 0.8,
+      entityLinks: [
+        { entityId: source.id, weight: 0.9 },
+        { entityId: target.id, weight: 0.5 },
+      ],
+      now,
+    })
+    graphRepo.upsertEntityEdge({
+      agentId: 'agent-1',
+      sourceEntityId: source.id,
+      targetEntityId: battleNet.id,
+      delta: 0.4,
+      now,
+    })
+
+    const merged = graphRepo.mergeEntitiesByAgent({
+      agentId: 'agent-1',
+      sourceEntityId: source.id,
+      targetEntityId: target.id,
+      now,
+    })
+
+    assert.equal(merged, true)
+    assert.equal(graphRepo.getEntity(source.id), undefined)
+    const savedTarget = graphRepo.listMemoryEntitiesByAgent('agent-1').find((entity) => entity.id === target.id)
+    assert.deepEqual(savedTarget?.aliases.sort(), ['SC2', 'starcraft2', '星际2'].sort())
+    assert.deepEqual(
+      graphRepo.getEpisodicMemoryWithEntities(memory.id)?.entities.map((link) => [link.entity.id, link.weight]),
+      [[target.id, 0.9]],
+    )
+    assert.deepEqual(
+      graphRepo.listMemoryEntityEdgesByAgent('agent-1').map((edge) => [
+        edge.sourceEntityId,
+        edge.targetEntityId,
+        edge.weight,
+      ]),
+      [[...([battleNet.id, target.id].sort()), 0.4]],
+    )
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('episodic memories can be manually created updated and deleted with independent links', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const now = new Date('2026-05-01T10:00:00.000Z')
+    const game = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '星际争霸2',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+    const user = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'person',
+      canonicalName: 'WJJ',
+      confidence: 0.95,
+      aliases: [],
+      now,
+    })
+
+    const created = graphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '用户喜欢星际争霸2。',
+      sourceText: '用户喜欢星际争霸2。',
+      detail: '用户说现在最喜欢星际争霸2。',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'embed-v1',
+      importance: 0.8,
+      entityLinks: [{ entityId: game.id, weight: 0.9 }],
+      now,
+    })
+
+    const updated = graphRepo.updateEpisodicMemoryByAgent({
+      agentId: 'agent-1',
+      memoryId: created.id,
+      summary: 'WJJ 现在最喜欢星际争霸2。',
+      detail: 'WJJ 最近又开始玩星际争霸2，并说这是现在最喜欢的游戏。',
+      sourceText: 'WJJ 最近又开始玩星际争霸2，并说这是现在最喜欢的游戏。',
+      retrievalEmbedding: [0.2, 0.8],
+      retrievalModel: 'embed-v2',
+      importance: 0.95,
+      observedStartAt: new Date('2026-04-30T12:00:00.000Z'),
+      observedEndAt: new Date('2026-04-30T13:00:00.000Z'),
+      entityLinks: [
+        { entityId: user.id, weight: 0.8 },
+        { entityId: game.id, weight: 1 },
+      ],
+    })
+
+    assert.equal(updated, true)
+    const saved = graphRepo.getEpisodicMemoryWithEntities(created.id)
+    assert.equal(saved?.summary, 'WJJ 现在最喜欢星际争霸2。')
+    assert.equal(saved?.detail, 'WJJ 最近又开始玩星际争霸2，并说这是现在最喜欢的游戏。')
+    assert.deepEqual(saved?.retrievalEmbedding, [0.2, 0.8])
+    assert.equal(saved?.retrievalModel, 'embed-v2')
+    assert.equal(saved?.importance, 0.95)
+    assert.deepEqual(
+      saved?.entities.map((link) => [link.entity.id, link.weight]).sort(),
+      [[game.id, 1], [user.id, 0.8]].sort(),
+    )
+    assert.deepEqual(graphRepo.listMemoryEntityEdgesByAgent('agent-1'), [])
+
+    assert.equal(graphRepo.deleteEpisodicMemoryByAgent('agent-1', created.id), true)
+    assert.equal(graphRepo.getEpisodicMemory(created.id), undefined)
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('manual entity edges can be upserted and deleted independently', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const now = new Date('2026-05-01T10:00:00.000Z')
+    const left = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '游戏',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+    const right = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: '星际争霸2',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+
+    assert.equal(graphRepo.setEntityEdgeByAgent({
+      agentId: 'agent-1',
+      sourceEntityId: left.id,
+      targetEntityId: right.id,
+      weight: 0.77,
+      coOccurrenceCount: 3,
+      now,
+    }), true)
+    assert.equal(graphRepo.listMemoryEntityEdgesByAgent('agent-1')[0]?.weight, 0.77)
+    assert.equal(graphRepo.listMemoryEntityEdgesByAgent('agent-1')[0]?.coOccurrenceCount, 3)
+
+    assert.equal(graphRepo.deleteEntityEdgeByAgent({
+      agentId: 'agent-1',
+      sourceEntityId: left.id,
+      targetEntityId: right.id,
+    }), true)
+    assert.deepEqual(graphRepo.listMemoryEntityEdgesByAgent('agent-1'), [])
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

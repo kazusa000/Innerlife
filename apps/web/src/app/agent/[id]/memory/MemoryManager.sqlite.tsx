@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useDeferredValue, useEffect, useRef, useState, useTransition } from 'react'
+import { Fragment, type FormEvent, useDeferredValue, useEffect, useRef, useState, useTransition } from 'react'
 import PromptLab from '../PromptLab'
 import { DEFAULT_PROMPT_TEST_INPUTS } from '../PromptTestPanel'
 import styles from '../manager-ui.module.css'
@@ -57,6 +57,8 @@ interface EntityNode {
   createdAt: string
   lastSeenAt: string | null
 }
+
+type EditableEntityType = 'person' | 'place' | 'object' | 'event'
 
 interface EntityEdge {
   sourceEntityId: string
@@ -198,6 +200,13 @@ const MEMORY_LAYER_LABELS: Record<MemoryRow['layer'], string> = {
   episodic: '情景记忆',
 }
 
+const ENTITY_TYPE_OPTIONS: Array<{ value: EditableEntityType; label: string }> = [
+  { value: 'person', label: '人物' },
+  { value: 'place', label: '地点' },
+  { value: 'object', label: '物品' },
+  { value: 'event', label: '事件' },
+]
+
 const EMPTY_ENTITY_GRAPH_SUMMARY: EntityGraphSummary = {
   total: 0,
   nodes: { total: 0, page: 1, pageSize: 10, items: [] },
@@ -331,6 +340,70 @@ function formatEntityType(type: string) {
   }
 }
 
+function shortId(value: string) {
+  return value.length > 12 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value
+}
+
+function toDateTimeLocal(value: string | null | undefined) {
+  if (!value) {
+    return ''
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  const offsetMs = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16)
+}
+
+function fromDateTimeLocal(value: FormDataEntryValue | null) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null
+  }
+  return new Date(value).toISOString()
+}
+
+function readFormString(formData: FormData, key: string) {
+  const value = formData.get(key)
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function readFormNumber(formData: FormData, key: string, fallback: number) {
+  const value = Number(readFormString(formData, key))
+  return Number.isFinite(value) ? value : fallback
+}
+
+function splitListText(value: string) {
+  return [...new Set(value
+    .split(/[\n,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean))]
+}
+
+function parseEntityLinksText(value: string) {
+  if (!value.trim()) {
+    return []
+  }
+
+  return value
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [entityId, rawWeight] = line.split(/[:：,\s]+/).map((item) => item.trim()).filter(Boolean)
+      return {
+        entityId,
+        weight: Math.min(1, Math.max(0.3, Number(rawWeight) || 1)),
+      }
+    })
+    .filter((link) => link.entityId)
+    .slice(0, 5)
+}
+
+function entityLinksToText(links: EpisodicEntityLink[]) {
+  return links.map((link) => `${link.id}:${link.weight}`).join('\n')
+}
+
 export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
@@ -352,6 +425,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
   const [isFlushingContext, setIsFlushingContext] = useState(false)
   const [isSleeping, setIsSleeping] = useState(false)
   const [isClearingMemories, setIsClearingMemories] = useState(false)
+  const [isSavingMemoryEdit, setIsSavingMemoryEdit] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -520,6 +594,154 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : '更新记忆层失败')
     }
+  }
+
+  async function postMemoryEdit(body: Record<string, unknown>, successMessage: string) {
+    setError(null)
+    setNotice(null)
+    setIsSavingMemoryEdit(true)
+
+    try {
+      const response = await fetch(`/api/agents/${agentId}/memory/sqlite/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await response.json() as { error?: string }
+      if (!response.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : '保存记忆编辑失败')
+      }
+
+      setNotice(successMessage)
+      startTransition(() => {
+        void refresh()
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存记忆编辑失败')
+    } finally {
+      setIsSavingMemoryEdit(false)
+    }
+  }
+
+  function handleSaveSqliteMemory(event: FormEvent<HTMLFormElement>, memory: MemoryRow) {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    void postMemoryEdit({
+      action: 'sqliteMemory.update',
+      memoryId: memory.id,
+      layer: readFormString(formData, 'layer') || memory.layer,
+      detail: readFormString(formData, 'detail'),
+      retrievalText: readFormString(formData, 'retrievalText'),
+      importance: readFormNumber(formData, 'importance', memory.importance),
+      observedStartAt: fromDateTimeLocal(formData.get('observedStartAt')),
+      observedEndAt: fromDateTimeLocal(formData.get('observedEndAt')),
+    }, '已保存 STM / 固化记忆，并重新写入 embedding。')
+  }
+
+  function handleSaveEpisodicMemory(event: FormEvent<HTMLFormElement>, memory: MemoryRow) {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    void postMemoryEdit({
+      action: 'episodic.update',
+      memoryId: memory.id,
+      summary: readFormString(formData, 'summary'),
+      detail: readFormString(formData, 'detail') || null,
+      importance: readFormNumber(formData, 'importance', memory.importance),
+      observedStartAt: fromDateTimeLocal(formData.get('observedStartAt')),
+      observedEndAt: fromDateTimeLocal(formData.get('observedEndAt')),
+      entityLinks: parseEntityLinksText(readFormString(formData, 'entityLinks')),
+    }, '已保存情景记忆，并按 summary 重新写入 embedding。')
+  }
+
+  function handleCreateEpisodicMemory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    void postMemoryEdit({
+      action: 'episodic.create',
+      summary: readFormString(formData, 'summary'),
+      detail: readFormString(formData, 'detail') || null,
+      importance: readFormNumber(formData, 'importance', 0.6),
+      observedStartAt: fromDateTimeLocal(formData.get('observedStartAt')),
+      observedEndAt: fromDateTimeLocal(formData.get('observedEndAt')),
+      entityLinks: parseEntityLinksText(readFormString(formData, 'entityLinks')),
+    }, '已新增情景记忆。')
+    event.currentTarget.reset()
+  }
+
+  function handleDeleteEpisodicMemory(memoryId: string) {
+    if (!window.confirm('要删除这条情景记忆吗？实体节点和实体边会保留。')) {
+      return
+    }
+    void postMemoryEdit({ action: 'episodic.delete', memoryId }, '已删除这条情景记忆。')
+  }
+
+  function handleCreateEntity(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    void postMemoryEdit({
+      action: 'entity.create',
+      type: readFormString(formData, 'type'),
+      canonicalName: readFormString(formData, 'canonicalName'),
+      description: readFormString(formData, 'description') || null,
+      confidence: readFormNumber(formData, 'confidence', 0.8),
+      aliases: splitListText(readFormString(formData, 'aliases')),
+    }, '已新增实体节点。')
+    event.currentTarget.reset()
+  }
+
+  function handleSaveEntity(event: FormEvent<HTMLFormElement>, entity: EntityNode) {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    void postMemoryEdit({
+      action: 'entity.update',
+      entityId: entity.id,
+      type: readFormString(formData, 'type'),
+      canonicalName: readFormString(formData, 'canonicalName'),
+      description: readFormString(formData, 'description') || null,
+      confidence: readFormNumber(formData, 'confidence', entity.confidence),
+      aliases: splitListText(readFormString(formData, 'aliases')),
+    }, '已保存实体节点，并重新写入实体 embedding。')
+  }
+
+  function handleDeleteEntity(entityId: string) {
+    if (!window.confirm('要删除这个实体节点吗？相关 alias、边和情景记忆绑定会删除，但情景记忆文本会保留。')) {
+      return
+    }
+    void postMemoryEdit({ action: 'entity.delete', entityId }, '已删除实体节点。')
+  }
+
+  function handleMergeEntity(sourceEntityId: string, targetEntityId: string) {
+    if (!targetEntityId.trim() || !window.confirm('要把当前实体合并进目标实体吗？source 会被删除，alias / 情景绑定 / 边会迁移。')) {
+      return
+    }
+    void postMemoryEdit({
+      action: 'entity.merge',
+      sourceEntityId,
+      targetEntityId: targetEntityId.trim(),
+    }, '已合并实体节点。')
+  }
+
+  function handleUpsertEdge(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    void postMemoryEdit({
+      action: 'edge.upsert',
+      sourceEntityId: readFormString(formData, 'sourceEntityId'),
+      targetEntityId: readFormString(formData, 'targetEntityId'),
+      weight: readFormNumber(formData, 'weight', 0.5),
+      coOccurrenceCount: Math.max(0, Math.floor(readFormNumber(formData, 'coOccurrenceCount', 0))),
+    }, '已保存实体边。')
+  }
+
+  function handleDeleteEdge(edge: EntityEdge) {
+    if (!window.confirm('要删除这条实体边吗？')) {
+      return
+    }
+    void postMemoryEdit({
+      action: 'edge.delete',
+      sourceEntityId: edge.sourceEntityId,
+      targetEntityId: edge.targetEntityId,
+    }, '已删除实体边。')
   }
 
   async function handleFlushContext() {
@@ -709,7 +931,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
       {error && <p className={styles.error}>{error}</p>}
 
       <div className={styles.contentStack}>
-        <div className={styles.controlGrid}>
+        <div className={styles.memorySettingsRail}>
           <section className={`${styles.panel} ${styles.sectionPanel} ${styles.panelFrame}`}>
             <div className={styles.panelHead}>
               <div>
@@ -830,9 +1052,6 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               </label>
             </div>
           </section>
-        </div>
-
-        <div className={styles.controlGrid}>
           <section className={`${styles.panel} ${styles.sectionPanel} ${styles.panelFrame}`}>
           <div className={styles.panelHead}>
             <div>
@@ -1036,6 +1255,41 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
             </span>
           </div>
 
+          <details className={styles.editBlock}>
+            <summary>新增实体节点</summary>
+            <form className={styles.editForm} onSubmit={handleCreateEntity}>
+              <div className={styles.fieldGrid}>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>名称</span>
+                  <input className={styles.input} name="canonicalName" required placeholder="例如 星际争霸2" />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>类型</span>
+                  <select className={styles.input} name="type" defaultValue="object">
+                    {ENTITY_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>置信度</span>
+                  <input className={styles.input} name="confidence" type="number" min={0} max={1} step={0.01} defaultValue={0.8} />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>alias（逗号或换行分隔）</span>
+                  <textarea className={styles.textarea} name="aliases" rows={2} placeholder="星际2&#10;SC2" />
+                </label>
+                <label className={styles.wideField}>
+                  <span className={styles.fieldLabel}>描述</span>
+                  <textarea className={styles.textarea} name="description" rows={2} placeholder="这个节点在个人记忆图中的含义" />
+                </label>
+              </div>
+              <div className={styles.inlineActions}>
+                <button type="submit" className={styles.primaryButton} disabled={isSavingMemoryEdit}>新增实体</button>
+              </div>
+            </form>
+          </details>
+
           <div className={styles.graphGrid}>
             <div className={styles.graphColumn}>
               <div className={styles.graphColumnHead}>
@@ -1052,21 +1306,62 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                   {entityGraphSummary.nodes.items.map((entity) => (
                     <article key={entity.id} className={styles.graphNodeRow}>
                       <div className={styles.graphNodeMain}>
-                        <div className={styles.graphNodeTitleLine}>
-                          <strong>{entity.canonicalName}</strong>
-                          <span className={styles.graphTypeBadge}>{formatEntityType(entity.type)}</span>
+                        <div className={styles.graphNodeRead}>
+                          <div className={styles.graphNodeTitleLine}>
+                            <strong>{entity.canonicalName}</strong>
+                            <span className={styles.graphTypeBadge}>{formatEntityType(entity.type)}</span>
+                            <span className={styles.graphConfidence}>置信度 {entity.confidence.toFixed(2)}</span>
+                          </div>
+                          {entity.description && <p className={styles.graphDescription}>{entity.description}</p>}
+                          <div className={styles.graphAliasLine}>
+                            {entity.aliases.length === 0 ? (
+                              <span>无 alias</span>
+                            ) : entity.aliases.map((alias) => (
+                              <span key={`${entity.id}-${alias}`}>{alias}</span>
+                            ))}
+                          </div>
                         </div>
-                        {entity.description && <p className={styles.graphDescription}>{entity.description}</p>}
-                        <div className={styles.graphAliasLine}>
-                          {entity.aliases.length === 0 ? (
-                            <span>无 alias</span>
-                          ) : entity.aliases.map((alias) => (
-                            <span key={`${entity.id}-${alias}`}>{alias}</span>
-                          ))}
-                        </div>
+                        <details className={styles.rowEditDetails}>
+                          <summary>编辑节点</summary>
+                          <form className={styles.entityEditForm} onSubmit={(event) => handleSaveEntity(event, entity)}>
+                            <div className={styles.graphNodeTitleLine}>
+                              <input className={styles.input} name="canonicalName" defaultValue={entity.canonicalName} required />
+                              <select className={styles.input} name="type" defaultValue={entity.type}>
+                                {ENTITY_TYPE_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <textarea className={styles.textarea} name="description" rows={2} defaultValue={entity.description ?? ''} placeholder="实体描述" />
+                            <textarea className={styles.textarea} name="aliases" rows={2} defaultValue={entity.aliases.join('\n')} placeholder="alias，每行一个" />
+                            <div className={styles.inlineActions}>
+                              <label className={styles.inlineField}>
+                                <span>置信度</span>
+                                <input className={styles.input} name="confidence" type="number" min={0} max={1} step={0.01} defaultValue={entity.confidence} />
+                              </label>
+                              <button type="submit" className={styles.primaryButton} disabled={isSavingMemoryEdit}>保存节点</button>
+                              <button type="button" className={styles.dangerButton} onClick={() => handleDeleteEntity(entity.id)} disabled={isSavingMemoryEdit}>删除</button>
+                            </div>
+                            <div className={styles.mergeLine}>
+                              <input className={styles.input} name="mergeTargetEntityId" placeholder="目标 entity id" />
+                              <button
+                                type="button"
+                                className={styles.secondaryButton}
+                                disabled={isSavingMemoryEdit}
+                                onClick={(event) => {
+                                  const form = event.currentTarget.form
+                                  const target = form ? readFormString(new FormData(form), 'mergeTargetEntityId') : ''
+                                  handleMergeEntity(entity.id, target)
+                                }}
+                              >
+                                合并到目标
+                              </button>
+                            </div>
+                          </form>
+                        </details>
                       </div>
                       <div className={styles.graphNodeMeta}>
-                        <span>{entity.confidence.toFixed(2)}</span>
+                        <span className={styles.mono} title={entity.id}>{shortId(entity.id)}</span>
                         <span>{entity.episodicMemoryCount} 情景</span>
                         <span>{formatOptionalDate(entity.lastSeenAt)}</span>
                       </div>
@@ -1091,6 +1386,16 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 </div>
                 <span className={styles.graphPagePill}>第 {entityGraphSummary.edges.page} / {edgePageCount} 页</span>
               </div>
+              <details className={styles.rowEditDetails}>
+                <summary>新增边</summary>
+                <form className={styles.edgeEditForm} onSubmit={handleUpsertEdge}>
+                  <input className={styles.input} name="sourceEntityId" placeholder="source entity id" required />
+                  <input className={styles.input} name="targetEntityId" placeholder="target entity id" required />
+                  <input className={styles.input} name="weight" type="number" min={0} max={1} step={0.01} defaultValue={0.5} />
+                  <input className={styles.input} name="coOccurrenceCount" type="number" min={0} step={1} defaultValue={0} />
+                  <button type="submit" className={styles.secondaryButton} disabled={isSavingMemoryEdit}>保存边</button>
+                </form>
+              </details>
               {entityGraphSummary.edges.items.length === 0 ? (
                 <div className={styles.graphEmpty}>{deferredGraphQuery.trim() ? '当前查询没有实体边。' : '还没有实体边。'}</div>
               ) : (
@@ -1104,7 +1409,30 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                       <div className={styles.graphEdgeMeta}>
                         <span>权重 {edge.weight.toFixed(2)}</span>
                         <span>共现 {edge.coOccurrenceCount}</span>
+                        <button type="button" className={styles.dangerButton} onClick={() => handleDeleteEdge(edge)} disabled={isSavingMemoryEdit}>删除</button>
                       </div>
+                      <details className={styles.edgeRowEditor}>
+                        <summary>编辑边</summary>
+                        <form className={styles.edgeEditForm} onSubmit={handleUpsertEdge}>
+                          <label className={styles.field}>
+                            <span className={styles.fieldLabel}>source</span>
+                            <input className={styles.input} name="sourceEntityId" defaultValue={edge.sourceEntityId} readOnly title={edge.sourceEntityId} />
+                          </label>
+                          <label className={styles.field}>
+                            <span className={styles.fieldLabel}>target</span>
+                            <input className={styles.input} name="targetEntityId" defaultValue={edge.targetEntityId} readOnly title={edge.targetEntityId} />
+                          </label>
+                          <label className={styles.field}>
+                            <span className={styles.fieldLabel}>权重</span>
+                            <input className={styles.input} name="weight" type="number" min={0} max={1} step={0.01} defaultValue={edge.weight} />
+                          </label>
+                          <label className={styles.field}>
+                            <span className={styles.fieldLabel}>共现次数</span>
+                            <input className={styles.input} name="coOccurrenceCount" type="number" min={0} step={1} defaultValue={edge.coOccurrenceCount} />
+                          </label>
+                          <button type="submit" className={styles.secondaryButton} disabled={isSavingMemoryEdit}>保存边</button>
+                        </form>
+                      </details>
                     </article>
                   ))}
                 </div>
@@ -1179,6 +1507,41 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           </div>
         </div>
 
+        <details className={styles.editBlock}>
+          <summary>新增情景记忆</summary>
+          <form className={styles.editForm} onSubmit={handleCreateEpisodicMemory}>
+            <label className={styles.wideField}>
+              <span className={styles.fieldLabel}>summary（用于 embedding）</span>
+              <textarea className={styles.textarea} name="summary" rows={2} required placeholder="WJJ 现在最喜欢的游戏是星际2。" />
+            </label>
+            <label className={styles.wideField}>
+              <span className={styles.fieldLabel}>detail（返回给长期记忆 tool 阅读）</span>
+              <textarea className={styles.textarea} name="detail" rows={3} placeholder="更完整的情景细节" />
+            </label>
+            <div className={styles.fieldGrid}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>重要性</span>
+                <input className={styles.input} name="importance" type="number" min={0} max={1} step={0.01} defaultValue={0.6} />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>实体绑定（entityId:weight，每行一个，最多 5 个）</span>
+                <textarea className={styles.textarea} name="entityLinks" rows={3} placeholder="entity-sc2:1&#10;entity-wow:0.55" />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>观测开始</span>
+                <input className={styles.input} name="observedStartAt" type="datetime-local" />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>观测结束</span>
+                <input className={styles.input} name="observedEndAt" type="datetime-local" />
+              </label>
+            </div>
+            <div className={styles.inlineActions}>
+              <button type="submit" className={styles.primaryButton} disabled={isSavingMemoryEdit}>新增情景记忆</button>
+            </div>
+          </form>
+        </details>
+
         {loading && memoryRows.length === 0 ? (
           <div className={styles.emptyState}>
             <h3>正在加载记忆…</h3>
@@ -1236,7 +1599,14 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                                 删除
                               </button>
                             ) : (
-                              <span className={styles.statusText}>只读</span>
+                              <button
+                                type="button"
+                                className={styles.dangerButton}
+                                onClick={() => handleDeleteEpisodicMemory(memory.id)}
+                                disabled={isSavingMemoryEdit}
+                              >
+                                删除
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -1246,12 +1616,33 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                               <div className={styles.expandedGrid}>
                                 <div>
                                   {memory.kind === 'episodic' && (
-                                    <>
-                                      <p className={styles.fieldLabel}>summary</p>
-                                      <p className={styles.panelCopy}>{memory.detail || '无'}</p>
-                                      <p className={styles.fieldLabel}>detail</p>
-                                      <p className={styles.panelCopy}>{memory.episodicDetail ?? '无'}</p>
-                                      <p className={styles.fieldLabel}>entities</p>
+                                    <form className={styles.editForm} onSubmit={(event) => handleSaveEpisodicMemory(event, memory)}>
+                                      <label className={styles.wideField}>
+                                        <span className={styles.fieldLabel}>summary（用于 embedding）</span>
+                                        <textarea className={styles.textarea} name="summary" rows={2} defaultValue={memory.detail} required />
+                                      </label>
+                                      <label className={styles.wideField}>
+                                        <span className={styles.fieldLabel}>detail（返回给长期记忆 tool 阅读）</span>
+                                        <textarea className={styles.textarea} name="detail" rows={4} defaultValue={memory.episodicDetail ?? ''} />
+                                      </label>
+                                      <div className={styles.fieldGrid}>
+                                        <label className={styles.field}>
+                                          <span className={styles.fieldLabel}>重要性</span>
+                                          <input className={styles.input} name="importance" type="number" min={0} max={1} step={0.01} defaultValue={memory.importance} />
+                                        </label>
+                                        <label className={styles.field}>
+                                          <span className={styles.fieldLabel}>实体绑定（entityId:weight，每行一个，最多 5 个）</span>
+                                          <textarea className={styles.textarea} name="entityLinks" rows={3} defaultValue={entityLinksToText(memory.entities)} />
+                                        </label>
+                                        <label className={styles.field}>
+                                          <span className={styles.fieldLabel}>观测开始</span>
+                                          <input className={styles.input} name="observedStartAt" type="datetime-local" defaultValue={toDateTimeLocal(memory.observedStartAt)} />
+                                        </label>
+                                        <label className={styles.field}>
+                                          <span className={styles.fieldLabel}>观测结束</span>
+                                          <input className={styles.input} name="observedEndAt" type="datetime-local" defaultValue={toDateTimeLocal(memory.observedEndAt)} />
+                                        </label>
+                                      </div>
                                       <div className={styles.chips}>
                                         {memory.entities.length === 0 ? (
                                           <span className={styles.statusText}>无绑定实体</span>
@@ -1261,15 +1652,46 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                                           </span>
                                         ))}
                                       </div>
-                                    </>
+                                      <div className={styles.inlineActions}>
+                                        <button type="submit" className={styles.primaryButton} disabled={isSavingMemoryEdit}>保存情景记忆</button>
+                                      </div>
+                                    </form>
                                   )}
                                   {memory.kind === 'sqlite' && (
-                                    <>
-                                      <p className={styles.fieldLabel}>retrieval_text</p>
-                                      <p className={styles.panelCopy}>{memory.retrievalText}</p>
-                                      <p className={styles.fieldLabel}>detail</p>
-                                      <p className={styles.panelCopy}>{memory.detail || '无'}</p>
-                                    </>
+                                    <form className={styles.editForm} onSubmit={(event) => handleSaveSqliteMemory(event, memory)}>
+                                      <label className={styles.wideField}>
+                                        <span className={styles.fieldLabel}>retrieval_text（用于 embedding）</span>
+                                        <textarea className={styles.textarea} name="retrievalText" rows={2} defaultValue={memory.retrievalText} required disabled={!isEditableSqlite} />
+                                      </label>
+                                      <label className={styles.wideField}>
+                                        <span className={styles.fieldLabel}>detail</span>
+                                        <textarea className={styles.textarea} name="detail" rows={4} defaultValue={memory.detail} required disabled={!isEditableSqlite} />
+                                      </label>
+                                      <div className={styles.fieldGrid}>
+                                        <label className={styles.field}>
+                                          <span className={styles.fieldLabel}>层级</span>
+                                          <select className={styles.input} name="layer" defaultValue={memory.layer} disabled={!isEditableSqlite}>
+                                            <option value="short_term">短期记忆</option>
+                                            <option value="fixed">固化记忆</option>
+                                          </select>
+                                        </label>
+                                        <label className={styles.field}>
+                                          <span className={styles.fieldLabel}>重要性</span>
+                                          <input className={styles.input} name="importance" type="number" min={0} max={1} step={0.01} defaultValue={memory.importance} disabled={!isEditableSqlite} />
+                                        </label>
+                                        <label className={styles.field}>
+                                          <span className={styles.fieldLabel}>观测开始</span>
+                                          <input className={styles.input} name="observedStartAt" type="datetime-local" defaultValue={toDateTimeLocal(memory.observedStartAt)} disabled={!isEditableSqlite} />
+                                        </label>
+                                        <label className={styles.field}>
+                                          <span className={styles.fieldLabel}>观测结束</span>
+                                          <input className={styles.input} name="observedEndAt" type="datetime-local" defaultValue={toDateTimeLocal(memory.observedEndAt)} disabled={!isEditableSqlite} />
+                                        </label>
+                                      </div>
+                                      <div className={styles.inlineActions}>
+                                        <button type="submit" className={styles.primaryButton} disabled={!isEditableSqlite || isSavingMemoryEdit}>保存记忆</button>
+                                      </div>
+                                    </form>
                                   )}
                                 </div>
                                 <dl className={styles.metaList}>
