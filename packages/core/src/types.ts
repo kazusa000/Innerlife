@@ -15,6 +15,7 @@ export interface ToolResultBlock {
   tool_use_id: string
   content: string
   is_error?: boolean
+  metadata?: Record<string, unknown>
 }
 
 export interface ThinkingBlock {

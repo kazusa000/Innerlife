@@ -58,6 +58,22 @@ test('MemoryView renders episodic hybrid recall metadata as structured recall so
           { surface: '指南针', type: 'object' },
           { surface: 'MAS Lab', type: 'place' },
         ],
+        entityCandidates: [
+          {
+            mention: { surface: '指南针', type: 'object' },
+            entity: { id: 'entity-compass', canonicalName: '黄铜指南针', type: 'object', description: 'WJJ 的黄铜指南针' },
+            matchKind: 'contains',
+          },
+          {
+            mention: { surface: 'MAS Lab', type: 'place' },
+            entity: { id: 'entity-lab', canonicalName: 'MAS Lab', type: 'place', description: '实验室' },
+            matchKind: 'exact',
+          },
+        ],
+        activatedEntities: [
+          { id: 'entity-compass', canonicalName: '黄铜指南针', type: 'object', activation: 0.7 },
+          { id: 'entity-lab', canonicalName: 'MAS Lab', type: 'place', activation: 0.7 },
+        ],
         hits: [
           {
             id: 'episodic-1',
@@ -80,6 +96,10 @@ test('MemoryView renders episodic hybrid recall metadata as structured recall so
   assert.equal(html.includes('黄铜指南针 MAS Lab 白板'), true)
   assert.equal(html.includes('指南针'), true)
   assert.equal(html.includes('MAS Lab'), true)
+  assert.equal(html.includes('Mention Candidates'), true)
+  assert.equal(html.includes('Activated Entities'), true)
+  assert.equal(html.includes('contains'), true)
+  assert.equal(html.includes('entity-compass'), true)
   assert.equal(html.includes('图分数'), true)
   assert.equal(html.includes('文本分数'), true)
   assert.equal(html.includes('最终分数'), true)

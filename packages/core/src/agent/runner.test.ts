@@ -147,6 +147,11 @@ test('runAgent continues the same turn after search_long_term_memory returns a r
     async call() {
       return {
         output: '长期记忆检索结果：\n[长期记忆][2026-04-01 03:00 +00:00] 用户最喜欢凌晨三点写代码。',
+        metadata: {
+          mode: 'episodic_hybrid',
+          entityMentions: [{ surface: '凌晨三点', type: 'event' }],
+          activatedEntities: [{ id: 'entity-late-night', canonicalName: '凌晨三点', type: 'event' }],
+        },
       }
     },
   }
@@ -210,6 +215,21 @@ test('runAgent continues the same turn after search_long_term_memory returns a r
   assert.match(
     JSON.stringify(llmRequests[1]?.messages ?? []),
     /长期记忆检索结果/,
+  )
+  const nextMessages = llmRequests[1]?.messages ?? []
+  const toolResultBlocks = nextMessages.flatMap((message) =>
+    Array.isArray(message.content)
+      ? message.content.filter((block) => block.type === 'tool_result')
+      : [],
+  )
+  assert.equal(toolResultBlocks.length, 1)
+  assert.deepEqual(
+    (toolResultBlocks[0] as { metadata?: unknown }).metadata,
+    {
+      mode: 'episodic_hybrid',
+      entityMentions: [{ surface: '凌晨三点', type: 'event' }],
+      activatedEntities: [{ id: 'entity-late-night', canonicalName: '凌晨三点', type: 'event' }],
+    },
   )
 })
 

@@ -312,6 +312,7 @@ export async function* runAgent(
         tool_use_id: toolCall.id,
         content: result.output,
         is_error: result.isError,
+        metadata: result.metadata,
       })
 
       if (toolCall.name === 'search_long_term_memory' && result.metadata?.noResults) {
