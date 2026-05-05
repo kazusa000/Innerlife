@@ -16,16 +16,16 @@ export const systemRegistry: SystemRegistry = {
   },
   emotion: {
     noop: () => new NoopSystem('emotion'),
-    dimensional: (config) => new DimensionalEmotionSystem(config),
+    dimensional: (config, locale) => new DimensionalEmotionSystem(config, locale),
   },
   memory: {
     noop: () => new NoopSystem('memory'),
-    sqlite: (config) => new MemorySqliteSystem(config),
+    sqlite: (config, locale) => new MemorySqliteSystem(config, locale),
   },
   relationship: {
     noop: () => new NoopSystem('relationship'),
-    'multi-dim': (config) => new MultiDimRelationshipSystem(config),
-    'named-multi-dim': (config) => new NamedMultiDimRelationshipSystem(config),
+    'multi-dim': (config, locale) => new MultiDimRelationshipSystem(config, locale),
+    'named-multi-dim': (config, locale) => new NamedMultiDimRelationshipSystem(config, locale),
   },
 }
 
@@ -47,7 +47,7 @@ function resolveSchemeName(value: unknown): string {
   return 'noop'
 }
 
-export function createSystems(modules: AgentModules): AgentSystem[] {
+export function createSystems(modules: AgentModules, locale: 'zh-CN' | 'en-US' = 'zh-CN'): AgentSystem[] {
   if (!modules) {
     return []
   }
@@ -68,7 +68,7 @@ export function createSystems(modules: AgentModules): AgentSystem[] {
       return []
     }
 
-    const system = factory(value)
+    const system = factory(value, locale)
     return [system]
   })
 }

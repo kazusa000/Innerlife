@@ -1,5 +1,5 @@
 import { getDefaultTools, resolveAgentTools } from '@mas/core'
-import { agentRepo } from '@mas/db'
+import { agentRepo, appSettingsRepo } from '@mas/db'
 import { initDb } from '@/lib/db-init'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -7,14 +7,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function buildToolsPayload(agent: NonNullable<ReturnType<typeof agentRepo.getAgent>>) {
+  const locale = appSettingsRepo.getAppLocale()
   const resolved = resolveAgentTools({
     tools: getDefaultTools(),
     modules: agent.modules,
     config: agent.tools ?? null,
+    locale,
   })
 
   return {
     agentId: agent.id,
+    locale,
     tools: resolved.catalog,
   }
 }
@@ -60,12 +63,14 @@ export async function PATCH(
   const nextTools: Record<string, {
     enabled?: boolean
     description?: string
+    descriptionByLocale?: Partial<Record<'zh-CN' | 'en-US', string>>
     episodicActivation?: {
       enabled?: boolean
       ttlMinutes?: number
       maxActive?: number
     }
   }> = {}
+  const locale = appSettingsRepo.getAppLocale()
 
   if (isRecord(body.tools)) {
     for (const [toolName, rawEntry] of Object.entries(body.tools)) {
@@ -88,7 +93,10 @@ export async function PATCH(
 
         const trimmed = rawEntry.description.trim()
         if (trimmed) {
-          nextEntry.description = trimmed
+          nextEntry.descriptionByLocale = { [locale]: trimmed }
+          if (locale === 'zh-CN') {
+            nextEntry.description = trimmed
+          }
         }
       }
 

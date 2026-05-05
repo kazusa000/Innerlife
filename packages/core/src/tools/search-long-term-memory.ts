@@ -15,9 +15,10 @@ import type { LLMProvider } from '../provider/types'
 import type { Message, TextBlock } from '../types'
 
 const SEARCH_LONG_TERM_MEMORY_DESCRIPTION = [
-  buildLongTermSearchToolPrompt(),
+  buildLongTermSearchToolPrompt('zh-CN'),
   '拿到工具结果后，继续完成本轮回复。',
 ].join(' ')
+type AppLocale = 'zh-CN' | 'en-US'
 const SEMANTIC_QUERY_WEIGHT = 0.8
 const TOOL_QUERY_WEIGHT = 0.2
 const EPISODIC_GRAPH_WEIGHT = 0.4
@@ -144,6 +145,7 @@ async function extractEntityMentions(input: {
   model: string
   provider: Pick<LLMProvider, 'sendMessage'>
   promptOverride?: string | null
+  locale?: AppLocale
   signal?: AbortSignal
 }) {
   if (!input.text.trim()) {
@@ -152,7 +154,7 @@ async function extractEntityMentions(input: {
 
   const response = await input.provider.sendMessage({
     model: input.model,
-    systemPrompt: buildEntityMentionPrompt(input.promptOverride),
+    systemPrompt: buildEntityMentionPrompt(input.promptOverride, input.locale),
     messages: [
       {
         role: 'user',
@@ -196,6 +198,7 @@ async function extractEpisodicTextQuery(input: {
   model: string
   provider: Pick<LLMProvider, 'sendMessage'>
   promptOverride?: string | null
+  locale?: AppLocale
   signal?: AbortSignal
 }) {
   if (!input.text.trim()) {
@@ -204,7 +207,7 @@ async function extractEpisodicTextQuery(input: {
 
   const response = await input.provider.sendMessage({
     model: input.model,
-    systemPrompt: buildSemanticAnalyzerPrompt(input.promptOverride),
+    systemPrompt: buildSemanticAnalyzerPrompt(input.promptOverride, input.locale),
     messages: [
       {
         role: 'user',
@@ -241,9 +244,13 @@ export const SearchLongTermMemoryTool: Tool = {
     additionalProperties: false,
   },
   async call(input, options) {
+    const locale = options?.locale ?? 'zh-CN'
+    const noLongTermResults = locale === 'en-US'
+      ? 'Long-term memory search: no relevant memory found.'
+      : '长期记忆检索结果：未搜索到相关记忆。'
     if (!options?.agentId) {
       return {
-        output: '长期记忆检索结果：未搜索到相关记忆。',
+        output: noLongTermResults,
         isError: true,
         metadata: { noResults: true, reason: 'missing_agent' },
       }
@@ -252,13 +259,13 @@ export const SearchLongTermMemoryTool: Tool = {
     const agent = agentRepo.getAgent(options.agentId)
     if (!agent || !isSqliteMemoryConfig(agent.modules?.memory)) {
       return {
-        output: '长期记忆检索结果：未搜索到相关记忆。',
+        output: noLongTermResults,
         isError: false,
         metadata: { noResults: true, reason: 'memory_not_sqlite' },
       }
     }
 
-    const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+    const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory, locale)
     const agentId = options.agentId
     const embedder = createOpenRouterMemoryEmbedder()
     const semanticQuery = readQueryText(options?.memoryRetrievalQuery)
@@ -284,7 +291,7 @@ export const SearchLongTermMemoryTool: Tool = {
 
     if (effectiveQueries.length === 0) {
       return {
-        output: '长期记忆检索结果：未搜索到相关记忆。',
+        output: noLongTermResults,
         isError: false,
         metadata: { noResults: true, reason: 'empty_query' },
       }
@@ -301,6 +308,7 @@ export const SearchLongTermMemoryTool: Tool = {
       model: memoryConfig.summarizeModel ?? agent.model,
       provider: graphProvider,
       promptOverride: memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt,
+      locale,
       signal: options.signal,
     }).catch(() => semanticQuery || toolQuery)
     const mentions = episodicMemoryGraphRepo.hasEntitiesForAgent(agentId)
@@ -309,6 +317,7 @@ export const SearchLongTermMemoryTool: Tool = {
         model: memoryConfig.summarizeModel ?? agent.model,
         provider: graphProvider,
         promptOverride: memoryConfig.entityMentionPrompt,
+        locale,
         signal: options.signal,
       }).catch(() => [])
       : []
@@ -433,8 +442,8 @@ export const SearchLongTermMemoryTool: Tool = {
 
       return {
         output: [
-          '情景记忆召回结果：',
-          ...episodic.map((hit) => `[情景记忆] ${hit.memory.detail || hit.memory.summary}`),
+          locale === 'en-US' ? 'Episodic memory recall results:' : '情景记忆召回结果：',
+          ...episodic.map((hit) => `${locale === 'en-US' ? '[Episodic memory]' : '[情景记忆]'} ${hit.memory.detail || hit.memory.summary}`),
         ].join('\n'),
         metadata: {
           noResults: false,
@@ -505,7 +514,7 @@ export const SearchLongTermMemoryTool: Tool = {
 
     if (hits.length === 0) {
       return {
-        output: '长期记忆检索结果：未搜索到相关记忆。',
+        output: noLongTermResults,
         isError: false,
         metadata: { noResults: true, hits: [], effectiveQueries },
       }
@@ -513,8 +522,8 @@ export const SearchLongTermMemoryTool: Tool = {
 
     return {
       output: [
-        '长期记忆检索结果：',
-        ...hits.map((memory) => `[长期记忆][${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.retrievalText}`),
+        locale === 'en-US' ? 'Long-term memory search results:' : '长期记忆检索结果：',
+        ...hits.map((memory) => `${locale === 'en-US' ? '[Long-term memory]' : '[长期记忆]'}[${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.retrievalText}`),
       ].join('\n'),
       metadata: {
         noResults: false,

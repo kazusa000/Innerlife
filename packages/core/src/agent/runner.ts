@@ -66,7 +66,7 @@ export async function* runAgent(
     ctx.relationshipAnalysis = undefined
     ctx.messages = messages
     yield* runSystemPhase(systems, 'beforeLLM', ctx)
-    const baseSystemPrompt = composeSystemPrompt(config.systemPrompt, ctx.promptFragments)
+    const baseSystemPrompt = composeSystemPrompt(config.systemPrompt, ctx.promptFragments, config.locale)
     const promptFragmentMetadata = buildPromptFragmentMetadata(ctx.promptFragments)
 
     const compaction = await runPendingCompaction(
@@ -268,7 +268,9 @@ export async function* runAgent(
           longTermSearchCalls += 1
           if (longTermSearchCalls > 1) {
             result = {
-              output: '长期记忆检索结果：未搜索到相关记忆。',
+              output: config.locale === 'en-US'
+                ? 'Long-term memory search: no relevant memory found.'
+                : '长期记忆检索结果：未搜索到相关记忆。',
               isError: true,
               metadata: { noResults: true, reason: 'too_many_calls' },
             }
@@ -283,6 +285,7 @@ export async function* runAgent(
                   ? ctx.state.memoryRetrievalQuery
                   : null,
               recentMessages: cloneMessages(messages),
+              locale: config.locale,
             })
           }
         } else {
@@ -296,6 +299,7 @@ export async function* runAgent(
                 ? ctx.state.memoryRetrievalQuery
                 : null,
             recentMessages: cloneMessages(messages),
+            locale: config.locale,
           })
         }
       } catch (err) {
@@ -318,7 +322,9 @@ export async function* runAgent(
       if (toolCall.name === 'search_long_term_memory' && result.metadata?.noResults) {
         postToolSystemMessages.push({
           role: 'system',
-          content: '长期记忆检索结果：未搜索到相关记忆。',
+          content: config.locale === 'en-US'
+            ? 'Long-term memory search: no relevant memory found.'
+            : '长期记忆检索结果：未搜索到相关记忆。',
         })
       }
     }
@@ -338,6 +344,7 @@ function createTurnContext(config: AgentConfig, messages: Message[]): TurnContex
     agentId: config.id,
     sessionId: config.sessionId ?? 'default-session',
     userId: config.userId ?? 'default-user',
+    locale: config.locale ?? 'zh-CN',
     input: {
       raw: inputText,
       text: inputText,
@@ -380,8 +387,10 @@ function formatCurrentLocalDateTime(date = new Date()): string {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} ${sign}${tzHours}:${tzMinutes}`
 }
 
-function composeSystemPrompt(basePrompt: string, fragments: TurnContext['promptFragments']) {
-  const timePrompt = `当前本地时间：${formatCurrentLocalDateTime()}`
+function composeSystemPrompt(basePrompt: string, fragments: TurnContext['promptFragments'], locale: AgentConfig['locale'] = 'zh-CN') {
+  const timePrompt = locale === 'en-US'
+    ? `Current local time: ${formatCurrentLocalDateTime()}`
+    : `当前本地时间：${formatCurrentLocalDateTime()}`
   const ordered = [...fragments].sort((a, b) => a.priority - b.priority)
   return [basePrompt, timePrompt, ...ordered.map((fragment) => fragment.content)].join('\n\n')
 }

@@ -12,6 +12,7 @@ import {
 import type { RelationshipHistoryEntry } from '../types'
 
 const MAX_HISTORY_ENTRIES = 8
+type AppLocale = 'zh-CN' | 'en-US'
 
 function clampSigned(value: unknown): number {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -96,6 +97,7 @@ function buildNamedAnalysisRequest(
   model: string | null,
   promptOverride: string | null,
   counterpart: RelationshipCounterpartRef,
+  locale: AppLocale = 'zh-CN',
 ) {
   const assistantText = Array.isArray(ctx.response?.content)
     ? ctx.response.content
@@ -107,25 +109,25 @@ function buildNamedAnalysisRequest(
     : ''
 
   const analysisInput = [
-    `请分析这一轮已经完成的对话，应该如何改变这个 persona 面向「${counterpart.name}」的关系状态。`,
-    '只输出严格 JSON。',
-    '必须包含这些键：trust_delta、affinity_delta、familiarity_delta、respect_delta、trigger。',
-    '所有 *_delta 的数值都必须落在 [-1, 1]。',
-    '除非互动强度非常明显，否则增量要保持小幅变化。',
+    locale === 'en-US' ? `Analyze the completed turn and decide how it should change this persona relationship state toward "${counterpart.name}".` : `请分析这一轮已经完成的对话，应该如何改变这个 persona 面向「${counterpart.name}」的关系状态。`,
+    locale === 'en-US' ? 'Output strict JSON only.' : '只输出严格 JSON。',
+    locale === 'en-US' ? 'Must include these keys: trust_delta, affinity_delta, familiarity_delta, respect_delta, trigger.' : '必须包含这些键：trust_delta、affinity_delta、familiarity_delta、respect_delta、trigger。',
+    locale === 'en-US' ? 'All *_delta values must be in [-1, 1].' : '所有 *_delta 的数值都必须落在 [-1, 1]。',
+    locale === 'en-US' ? 'Unless interaction intensity is obvious, keep deltas small.' : '除非互动强度非常明显，否则增量要保持小幅变化。',
     '',
-    `当前面对的对象：${counterpart.name}`,
-    counterpart.role ? `关系角色：${counterpart.role}` : null,
-    counterpart.description ? `对象描述：${counterpart.description}` : null,
-    counterpart.note ? `角色主观备注：${counterpart.note}` : null,
-    `当前状态：${JSON.stringify(currentState)}`,
-    `基线状态：${JSON.stringify(baseline)}`,
-    `每轮衰减：${decayPerTurn}`,
+    `${locale === 'en-US' ? 'Current counterpart' : '当前面对的对象'}：${counterpart.name}`,
+    counterpart.role ? `${locale === 'en-US' ? 'Relationship role' : '关系角色'}：${counterpart.role}` : null,
+    counterpart.description ? `${locale === 'en-US' ? 'Counterpart description' : '对象描述'}：${counterpart.description}` : null,
+    counterpart.note ? `${locale === 'en-US' ? 'Persona note' : '角色主观备注'}：${counterpart.note}` : null,
+    `${locale === 'en-US' ? 'Current state' : '当前状态'}：${JSON.stringify(currentState)}`,
+    `${locale === 'en-US' ? 'Baseline state' : '基线状态'}：${JSON.stringify(baseline)}`,
+    `${locale === 'en-US' ? 'Decay per turn' : '每轮衰减'}：${decayPerTurn}`,
     '',
-    '用户消息：',
-    ctx.input.text || '（空）',
+    locale === 'en-US' ? 'User message:' : '用户消息：',
+    ctx.input.text || (locale === 'en-US' ? '(empty)' : '（空）'),
     '',
-    '助手回复：',
-    assistantText || '（空）',
+    locale === 'en-US' ? 'Assistant reply:' : '助手回复：',
+    assistantText || (locale === 'en-US' ? '(empty)' : '（空）'),
   ].filter((line): line is string => line !== null).join('\n')
 
   return {
@@ -134,7 +136,9 @@ function buildNamedAnalysisRequest(
     systemPrompt:
       typeof promptOverride === 'string' && promptOverride.trim()
         ? promptOverride.trim()
-        : '你负责分析单轮对话对关系状态的影响，只输出 JSON。',
+        : locale === 'en-US'
+          ? 'Analyze how one completed turn affects the relationship state. Output JSON only.'
+          : '你负责分析单轮对话对关系状态的影响，只输出 JSON。',
     messages: [
       {
         role: 'user' as const,
@@ -153,9 +157,11 @@ export class NamedMultiDimRelationshipSystem implements AgentSystem {
   type = 'relationship'
 
   private readonly config
+  private readonly locale: AppLocale
 
-  constructor(config?: unknown) {
-    this.config = normalizeRelationshipConfig(config)
+  constructor(config?: unknown, locale: AppLocale = 'zh-CN') {
+    this.locale = locale
+    this.config = normalizeRelationshipConfig(config, locale)
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
@@ -186,6 +192,7 @@ export class NamedMultiDimRelationshipSystem implements AgentSystem {
         this.config.fragmentPrompt,
         counterpart.name,
         counterpart,
+        this.locale,
       ),
     })
   }
@@ -208,6 +215,7 @@ export class NamedMultiDimRelationshipSystem implements AgentSystem {
       this.config.analysisModel,
       this.config.analysisPrompt,
       counterpart,
+      this.locale,
     )
   }
 

@@ -39,6 +39,7 @@ export type EntityResolution =
 
 const ENTITY_TYPES = new Set(['person', 'place', 'object', 'event'])
 const MERGE_CONFIDENCE_THRESHOLD = 0.75
+type AppLocale = 'zh-CN' | 'en-US'
 
 function extractJsonCandidate(text: string): string {
   const trimmed = text.trim()
@@ -131,10 +132,30 @@ function readEntityType(value: unknown, fallback: MemoryEntityType | null): Memo
   return fallback
 }
 
-export function buildEntityMentionPrompt(promptOverride?: string | null) {
+export function buildEntityMentionPrompt(promptOverride?: string | null, locale: AppLocale = 'zh-CN') {
   const override = promptOverride?.trim()
   if (override) {
     return override
+  }
+
+  if (locale === 'en-US') {
+    return [
+      'You are an entity mention extractor for current-chat memory recall.',
+      'You may receive recent conversation plus the current retrieval question; recent conversation is only for resolving pronouns, omissions, and references in the current retrieval question.',
+      'Extract real entity mentions from the current retrieval question: person/place/object/event.',
+      'object includes items, games, software, books, movies, websites, system names, project names, and other concrete referable objects.',
+      'event is only for a specific occurrence, such as a test, trip, meeting, or argument.',
+      'Generic mentions may still be valid when they can point to memory nodes, such as "the old bookstore", "that shop", or "this game".',
+      'If "that game", "it", or "there" can be uniquely resolved from recent conversation, output the resolved stable surface.',
+      'Do not opportunistically output extra entities from recent conversation; output only mentions needed for the current retrieval question.',
+      'Do not extract abstract concepts, emotion labels, relationship explanations, or psychological analysis.',
+      'Do not create entities, merge entities, or add aliases; only output mentions in the current text.',
+      'Return strict JSON only. No markdown and no explanatory text.',
+      'Top-level shape: {"mentions":[{"surface":string,"type":"person|place|object|event","context_hint":string,"confidence":number}]}.',
+      'At most 5 mentions, sorted by relevance to the current question.',
+      'surface must come from the text or a stable resolved phrase from the text; context_hint briefly explains what this mention means in the current context.',
+      'If there are no entities, return {"mentions":[]}.',
+    ].join('\n')
   }
 
   return [
@@ -156,10 +177,29 @@ export function buildEntityMentionPrompt(promptOverride?: string | null) {
   ].join('\n')
 }
 
-export function buildEpisodicExtractionPrompt(promptOverride?: string | null) {
+export function buildEpisodicExtractionPrompt(promptOverride?: string | null, locale: AppLocale = 'zh-CN') {
   const override = promptOverride?.trim()
   if (override) {
     return override
+  }
+
+  if (locale === 'en-US') {
+    return [
+      'Extract entities and episodic_memories from memories.',
+      'You may summarize multiple memories into one episodic_memory.',
+      'Return strict JSON only. No markdown and no explanatory text.',
+      'Top-level shape must be: {"entities":[...],"episodic_memories":[...]}.',
+      'Each entity must be: {"local_entity_id":string,"surface":string,"type":"person|place|object|event","context_hint":string}.',
+      'local_entity_id starts at e1 and increments.',
+      'surface must preserve the actual text mentioned in the source; do not standardize, translate, or rewrite it into a guessed formal name.',
+      'context_hint briefly explains what this entity means in the memories.',
+      'Each episodic_memory must be: {"summary":string,"detail":string,"importance":number,"entity_links":[{"local_entity_id":string,"weight":number}]}.',
+      'summary is the concise summary of the episodic memory derived from related memories.',
+      'detail is the detailed description of this episodic memory and may refer to related memory detail fields.',
+      'importance should fall within the importance range of the related memories.',
+      'entity_links.local_entity_id must reference an entity local_entity_id from entities.',
+      'weight rules: 0.8-1.0 core entity without which the memory does not stand; 0.5-0.8 important related entity; 0.3-0.5 weak background entity.',
+    ].join('\n')
   }
 
   return [
@@ -180,10 +220,28 @@ export function buildEpisodicExtractionPrompt(promptOverride?: string | null) {
   ].join('\n')
 }
 
-export function buildEntityResolutionPrompt(promptOverride?: string | null) {
+export function buildEntityResolutionPrompt(promptOverride?: string | null, locale: AppLocale = 'zh-CN') {
   const override = promptOverride?.trim()
   if (override) {
     return override
+  }
+
+  if (locale === 'en-US') {
+    return [
+      'Stage B: decide whether each local entity should merge into a candidate entity or create_new.',
+      'Return strict JSON only. No markdown and no explanatory text.',
+      'Top-level shape must be: {"resolutions":[...]}; do not return an array at the top level.',
+      'Each resolution must be merge or create_new.',
+      'merge shape: {"local_entity_id":string,"action":"merge","entity_id":string,"confidence":number,"alias_to_add":string|null}.',
+      'create_new shape: {"local_entity_id":string,"action":"create_new","canonical_name":string,"type":"person|place|object|event","confidence":number}.',
+      'Do not use substitute fields such as global_entity_id/name/description/attributes/aliases.',
+      'Only merge when confidence >= 0.75.',
+      'If unsure, create_new. alias_to_add is allowed only on merge, and must be a stable name for the same entity in the source text.',
+      'When merging and local surface differs from candidate canonical_name/existing alias, put local surface in alias_to_add; if identical, use null.',
+      'If context_hint clearly says the local entity and a candidate are the same thing, such as "is", "refers to", "abbreviation for", or "same as", prefer merging to that candidate.',
+      'Same scene, same category, similar terms, or related things are not aliases.',
+      'Games, software, books, movies, websites, system names, and project names are object.',
+    ].join('\n')
   }
 
   return [

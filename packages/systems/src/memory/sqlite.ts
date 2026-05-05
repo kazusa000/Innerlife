@@ -1,6 +1,7 @@
 import {
   agentRepo,
   episodicMemoryGraphRepo,
+  appSettingsRepo,
   memoryRepo,
   relationshipCounterpartRepo,
   sessionRelationshipBindingRepo,
@@ -43,6 +44,7 @@ const DEFAULT_SLEEP_INTERVAL_DAYS = 1
 const DEFAULT_SHOW_NO_HIT_MEMORY_FRAGMENTS = true
 const SHORT_TERM_MEMORY_MISS_TEXT = '短期记忆检索结果：未搜索到相关记忆。'
 const FIXED_MEMORY_MISS_TEXT = '固化记忆检索结果：未搜索到相关记忆。'
+type AppLocale = appSettingsRepo.AppLocale
 const MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT: MemoryResponseFormat = {
   type: 'json_schema',
   jsonSchema: {
@@ -205,7 +207,18 @@ const SHORT_TERM_WRITE_GUIDANCE = [
   '描述助手自身时默认使用第一人称“我”，不要把“AI”或“助手”当成记忆主体，除非是在直接引用原话。',
 ].join('\n')
 
-function formatMemoryLayerLabel(layer: MemoryRecord['layer']): string {
+function formatMemoryLayerLabel(layer: MemoryRecord['layer'], locale: AppLocale = 'zh-CN'): string {
+  if (locale === 'en-US') {
+    switch (layer) {
+      case 'long_term':
+        return 'long-term memory'
+      case 'fixed':
+        return 'fixed memory'
+      default:
+        return 'short-term memory'
+    }
+  }
+
   switch (layer) {
     case 'long_term':
       return '长期记忆'
@@ -225,6 +238,18 @@ function joinPromptLines(lines: Array<string | null | undefined>) {
 
 function readOptionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function readLocalizedText(record: Record<string, unknown>, key: string, locale: AppLocale): string | null {
+  const localized = record[`${key}ByLocale`]
+  if (localized && typeof localized === 'object' && !Array.isArray(localized)) {
+    const value = (localized as Record<string, unknown>)[locale]
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  return locale === 'zh-CN' ? readOptionalText(record[key]) : null
 }
 
 function readPositiveInt(value: unknown, fallback: number) {
@@ -320,7 +345,7 @@ export function resolveMemoryActorLabels(input: {
   }
 }
 
-function readConfig(config: unknown): MemoryModuleConfig {
+function readConfig(config: unknown, locale: AppLocale = 'zh-CN'): MemoryModuleConfig {
   const embedder = createOpenRouterMemoryEmbedder()
 
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
@@ -396,21 +421,21 @@ function readConfig(config: unknown): MemoryModuleConfig {
       typeof record.timeParser === 'function'
         ? record.timeParser as (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
         : analyzeMemoryTimeText,
-    retrievePrompt: readOptionalText(record.retrievePrompt),
-    semanticAnalyzerPrompt: readOptionalText(record.semanticAnalyzerPrompt),
-    contextToShortTermPrompt: readOptionalText(record.contextToShortTermPrompt),
-    shortTermToLongTermPrompt: readOptionalText(record.shortTermToLongTermPrompt),
-    entityMentionPrompt: readOptionalText(record.entityMentionPrompt),
-    episodicExtractionPrompt: readOptionalText(record.episodicExtractionPrompt),
-    entityResolutionPrompt: readOptionalText(record.entityResolutionPrompt),
-    fragmentPrompt: readOptionalText(record.fragmentPrompt),
-    shortTermFragmentPrompt: readOptionalText(record.shortTermFragmentPrompt),
-    fixedFragmentPrompt: readOptionalText(record.fixedFragmentPrompt),
+    retrievePrompt: readLocalizedText(record, 'retrievePrompt', locale),
+    semanticAnalyzerPrompt: readLocalizedText(record, 'semanticAnalyzerPrompt', locale),
+    contextToShortTermPrompt: readLocalizedText(record, 'contextToShortTermPrompt', locale),
+    shortTermToLongTermPrompt: readLocalizedText(record, 'shortTermToLongTermPrompt', locale),
+    entityMentionPrompt: readLocalizedText(record, 'entityMentionPrompt', locale),
+    episodicExtractionPrompt: readLocalizedText(record, 'episodicExtractionPrompt', locale),
+    entityResolutionPrompt: readLocalizedText(record, 'entityResolutionPrompt', locale),
+    fragmentPrompt: readLocalizedText(record, 'fragmentPrompt', locale),
+    shortTermFragmentPrompt: readLocalizedText(record, 'shortTermFragmentPrompt', locale),
+    fixedFragmentPrompt: readLocalizedText(record, 'fixedFragmentPrompt', locale),
   }
 }
 
-export function resolveMemorySqliteConfig(config: unknown) {
-  const resolved = readConfig(config)
+export function resolveMemorySqliteConfig(config: unknown, locale: AppLocale = 'zh-CN') {
+  const resolved = readConfig(config, locale)
   return {
     summarizeModel: resolved.summarizeModel,
     embeddingModel: resolved.embeddingModel,
@@ -462,10 +487,31 @@ export function isSqliteMemoryConfig(config: unknown): boolean {
     && (config as Record<string, unknown>).scheme === 'sqlite'
 }
 
-export function buildContextToShortTermPrompt(promptOverride?: string | null, maxMemories = DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH): string {
+export function buildContextToShortTermPrompt(
+  promptOverride?: string | null,
+  maxMemories = DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH,
+  locale: AppLocale = 'zh-CN',
+): string {
   const override = promptOverride?.trim()
   if (override) {
     return override
+  }
+
+  if (locale === 'en-US') {
+    return [
+      'You convert an older conversation context into short-term memories.',
+      `Extract at most ${maxMemories} short-term memories from the provided messages.`,
+      'Do not restate the transcript line by line; keep only recent impressions that are valuable for future turns.',
+      'Return strict JSON in this shape:',
+      '{"memories": Array<{"detail": string, "retrieval_text": string, "importance": number}>}',
+      'detail is an internal context detail. Write it in the same language as the source context and preserve original surfaces, nicknames, aliases, abbreviations, pronoun resolutions, and statements like "X is the name/alias/abbreviation of Y".',
+      'retrieval_text is for embedding, retrieval, and UI reading. Write a complete natural-language fact, scene, or event, not a tag list.',
+      'If the conversation already names the current counterpart, use that name in detail and retrieval_text instead of generic "the user".',
+      'When describing yourself, use first person by default; do not call yourself "AI" or "assistant" unless that is the original wording.',
+      'Use this importance scale: 0.8-1.0 durable identity/preference/relationship/project facts; 0.5-0.8 useful recent facts or unresolved tasks; 0.2-0.5 weak context; below 0.2 should usually be omitted.',
+      'If there is nothing worth keeping, still return {"memories": []}.',
+      'Do not output markdown, code fences, or any extra explanation.',
+    ].join('\n')
   }
 
   const defaultLines = [
@@ -481,10 +527,30 @@ export function buildContextToShortTermPrompt(promptOverride?: string | null, ma
   return defaultLines.join('\n')
 }
 
-export function buildShortTermToLongTermPrompt(promptOverride?: string | null, maxMemories = DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH): string {
+export function buildShortTermToLongTermPrompt(
+  promptOverride?: string | null,
+  maxMemories = DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH,
+  locale: AppLocale = 'zh-CN',
+): string {
   const override = promptOverride?.trim()
   if (override) {
     return override
+  }
+
+  if (locale === 'en-US') {
+    return [
+      'During the sleep stage, consolidate short-term memories into more stable long-term memories.',
+      `Create at most ${maxMemories} long-term memories from the provided short-term memories.`,
+      'Long-term memories should be more stable and abstract; do not keep too many fleeting chat details.',
+      'Each long-term memory must reference the short-term memory ids it is based on through source_stm_ids.',
+      'Only reference ids that exist in the input, and do not reference unrelated short-term memories.',
+      'If you cannot tell which short-term memories support a long-term memory, omit that memory.',
+      'Return strict JSON in this shape:',
+      '{"memories": Array<{"detail": string, "retrieval_text": string, "importance": number, "source_stm_ids": string[]}>}',
+      'detail should preserve useful context and original names/aliases. retrieval_text should be a complete retrievable fact, scene, or event.',
+      'If there is nothing worth consolidating, still return {"memories": []}.',
+      'Do not output markdown, code fences, or any extra explanation.',
+    ].join('\n')
   }
 
   const defaultLines = [
@@ -507,10 +573,35 @@ function resolveSemanticAnalyzerPromptOverride(config: Pick<MemoryModuleConfig, 
   return config.semanticAnalyzerPrompt ?? config.retrievePrompt
 }
 
-export function buildSemanticAnalyzerPrompt(promptOverride?: string | null): string {
+export function buildSemanticAnalyzerPrompt(promptOverride?: string | null, locale: AppLocale = 'zh-CN'): string {
   const override = promptOverride?.trim()
   if (override) {
     return override
+  }
+
+  if (locale === 'en-US') {
+    return [
+      'You are the semantic analyzer for the sqlite memory system.',
+      'You receive a short recent conversation and the latest user message.',
+      'Return strict JSON in this shape:',
+      '{"retrieval_query": string | null}',
+      'Recent conversation is only for resolving pronouns, omissions, and references in the current user message. Do not expand topics or guess answers for the user.',
+      'Generate retrieval_query only for the current user message.',
+      'If the current user message is already self-contained, ignore recent conversation.',
+      'If multiple references are possible and cannot be resolved uniquely, return "retrieval_query": null.',
+      'retrieval_query must be one short complete sentence.',
+      'Keep only the shortest, most stable retrieval anchor. Do not write a long explanation.',
+      'Never include time information; time is handled by the time analyzer.',
+      'Do not put the answer itself into the query.',
+      'Do not pull extra topics from recent conversation into the query.',
+      'If the recent conversation clearly names the counterpart, preserve that name instead of generalizing to "the user".',
+      'When referring to yourself, use "I" by default; do not use "AI" or "assistant" unless that is the original wording.',
+      'Remove speaker labels, asking/discussion wrappers, and vague retrospective shells such as "content", "thing", "conversation", or "discussion".',
+      'After removing time and wrapper phrasing, keep concrete objects, topics, scenes, names, foods, bugs, places, relationships, or imagery.',
+      'If no stable topic anchor remains, return "retrieval_query": null.',
+      'Use the same language as the user message by default.',
+      'Do not output markdown, code fences, or any extra explanation.',
+    ].join('\n')
   }
 
   const defaultLines = [
@@ -545,9 +636,19 @@ export function buildSemanticAnalyzerPrompt(promptOverride?: string | null): str
   return defaultLines.join('\n')
 }
 
-export function buildMemoryFragmentPrompt(promptOverride?: string | null): string {
+export function buildMemoryFragmentPrompt(promptOverride?: string | null, locale: AppLocale = 'zh-CN'): string {
   if (promptOverride?.trim()) {
     return promptOverride.trim()
+  }
+
+  if (locale === 'en-US') {
+    return [
+      'The following memories are relevant and can be used directly in this reply:',
+      'Treat them as memories available for this turn.',
+      'If the user asks about prior interactions, past facts, or recent events and these memories are relevant, answer from them directly.',
+      'Start with the newest and most relevant hits; do not let older memories override a sufficient newer memory.',
+      'If the memories are still insufficient, say you are not sure instead of inventing details.',
+    ].join('\n')
   }
 
   return [
@@ -563,9 +664,17 @@ export function buildMemoryFragmentPrompt(promptOverride?: string | null): strin
   ].join('\n')
 }
 
-export function buildShortTermFragmentPrompt(promptOverride?: string | null): string {
+export function buildShortTermFragmentPrompt(promptOverride?: string | null, locale: AppLocale = 'zh-CN'): string {
   if (promptOverride?.trim()) {
     return promptOverride.trim()
+  }
+
+  if (locale === 'en-US') {
+    return [
+      'Below are short-term memories retrieved for this turn.',
+      'They represent recent impressions and interactions that are still fresh.',
+      'If these short-term memories are enough to answer, answer directly from them.',
+    ].join('\n')
   }
 
   return [
@@ -575,9 +684,17 @@ export function buildShortTermFragmentPrompt(promptOverride?: string | null): st
   ].join('\n')
 }
 
-export function buildFixedMemoryFragmentPrompt(promptOverride?: string | null): string {
+export function buildFixedMemoryFragmentPrompt(promptOverride?: string | null, locale: AppLocale = 'zh-CN'): string {
   if (promptOverride?.trim()) {
     return promptOverride.trim()
+  }
+
+  if (locale === 'en-US') {
+    return [
+      'Below are fixed memories retrieved for this turn.',
+      'They represent stable facts or preferences.',
+      'If these fixed memories are relevant, use them as reliable background.',
+    ].join('\n')
   }
 
   return [
@@ -587,7 +704,17 @@ export function buildFixedMemoryFragmentPrompt(promptOverride?: string | null): 
   ].join('\n')
 }
 
-export function buildLongTermSearchToolPrompt() {
+export function buildLongTermSearchToolPrompt(locale: AppLocale = 'zh-CN') {
+  if (locale === 'en-US') {
+    return [
+      'Search long-term memory only when the current context, short-term memory, and fixed memory are still not enough; if visible memory is enough, answer directly instead of treating long-term search as the default.',
+      'When the user clearly asks about previously mentioned facts, preferences, relationships, events, places, or scenes and current context is insufficient, search long-term memory before deciding you are unsure.',
+      'If you call this tool, query must be one short complete retrieval sentence: resolve necessary references, but do not copy vague shells like "that thing", "it", or "last time"; do not write only keywords or tags.',
+      'The system combines this query with the semantic analyzer query for weighted long-term matching; do not pad extra keywords.',
+      'Call at most once per turn. If the tool returns no relevant memory, accept that result and do not repeat the search or invent old events.',
+    ].join(' ')
+  }
+
   return [
     '只在当前上下文、短期记忆和固化记忆仍不足以回答时，才搜索长期记忆；如果眼前记忆已经足够，就直接回答，不要把长期记忆搜索当成默认动作。',
     '当用户明显在追问以前提过的事实、偏好、关系、事件或画面，而当前上下文又不够时，应优先搜索长期记忆，再决定是否表示不确定。',
@@ -604,6 +731,7 @@ function renderMemoryLayerResult(input: {
   memories: MemoryRecord[]
   prompt: string
   showNoHitMemoryFragments: boolean
+  locale: AppLocale
 }): string {
   if (input.memories.length === 0) {
     return input.showNoHitMemoryFragments
@@ -613,12 +741,14 @@ function renderMemoryLayerResult(input: {
 
   const [primaryMemory, ...secondaryMemories] = input.memories
   const renderMemoryLine = (label: string, memory: MemoryRecord) =>
-    `${label}：[${formatMemoryLayerLabel(memory.layer)}][${formatMemoryPromptTime(memory)}] ${memory.retrievalText}`
+    input.locale === 'en-US'
+      ? `${label}: [${formatMemoryLayerLabel(memory.layer, input.locale)}][${formatMemoryPromptTime(memory, input.locale)}] ${memory.retrievalText}`
+      : `${label}：[${formatMemoryLayerLabel(memory.layer, input.locale)}][${formatMemoryPromptTime(memory, input.locale)}] ${memory.retrievalText}`
 
   return [
     input.prompt,
-    renderMemoryLine(`${input.title}最相关记忆`, primaryMemory),
-    ...secondaryMemories.map((memory) => renderMemoryLine(`${input.title}补充记忆`, memory)),
+    renderMemoryLine(input.locale === 'en-US' ? `Most relevant ${input.title} memory` : `${input.title}最相关记忆`, primaryMemory),
+    ...secondaryMemories.map((memory) => renderMemoryLine(input.locale === 'en-US' ? `Additional ${input.title} memory` : `${input.title}补充记忆`, memory)),
   ].join('\n')
 }
 
@@ -628,21 +758,25 @@ export function renderLayeredMemoryFragment(input: {
   shortTermPrompt?: string | null
   fixedPrompt?: string | null
   showNoHitMemoryFragments: boolean
+  locale?: AppLocale
 }): string {
+  const locale = input.locale ?? 'zh-CN'
   return joinPromptLines([
     renderMemoryLayerResult({
-      title: '短期',
+      title: locale === 'en-US' ? 'short-term' : '短期',
       memories: input.shortTermMemories,
-      prompt: buildShortTermFragmentPrompt(input.shortTermPrompt),
-      missText: SHORT_TERM_MEMORY_MISS_TEXT,
+      prompt: buildShortTermFragmentPrompt(input.shortTermPrompt, locale),
+      missText: locale === 'en-US' ? 'Short-term memory retrieval: no relevant memory found.' : SHORT_TERM_MEMORY_MISS_TEXT,
       showNoHitMemoryFragments: input.showNoHitMemoryFragments,
+      locale,
     }),
     renderMemoryLayerResult({
-      title: '固化',
+      title: locale === 'en-US' ? 'fixed' : '固化',
       memories: input.fixedMemories,
-      prompt: buildFixedMemoryFragmentPrompt(input.fixedPrompt),
-      missText: FIXED_MEMORY_MISS_TEXT,
+      prompt: buildFixedMemoryFragmentPrompt(input.fixedPrompt, locale),
+      missText: locale === 'en-US' ? 'Fixed memory retrieval: no relevant memory found.' : FIXED_MEMORY_MISS_TEXT,
       showNoHitMemoryFragments: input.showNoHitMemoryFragments,
+      locale,
     }),
   ])
 }
@@ -651,16 +785,20 @@ function renderEpisodicMemoryFragment(memories: Array<{
   summary: string
   observedStartAt: Date | null
   observedEndAt: Date | null
-}>): string {
+}>, locale: AppLocale = 'zh-CN'): string {
   if (memories.length === 0) {
     return ''
   }
 
   return [
-    '以下是此刻自然浮现的情景记忆：',
+    locale === 'en-US'
+      ? 'The following episodic memories naturally surface right now:'
+      : '以下是此刻自然浮现的情景记忆：',
     ...memories.slice(0, 5).map((memory) => {
       const timePrefix = memory.observedStartAt
-        ? `[发生于 ${formatLocalMemoryPromptTime(memory.observedStartAt)}] `
+        ? locale === 'en-US'
+          ? `[Occurred at ${formatLocalMemoryPromptTime(memory.observedStartAt)}] `
+          : `[发生于 ${formatLocalMemoryPromptTime(memory.observedStartAt)}] `
         : ''
       return `- ${timePrefix}${memory.summary}`
     }),
@@ -713,13 +851,15 @@ function formatLocalMemoryPromptTime(date: Date): string {
   return `${year}-${month}-${day} ${hours}:${minutes} ${formatOffset(localMinutes)}`
 }
 
-function formatMemoryPromptTime(memory: MemoryRecord): string {
+function formatMemoryPromptTime(memory: MemoryRecord, locale: AppLocale = 'zh-CN'): string {
   if (memory.layer === 'short_term') {
     if (!memory.observedStartAt || !memory.observedEndAt) {
-      return '时间未知'
+      return locale === 'en-US' ? 'time unknown' : '时间未知'
     }
 
-    return `发生于 ${formatLocalMemoryPromptTime(memory.observedStartAt)} - ${formatLocalMemoryPromptTime(memory.observedEndAt)}`
+    return locale === 'en-US'
+      ? `occurred at ${formatLocalMemoryPromptTime(memory.observedStartAt)} - ${formatLocalMemoryPromptTime(memory.observedEndAt)}`
+      : `发生于 ${formatLocalMemoryPromptTime(memory.observedStartAt)} - ${formatLocalMemoryPromptTime(memory.observedEndAt)}`
   }
 
   return formatLocalMemoryPromptTime(memory.createdAt)
@@ -1097,9 +1237,11 @@ export class MemorySqliteSystem implements AgentSystem {
   private readonly fragmentPrompt: string | null
   private readonly shortTermFragmentPrompt: string | null
   private readonly fixedFragmentPrompt: string | null
+  private readonly locale: AppLocale
 
-  constructor(config?: unknown) {
-    const resolved = readConfig(config)
+  constructor(config?: unknown, locale: AppLocale = 'zh-CN') {
+    const resolved = readConfig(config, locale)
+    this.locale = locale
     this.summarizeModel = resolved.summarizeModel
     this.embeddingModel = resolved.embeddingModel
     this.retrieveTopK = resolved.retrieveTopK
@@ -1129,16 +1271,25 @@ export class MemorySqliteSystem implements AgentSystem {
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
-    const agent = agentRepo.getAgent(ctx.agentId)
+    let agent: ReturnType<typeof agentRepo.getAgent> | null = null
+    try {
+      agent = agentRepo.getAgent(ctx.agentId)
+    } catch {
+      agent = null
+    }
     const activeEpisodicLimit = agent?.tools?.search_long_term_memory?.episodicActivation?.maxActive
       ?? DEFAULT_EPISODIC_ACTIVATION_MAX_ACTIVE
-    episodicMemoryGraphRepo.pruneExpiredEpisodicMemoryActivations({ agentId: ctx.agentId })
-    ctx.state.episodicMemories = episodicMemoryGraphRepo
-      .listActiveEpisodicMemories({
-        agentId: ctx.agentId,
-        limit: Math.max(1, Math.min(20, Math.floor(activeEpisodicLimit))),
-      })
-      .map((item) => item.memory)
+    try {
+      episodicMemoryGraphRepo.pruneExpiredEpisodicMemoryActivations({ agentId: ctx.agentId })
+      ctx.state.episodicMemories = episodicMemoryGraphRepo
+        .listActiveEpisodicMemories({
+          agentId: ctx.agentId,
+          limit: Math.max(1, Math.min(20, Math.floor(activeEpisodicLimit))),
+        })
+        .map((item) => item.memory)
+    } catch {
+      ctx.state.episodicMemories = []
+    }
 
     const actorLabels = resolveMemoryActorLabels({
       agentId: ctx.agentId,
@@ -1160,7 +1311,7 @@ export class MemorySqliteSystem implements AgentSystem {
       },
       semanticAnalyzer: {
         kind: 'llm',
-        prompt: buildSemanticAnalyzerPrompt(semanticPromptOverride),
+        prompt: buildSemanticAnalyzerPrompt(semanticPromptOverride, this.locale),
         inputText: buildSemanticAnalyzerInputText(
           ctx.messages,
           ctx.input.text,
@@ -1239,8 +1390,9 @@ export class MemorySqliteSystem implements AgentSystem {
         shortTermPrompt: this.shortTermFragmentPrompt ?? this.fragmentPrompt,
         fixedPrompt: this.fixedFragmentPrompt ?? this.fragmentPrompt,
         showNoHitMemoryFragments: this.showNoHitMemoryFragments,
+        locale: this.locale,
       }),
-      renderEpisodicMemoryFragment(episodicMemories),
+      renderEpisodicMemoryFragment(episodicMemories, this.locale),
     ])
 
     if (content) {

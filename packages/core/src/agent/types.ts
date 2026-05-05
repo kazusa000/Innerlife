@@ -8,6 +8,7 @@ export interface AgentConfig {
   model: string
   systemPrompt: string
   tools: Tool[]
+  locale?: 'zh-CN' | 'en-US'
   maxTurns?: number
   sessionId?: string
   userId?: string

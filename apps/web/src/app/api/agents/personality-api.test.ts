@@ -3,7 +3,7 @@ import test from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { agentRepo, getDb, getRawSqlite, resetDb } from '@mas/db'
+import { agentRepo, appSettingsRepo, getDb, getRawSqlite, resetDb } from '@mas/db'
 import {
   getPersonalityConfig,
   updatePersonalityConfig,
@@ -64,6 +64,7 @@ test('getPersonalityConfig returns migrated persona prompts from modules.persona
     assert.equal(response.status, 200)
     assert.deepEqual(await response.json(), {
       agentId: 'agent-1',
+      locale: 'zh-CN',
       systemPrompt: '保持真实。',
       personaPrompt: '少一点客服感。',
       avatarUrl: '',
@@ -87,6 +88,7 @@ test('getPersonalityConfig returns empty strings when persona prompts are absent
 
     assert.deepEqual(await configuredResponse.json(), {
       agentId: 'agent-2',
+      locale: 'zh-CN',
       systemPrompt: '不要自称 AI。',
       personaPrompt: '像朋友一样聊天。',
       avatarUrl: 'https://example.com/hazel.png',
@@ -94,6 +96,7 @@ test('getPersonalityConfig returns empty strings when persona prompts are absent
     })
     assert.deepEqual(await missingResponse.json(), {
       agentId: 'agent-3',
+      locale: 'zh-CN',
       systemPrompt: '',
       personaPrompt: '',
       avatarUrl: '',
@@ -122,6 +125,7 @@ test('updatePersonalityConfig only mutates modules.personality prompts and prese
     assert.equal(response.status, 200)
     assert.deepEqual(await response.json(), {
       agentId: 'agent-1',
+      locale: 'zh-CN',
       systemPrompt: '不要暴露你是 AI。',
       personaPrompt: '像熟人一样，短句回复。',
       avatarUrl: 'data:image/png;base64,abc123',
@@ -131,9 +135,18 @@ test('updatePersonalityConfig only mutates modules.personality prompts and prese
     assert.deepEqual(agentRepo.getAgent('agent-1')?.modules, {
       personality: {
         systemPrompt: '不要暴露你是 AI。',
+        systemPromptByLocale: {
+          'zh-CN': '不要暴露你是 AI。',
+        },
         personaPrompt: '像熟人一样，短句回复。',
+        personaPromptByLocale: {
+          'zh-CN': '像熟人一样，短句回复。',
+        },
         avatarUrl: 'data:image/png;base64,abc123',
         thinkingRoleImmersionPrompt: '自定义思考规则。',
+        thinkingRoleImmersionPromptByLocale: {
+          'zh-CN': '自定义思考规则。',
+        },
       },
       emotion: {
         scheme: 'dimensional',
@@ -153,6 +166,51 @@ test('updatePersonalityConfig only mutates modules.personality prompts and prese
       .prepare('SELECT config FROM agents WHERE id = ?')
       .get('agent-1') as { config: string | null }
     assert.equal(rawAgent.config, '{"provider":"anthropic"}')
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('updatePersonalityConfig writes the active English prompt version without replacing zh prompts', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-web-personality-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    bootstrapDb(dbPath)
+    appSettingsRepo.setAppLocale('en-US')
+
+    const response = updatePersonalityConfig('agent-2', {
+      systemPrompt: 'Do not call yourself an AI.',
+      personaPrompt: 'Speak like a close friend.',
+      thinkingRoleImmersionPrompt: 'Use first-person inner monologue only while thinking.',
+    })
+
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), {
+      agentId: 'agent-2',
+      locale: 'en-US',
+      systemPrompt: 'Do not call yourself an AI.',
+      personaPrompt: 'Speak like a close friend.',
+      avatarUrl: 'https://example.com/hazel.png',
+      thinkingRoleImmersionPrompt: 'Use first-person inner monologue only while thinking.',
+    })
+
+    assert.deepEqual(agentRepo.getAgent('agent-2')?.modules?.personality, {
+      systemPrompt: '不要自称 AI。',
+      systemPromptByLocale: {
+        'en-US': 'Do not call yourself an AI.',
+      },
+      personaPrompt: '像朋友一样聊天。',
+      personaPromptByLocale: {
+        'en-US': 'Speak like a close friend.',
+      },
+      avatarUrl: 'https://example.com/hazel.png',
+      thinkingRoleImmersionPrompt: '只在 think 中内心独白。',
+      thinkingRoleImmersionPromptByLocale: {
+        'en-US': 'Use first-person inner monologue only while thinking.',
+      },
+    })
   } finally {
     resetDb()
     rmSync(dir, { recursive: true, force: true })

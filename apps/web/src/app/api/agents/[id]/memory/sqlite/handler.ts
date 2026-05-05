@@ -1,6 +1,7 @@
 import {
   agentMemorySleepStateRepo,
   agentRepo,
+  appSettingsRepo,
   episodicMemoryGraphRepo,
   memoryRepo,
   messageRepo,
@@ -44,6 +45,51 @@ function readOptionalText(value: unknown) {
 
   const trimmed = value.trim()
   return trimmed || null
+}
+
+type AppLocale = appSettingsRepo.AppLocale
+
+const PROMPT_FIELDS = [
+  'semanticAnalyzerPrompt',
+  'contextToShortTermPrompt',
+  'entityMentionPrompt',
+  'episodicExtractionPrompt',
+  'entityResolutionPrompt',
+  'fragmentPrompt',
+  'shortTermFragmentPrompt',
+  'fixedFragmentPrompt',
+] as const
+
+function readLocalizedPrompt(record: Record<string, unknown> | undefined, key: string, locale: AppLocale) {
+  const localized = record?.[`${key}ByLocale`]
+  if (isRecord(localized)) {
+    const value = localized[locale]
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  return locale === 'zh-CN' ? readOptionalText(record?.[key]) : null
+}
+
+function writeLocalizedPrompt(record: Record<string, unknown>, key: string, locale: AppLocale, value: string | null) {
+  delete record[key]
+  const localizedKey = `${key}ByLocale`
+  const localized = isRecord(record[localizedKey])
+    ? { ...(record[localizedKey] as Record<string, unknown>) }
+    : {}
+
+  if (value) {
+    localized[locale] = value
+  } else {
+    delete localized[locale]
+  }
+
+  if (Object.keys(localized).length > 0) {
+    record[localizedKey] = localized
+  } else {
+    delete record[localizedKey]
+  }
 }
 
 function readOptionalInt(value: unknown) {
@@ -218,7 +264,8 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     return Response.json({ error: 'Agent memory scheme must be sqlite' }, { status: 400 })
   }
 
-  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+  const locale = appSettingsRepo.getAppLocale()
+  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory, locale)
   const pipelineSettings = resolveMemoryPipelineSettings(agent.modules?.memory)
   const page = typeof options.page === 'number' ? options.page : 1
   const pageSize = typeof options.pageSize === 'number' ? options.pageSize : 20
@@ -276,35 +323,35 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     sleepEnabled: pipelineSettings.sleepEnabled,
     sleepTimeLocal: pipelineSettings.sleepTimeLocal,
     sleepIntervalDays: pipelineSettings.sleepIntervalDays,
-    semanticAnalyzerPrompt:
-      readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.semanticAnalyzerPrompt)
-      ?? readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.retrievePrompt),
-    contextToShortTermPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.contextToShortTermPrompt),
-    entityMentionPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.entityMentionPrompt),
-    episodicExtractionPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.episodicExtractionPrompt),
-    entityResolutionPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.entityResolutionPrompt),
-    fragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fragmentPrompt),
-    shortTermFragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.shortTermFragmentPrompt),
-    fixedFragmentPrompt: readOptionalText((agent.modules?.memory as Record<string, unknown> | undefined)?.fixedFragmentPrompt),
-    semanticAnalyzerPromptDefault: buildSemanticAnalyzerPrompt(),
-    semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt),
-    contextToShortTermPromptDefault: buildContextToShortTermPrompt(null, pipelineSettings.maxShortTermMemoriesPerFlush),
+    locale,
+    semanticAnalyzerPrompt: memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt,
+    contextToShortTermPrompt: memoryConfig.contextToShortTermPrompt,
+    entityMentionPrompt: memoryConfig.entityMentionPrompt,
+    episodicExtractionPrompt: memoryConfig.episodicExtractionPrompt,
+    entityResolutionPrompt: memoryConfig.entityResolutionPrompt,
+    fragmentPrompt: memoryConfig.fragmentPrompt,
+    shortTermFragmentPrompt: memoryConfig.shortTermFragmentPrompt,
+    fixedFragmentPrompt: memoryConfig.fixedFragmentPrompt,
+    semanticAnalyzerPromptDefault: buildSemanticAnalyzerPrompt(null, locale),
+    semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt, locale),
+    contextToShortTermPromptDefault: buildContextToShortTermPrompt(null, pipelineSettings.maxShortTermMemoriesPerFlush, locale),
     contextToShortTermPromptEffective: buildContextToShortTermPrompt(
       memoryConfig.contextToShortTermPrompt,
       pipelineSettings.maxShortTermMemoriesPerFlush,
+      locale,
     ),
-    entityMentionPromptDefault: buildEntityMentionPrompt(),
-    entityMentionPromptEffective: buildEntityMentionPrompt(memoryConfig.entityMentionPrompt),
-    episodicExtractionPromptDefault: buildEpisodicExtractionPrompt(),
-    episodicExtractionPromptEffective: buildEpisodicExtractionPrompt(memoryConfig.episodicExtractionPrompt),
-    entityResolutionPromptDefault: buildEntityResolutionPrompt(),
-    entityResolutionPromptEffective: buildEntityResolutionPrompt(memoryConfig.entityResolutionPrompt),
-    fragmentPromptDefault: buildMemoryFragmentPrompt(),
-    fragmentPromptEffective: buildMemoryFragmentPrompt(memoryConfig.fragmentPrompt),
-    shortTermFragmentPromptDefault: buildShortTermFragmentPrompt(),
-    shortTermFragmentPromptEffective: buildShortTermFragmentPrompt(memoryConfig.shortTermFragmentPrompt ?? memoryConfig.fragmentPrompt),
-    fixedFragmentPromptDefault: buildFixedMemoryFragmentPrompt(),
-    fixedFragmentPromptEffective: buildFixedMemoryFragmentPrompt(memoryConfig.fixedFragmentPrompt ?? memoryConfig.fragmentPrompt),
+    entityMentionPromptDefault: buildEntityMentionPrompt(null, locale),
+    entityMentionPromptEffective: buildEntityMentionPrompt(memoryConfig.entityMentionPrompt, locale),
+    episodicExtractionPromptDefault: buildEpisodicExtractionPrompt(null, locale),
+    episodicExtractionPromptEffective: buildEpisodicExtractionPrompt(memoryConfig.episodicExtractionPrompt, locale),
+    entityResolutionPromptDefault: buildEntityResolutionPrompt(null, locale),
+    entityResolutionPromptEffective: buildEntityResolutionPrompt(memoryConfig.entityResolutionPrompt, locale),
+    fragmentPromptDefault: buildMemoryFragmentPrompt(null, locale),
+    fragmentPromptEffective: buildMemoryFragmentPrompt(memoryConfig.fragmentPrompt, locale),
+    shortTermFragmentPromptDefault: buildShortTermFragmentPrompt(null, locale),
+    shortTermFragmentPromptEffective: buildShortTermFragmentPrompt(memoryConfig.shortTermFragmentPrompt ?? memoryConfig.fragmentPrompt, locale),
+    fixedFragmentPromptDefault: buildFixedMemoryFragmentPrompt(null, locale),
+    fixedFragmentPromptEffective: buildFixedMemoryFragmentPrompt(memoryConfig.fixedFragmentPrompt ?? memoryConfig.fragmentPrompt, locale),
     context: {
       activeSessionId: activeSession?.id ?? null,
       activeStartMessageId: contextState?.activeStartMessageId ?? (activeSessionMessages[0]?.id ?? null),
@@ -362,6 +409,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   }
 
   const body = input as Record<string, unknown>
+  const locale = appSettingsRepo.getAppLocale()
   const stringOrNullFields = [
     'summarizeModel',
     'embeddingModel',
@@ -390,7 +438,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   const nextMemory: Record<string, unknown> = isRecord(nextModules.memory)
     ? { ...nextModules.memory }
     : { scheme: 'sqlite' }
-  const nextValues = {
+  const nextValues: Record<string, unknown> = {
     summarizeModel: hasOwn(body, 'summarizeModel') ? readOptionalText(body.summarizeModel) : undefined,
     embeddingModel: hasOwn(body, 'embeddingModel') ? readOptionalText(body.embeddingModel) : undefined,
     shortTermRetrieveTopK: hasOwn(body, 'shortTermRetrieveTopK') ? readOptionalInt(body.shortTermRetrieveTopK) : undefined,
@@ -407,14 +455,6 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     sleepEnabled: hasOwn(body, 'sleepEnabled') ? (typeof body.sleepEnabled === 'boolean' ? body.sleepEnabled : null) : undefined,
     sleepTimeLocal: hasOwn(body, 'sleepTimeLocal') ? readOptionalText(body.sleepTimeLocal) : undefined,
     sleepIntervalDays: hasOwn(body, 'sleepIntervalDays') ? readOptionalInt(body.sleepIntervalDays) : undefined,
-    semanticAnalyzerPrompt: hasOwn(body, 'semanticAnalyzerPrompt') ? readOptionalText(body.semanticAnalyzerPrompt) : undefined,
-    contextToShortTermPrompt: hasOwn(body, 'contextToShortTermPrompt') ? readOptionalText(body.contextToShortTermPrompt) : undefined,
-    entityMentionPrompt: hasOwn(body, 'entityMentionPrompt') ? readOptionalText(body.entityMentionPrompt) : undefined,
-    episodicExtractionPrompt: hasOwn(body, 'episodicExtractionPrompt') ? readOptionalText(body.episodicExtractionPrompt) : undefined,
-    entityResolutionPrompt: hasOwn(body, 'entityResolutionPrompt') ? readOptionalText(body.entityResolutionPrompt) : undefined,
-    fragmentPrompt: hasOwn(body, 'fragmentPrompt') ? readOptionalText(body.fragmentPrompt) : undefined,
-    shortTermFragmentPrompt: hasOwn(body, 'shortTermFragmentPrompt') ? readOptionalText(body.shortTermFragmentPrompt) : undefined,
-    fixedFragmentPrompt: hasOwn(body, 'fixedFragmentPrompt') ? readOptionalText(body.fixedFragmentPrompt) : undefined,
   }
 
   nextMemory.scheme = 'sqlite'
@@ -434,10 +474,15 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
       delete nextMemory[key]
     }
   }
+  for (const key of PROMPT_FIELDS) {
+    if (hasOwn(body, key)) {
+      writeLocalizedPrompt(nextMemory, key, locale, readOptionalText(body[key]))
+    }
+  }
   nextModules.memory = nextMemory
 
   agentRepo.updateAgent(agentId, { modules: nextModules })
-  const resolvedMemory = resolveMemorySqliteConfig(nextMemory)
+  const resolvedMemory = resolveMemorySqliteConfig(nextMemory, locale)
   const resolvedPipeline = resolveMemoryPipelineSettings(nextMemory)
 
   return Response.json({
@@ -467,28 +512,32 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     fragmentPrompt: resolvedMemory.fragmentPrompt,
     shortTermFragmentPrompt: resolvedMemory.shortTermFragmentPrompt ?? resolvedMemory.fragmentPrompt,
     fixedFragmentPrompt: resolvedMemory.fixedFragmentPrompt ?? resolvedMemory.fragmentPrompt,
-    semanticAnalyzerPromptDefault: buildSemanticAnalyzerPrompt(),
-    semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(resolvedMemory.semanticAnalyzerPrompt ?? resolvedMemory.retrievePrompt),
-    contextToShortTermPromptDefault: buildContextToShortTermPrompt(null, resolvedPipeline.maxShortTermMemoriesPerFlush),
+    locale,
+    semanticAnalyzerPromptDefault: buildSemanticAnalyzerPrompt(null, locale),
+    semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(resolvedMemory.semanticAnalyzerPrompt ?? resolvedMemory.retrievePrompt, locale),
+    contextToShortTermPromptDefault: buildContextToShortTermPrompt(null, resolvedPipeline.maxShortTermMemoriesPerFlush, locale),
     contextToShortTermPromptEffective: buildContextToShortTermPrompt(
       resolvedMemory.contextToShortTermPrompt,
       resolvedPipeline.maxShortTermMemoriesPerFlush,
+      locale,
     ),
-    entityMentionPromptDefault: buildEntityMentionPrompt(),
-    entityMentionPromptEffective: buildEntityMentionPrompt(resolvedMemory.entityMentionPrompt),
-    episodicExtractionPromptDefault: buildEpisodicExtractionPrompt(),
-    episodicExtractionPromptEffective: buildEpisodicExtractionPrompt(resolvedMemory.episodicExtractionPrompt),
-    entityResolutionPromptDefault: buildEntityResolutionPrompt(),
-    entityResolutionPromptEffective: buildEntityResolutionPrompt(resolvedMemory.entityResolutionPrompt),
-    fragmentPromptDefault: buildMemoryFragmentPrompt(),
-    fragmentPromptEffective: buildMemoryFragmentPrompt(resolvedMemory.fragmentPrompt),
-    shortTermFragmentPromptDefault: buildShortTermFragmentPrompt(),
+    entityMentionPromptDefault: buildEntityMentionPrompt(null, locale),
+    entityMentionPromptEffective: buildEntityMentionPrompt(resolvedMemory.entityMentionPrompt, locale),
+    episodicExtractionPromptDefault: buildEpisodicExtractionPrompt(null, locale),
+    episodicExtractionPromptEffective: buildEpisodicExtractionPrompt(resolvedMemory.episodicExtractionPrompt, locale),
+    entityResolutionPromptDefault: buildEntityResolutionPrompt(null, locale),
+    entityResolutionPromptEffective: buildEntityResolutionPrompt(resolvedMemory.entityResolutionPrompt, locale),
+    fragmentPromptDefault: buildMemoryFragmentPrompt(null, locale),
+    fragmentPromptEffective: buildMemoryFragmentPrompt(resolvedMemory.fragmentPrompt, locale),
+    shortTermFragmentPromptDefault: buildShortTermFragmentPrompt(null, locale),
     shortTermFragmentPromptEffective: buildShortTermFragmentPrompt(
       resolvedMemory.shortTermFragmentPrompt ?? resolvedMemory.fragmentPrompt,
+      locale,
     ),
-    fixedFragmentPromptDefault: buildFixedMemoryFragmentPrompt(),
+    fixedFragmentPromptDefault: buildFixedMemoryFragmentPrompt(null, locale),
     fixedFragmentPromptEffective: buildFixedMemoryFragmentPrompt(
       resolvedMemory.fixedFragmentPrompt ?? resolvedMemory.fragmentPrompt,
+      locale,
     ),
   })
 }

@@ -147,6 +147,7 @@ export default function HomePage() {
   const [emotionScheme, setEmotionScheme] = useState<EmotionScheme>('noop')
   const [relationshipScheme, setRelationshipScheme] = useState<RelationshipScheme>('noop')
   const [memoryScheme, setMemoryScheme] = useState<MemoryScheme>('noop')
+  const [locale, setLocale] = useState<'zh-CN' | 'en-US'>('zh-CN')
   const router = useRouter()
 
   async function loadAgents() {
@@ -157,7 +158,29 @@ export default function HomePage() {
 
   useEffect(() => {
     void loadAgents()
+    void loadLocale()
   }, [])
+
+  async function loadLocale() {
+    const response = await fetch('/api/settings/locale', { cache: 'no-store' })
+    const data = await response.json().catch(() => null) as { locale?: 'zh-CN' | 'en-US' } | null
+    if (data?.locale === 'zh-CN' || data?.locale === 'en-US') {
+      setLocale(data.locale)
+    }
+  }
+
+  async function updateLocale(nextLocale: 'zh-CN' | 'en-US') {
+    setLocale(nextLocale)
+    const response = await fetch('/api/settings/locale', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locale: nextLocale }),
+    })
+    if (!response.ok) {
+      await loadLocale()
+      alert(nextLocale === 'en-US' ? 'Failed to update language.' : '语言更新失败。')
+    }
+  }
 
   useEffect(() => {
     setSelectedAgentId((current) => resolveSelectedAgentId(agents, current))
@@ -284,6 +307,18 @@ export default function HomePage() {
             </p>
           </div>
           <div className="head-actions">
+            <label className="locale-switch">
+              <span>{locale === 'en-US' ? 'System language' : '系统语言'}</span>
+              <select
+                value={locale}
+                onChange={(event) => {
+                  void updateLocale(event.target.value === 'en-US' ? 'en-US' : 'zh-CN')
+                }}
+              >
+                <option value="zh-CN">中文</option>
+                <option value="en-US">English</option>
+              </select>
+            </label>
             <button
               type="button"
               className="btn btn-ghost"
@@ -706,6 +741,28 @@ export default function HomePage() {
           align-items: center;
           gap: 10px;
           flex-wrap: wrap;
+        }
+        .locale-switch {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          min-height: 40px;
+          padding: 0 10px;
+          border: 1px solid rgba(148, 163, 184, 0.24);
+          border-radius: 999px;
+          background: rgba(15, 23, 42, 0.66);
+          color: #cbd5e1;
+          font-size: 12px;
+          font-weight: 700;
+        }
+        .locale-switch select {
+          height: 28px;
+          border: 0;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.08);
+          color: #f8fafc;
+          padding: 0 8px;
+          font: inherit;
         }
         .button-mark {
           font-size: 16px;

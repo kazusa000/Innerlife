@@ -20,6 +20,14 @@ export const agents = sqliteTable('agents', {
     .$defaultFn(() => new Date()),
 })
 
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+})
+
 export const sessions = sqliteTable('sessions', {
   id: text('id').primaryKey(),
   agentId: text('agent_id')

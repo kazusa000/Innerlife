@@ -8,6 +8,7 @@ export type AgentProvider = 'anthropic' | 'openrouter'
 export type AgentToolsConfig = Record<string, {
   enabled?: boolean
   description?: string
+  descriptionByLocale?: Partial<Record<'zh-CN' | 'en-US', string>>
   episodicActivation?: {
     enabled?: boolean
     ttlMinutes?: number
@@ -89,6 +90,19 @@ function parseToolsConfig(config: unknown): AgentToolsConfig | undefined {
       entry.description = rawEntry.description.trim()
     }
 
+    if (isRecord(rawEntry.descriptionByLocale)) {
+      const descriptionByLocale: NonNullable<AgentToolsConfig[string]['descriptionByLocale']> = {}
+      for (const locale of ['zh-CN', 'en-US'] as const) {
+        const value = rawEntry.descriptionByLocale[locale]
+        if (typeof value === 'string' && value.trim()) {
+          descriptionByLocale[locale] = value.trim()
+        }
+      }
+      if (Object.keys(descriptionByLocale).length > 0) {
+        entry.descriptionByLocale = descriptionByLocale
+      }
+    }
+
     if (isRecord(rawEntry.episodicActivation)) {
       const episodicActivation: NonNullable<AgentToolsConfig[string]['episodicActivation']> = {}
       if (typeof rawEntry.episodicActivation.enabled === 'boolean') {
@@ -105,7 +119,12 @@ function parseToolsConfig(config: unknown): AgentToolsConfig | undefined {
       }
     }
 
-    if (entry.enabled !== undefined || entry.description !== undefined || entry.episodicActivation !== undefined) {
+    if (
+      entry.enabled !== undefined
+      || entry.description !== undefined
+      || entry.descriptionByLocale !== undefined
+      || entry.episodicActivation !== undefined
+    ) {
       nextTools[toolName] = entry
     }
   }
@@ -163,19 +182,34 @@ function normalizeModules(
   personalitySettings: PersonalitySettings,
 ): AgentModules {
   const next = isRecord(modules) ? { ...modules } : {}
-  const personality: Record<string, string> = {}
+  const personality: Record<string, unknown> = {}
+  if (isRecord(modules?.personality)) {
+    for (const [key, value] of Object.entries(modules.personality)) {
+      if (key.endsWith('ByLocale') && isRecord(value)) {
+        personality[key] = value
+      }
+    }
+  }
 
   if (personalitySettings.systemPrompt) {
     personality.systemPrompt = personalitySettings.systemPrompt
+  } else {
+    delete personality.systemPrompt
   }
   if (personalitySettings.personaPrompt) {
     personality.personaPrompt = personalitySettings.personaPrompt
+  } else {
+    delete personality.personaPrompt
   }
   if (personalitySettings.avatarUrl) {
     personality.avatarUrl = personalitySettings.avatarUrl
+  } else {
+    delete personality.avatarUrl
   }
   if (personalitySettings.thinkingRoleImmersionPrompt) {
     personality.thinkingRoleImmersionPrompt = personalitySettings.thinkingRoleImmersionPrompt
+  } else {
+    delete personality.thinkingRoleImmersionPrompt
   }
 
   if (Object.keys(personality).length > 0) {

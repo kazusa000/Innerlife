@@ -1,4 +1,4 @@
-import { agentRepo, relationshipRepo } from '@mas/db'
+import { agentRepo, appSettingsRepo, relationshipRepo } from '@mas/db'
 import {
   buildRelationshipAnalysisPrompt,
   buildRelationshipFragment,
@@ -23,6 +23,7 @@ type MultiDimConfig = {
   fragmentPrompt: string | null
   analysisPrompt: string | null
 }
+type AppLocale = appSettingsRepo.AppLocale
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -66,19 +67,37 @@ function normalizeBaseline(
   }
 }
 
-function normalizeMultiDimConfig(module: unknown): MultiDimConfig {
+function readLocalizedPrompt(record: Record<string, unknown> | null | undefined, key: string, locale: AppLocale) {
+  const localized = record?.[`${key}ByLocale`]
+  if (isRecord(localized)) {
+    const value = localized[locale]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return locale === 'zh-CN' ? readText(record?.[key]) : null
+}
+
+function writeLocalizedPrompt(record: Record<string, unknown>, key: string, locale: AppLocale, value: string | null) {
+  const localizedKey = `${key}ByLocale`
+  const localized = isRecord(record[localizedKey]) ? { ...(record[localizedKey] as Record<string, unknown>) } : {}
+  if (value) localized[locale] = value
+  else delete localized[locale]
+  if (Object.keys(localized).length > 0) record[localizedKey] = localized
+  else delete record[localizedKey]
+}
+
+function normalizeMultiDimConfig(module: unknown, locale: AppLocale): MultiDimConfig {
   const record = readRelationshipModule({ relationship: module })
   return {
     scheme: 'multi-dim',
     baseline: normalizeBaseline(record?.baseline),
     decayPerTurn: clampDecay(record?.decayPerTurn, undefined),
     analysisModel: readText(record?.analysisModel),
-    fragmentPrompt: readText(record?.fragmentPrompt),
-    analysisPrompt: readText(record?.analysisPrompt),
+    fragmentPrompt: readLocalizedPrompt(record, 'fragmentPrompt', locale),
+    analysisPrompt: readLocalizedPrompt(record, 'analysisPrompt', locale),
   }
 }
 
-function buildPayload(agentId: string, config: MultiDimConfig) {
+function buildPayload(agentId: string, config: MultiDimConfig, locale: AppLocale) {
   const relationship = relationshipRepo.getRelationship(agentId, DEFAULT_COUNTERPART_ID)
   return {
     agentId,
@@ -88,11 +107,12 @@ function buildPayload(agentId: string, config: MultiDimConfig) {
     analysisModel: config.analysisModel,
     fragmentPrompt: config.fragmentPrompt,
     analysisPrompt: config.analysisPrompt,
+    locale,
     currentState: relationship?.dimensions ?? null,
-    fragmentPromptDefault: buildRelationshipFragment(relationship?.dimensions ?? config.baseline),
-    fragmentPromptEffective: buildRelationshipFragment(relationship?.dimensions ?? config.baseline, config.fragmentPrompt),
-    analysisPromptDefault: buildRelationshipAnalysisPrompt(),
-    analysisPromptEffective: buildRelationshipAnalysisPrompt(config.analysisPrompt),
+    fragmentPromptDefault: buildRelationshipFragment(relationship?.dimensions ?? config.baseline, null, locale === 'en-US' ? 'user' : '用户', null, locale),
+    fragmentPromptEffective: buildRelationshipFragment(relationship?.dimensions ?? config.baseline, config.fragmentPrompt, locale === 'en-US' ? 'user' : '用户', null, locale),
+    analysisPromptDefault: buildRelationshipAnalysisPrompt(null, locale),
+    analysisPromptEffective: buildRelationshipAnalysisPrompt(config.analysisPrompt, locale),
     history: relationship?.history ?? [],
   }
 }
@@ -166,7 +186,8 @@ export function getMultiDimRelationshipConfig(agentId: string) {
     )
   }
 
-  return Response.json(buildPayload(agentId, normalizeMultiDimConfig(agent.modules?.relationship)))
+  const locale = appSettingsRepo.getAppLocale()
+  return Response.json(buildPayload(agentId, normalizeMultiDimConfig(agent.modules?.relationship, locale), locale))
 }
 
 export function updateMultiDimRelationshipConfig(agentId: string, body: unknown) {
@@ -180,7 +201,8 @@ export function updateMultiDimRelationshipConfig(agentId: string, body: unknown)
     return parsed.response
   }
 
-  const current = normalizeMultiDimConfig(agent.modules?.relationship)
+  const locale = appSettingsRepo.getAppLocale()
+  const current = normalizeMultiDimConfig(agent.modules?.relationship, locale)
   const next: MultiDimConfig = {
     scheme: 'multi-dim',
     baseline: {
@@ -205,15 +227,20 @@ export function updateMultiDimRelationshipConfig(agentId: string, body: unknown)
   }
 
   const nextModules = isRecord(agent.modules) ? { ...agent.modules } : {}
-  nextModules.relationship = {
+  const nextRelationship: Record<string, unknown> = {
     scheme: 'multi-dim',
     baseline: next.baseline,
     ...(typeof next.decayPerTurn === 'number' ? { decayPerTurn: next.decayPerTurn } : {}),
     ...(next.analysisModel ? { analysisModel: next.analysisModel } : {}),
-    ...(next.fragmentPrompt ? { fragmentPrompt: next.fragmentPrompt } : {}),
-    ...(next.analysisPrompt ? { analysisPrompt: next.analysisPrompt } : {}),
   }
+  const existingRelationship = isRecord(agent.modules?.relationship) ? agent.modules?.relationship as Record<string, unknown> : {}
+  for (const key of ['fragmentPromptByLocale', 'analysisPromptByLocale'] as const) {
+    if (isRecord(existingRelationship[key])) nextRelationship[key] = existingRelationship[key]
+  }
+  if (parsed.value.fragmentPrompt !== undefined) writeLocalizedPrompt(nextRelationship, 'fragmentPrompt', locale, next.fragmentPrompt)
+  if (parsed.value.analysisPrompt !== undefined) writeLocalizedPrompt(nextRelationship, 'analysisPrompt', locale, next.analysisPrompt)
+  nextModules.relationship = nextRelationship
   agentRepo.updateAgent(agentId, { modules: nextModules })
 
-  return Response.json(buildPayload(agentId, next))
+  return Response.json(buildPayload(agentId, next, locale))
 }

@@ -14,8 +14,11 @@ interface EmotionConfig {
   decayPerTurn?: number
   analysisModel?: string | null
   fragmentPrompt?: string | null
+  fragmentPromptByLocale?: Partial<Record<'zh-CN' | 'en-US', string>>
   analysisPrompt?: string | null
+  analysisPromptByLocale?: Partial<Record<'zh-CN' | 'en-US', string>>
 }
+type AppLocale = 'zh-CN' | 'en-US'
 
 const DEFAULT_BASELINE: EmotionStateVector = {
   mood: 0,
@@ -55,7 +58,23 @@ function normalizeStateVector(value: Partial<EmotionStateVector> | undefined): E
   }
 }
 
-function normalizeConfig(config: unknown) {
+function readLocalizedPrompt(
+  record: EmotionConfig,
+  key: 'fragmentPrompt' | 'analysisPrompt',
+  locale: AppLocale,
+) {
+  const localized = record[`${key}ByLocale`]
+  const localizedText = localized?.[locale]
+  if (typeof localizedText === 'string' && localizedText.trim()) {
+    return localizedText.trim()
+  }
+  const legacy = record[key]
+  return locale === 'zh-CN' && typeof legacy === 'string' && legacy.trim()
+    ? legacy.trim()
+    : null
+}
+
+function normalizeConfig(config: unknown, locale: AppLocale = 'zh-CN') {
   const record = config && typeof config === 'object'
     ? (config as EmotionConfig)
     : {}
@@ -68,13 +87,9 @@ function normalizeConfig(config: unknown) {
         ? record.analysisModel.trim()
         : null,
     fragmentPrompt:
-      typeof record.fragmentPrompt === 'string' && record.fragmentPrompt.trim()
-        ? record.fragmentPrompt.trim()
-        : null,
+      readLocalizedPrompt(record, 'fragmentPrompt', locale),
     analysisPrompt:
-      typeof record.analysisPrompt === 'string' && record.analysisPrompt.trim()
-        ? record.analysisPrompt.trim()
-        : null,
+      readLocalizedPrompt(record, 'analysisPrompt', locale),
   }
 }
 
@@ -126,9 +141,24 @@ function readCurrentState(ctx: TurnContext, fallback: EmotionStateVector): Emoti
   return normalizeStateVector(record)
 }
 
-function buildEmotionFragment(state: EmotionStateVector, promptOverride?: string | null): string {
-  const defaultPrompt = '回答时让这些状态产生轻微影响，但不要生硬复述数值或直接解释自己在“模拟情绪”。'
+function buildEmotionFragment(
+  state: EmotionStateVector,
+  promptOverride?: string | null,
+  locale: AppLocale = 'zh-CN',
+): string {
+  const defaultPrompt = locale === 'en-US'
+    ? 'Let these states subtly influence tone, but do not recite the numbers or explain that you are "simulating emotion".'
+    : '回答时让这些状态产生轻微影响，但不要生硬复述数值或直接解释自己在“模拟情绪”。'
   if (promptOverride?.trim()) {
+    if (locale === 'en-US') {
+      return [
+        'Current emotional state reference:',
+        `- mood: ${renderMood(state.mood)} (${state.mood.toFixed(2)})`,
+        `- energy: ${renderEnergy(state.energy)} (${state.energy.toFixed(2)})`,
+        `- stress: ${renderStress(state.stress)} (${state.stress.toFixed(2)})`,
+        promptOverride.trim(),
+      ].join('\n')
+    }
     return [
       '当前情绪状态参考：',
       `- 心情 mood：${renderMood(state.mood)}（${state.mood.toFixed(2)}）`,
@@ -139,18 +169,20 @@ function buildEmotionFragment(state: EmotionStateVector, promptOverride?: string
   }
 
   return [
-    '当前情绪（会随对话变化）：',
-    `- 心情 mood：${renderMood(state.mood)}（${state.mood.toFixed(2)}）`,
-    `- 精力 energy：${renderEnergy(state.energy)}（${state.energy.toFixed(2)}）`,
-    `- 压力 stress：${renderStress(state.stress)}（${state.stress.toFixed(2)}）`,
+    locale === 'en-US' ? 'Current emotion (changes over conversation):' : '当前情绪（会随对话变化）：',
+    locale === 'en-US' ? `- mood: ${renderMood(state.mood)} (${state.mood.toFixed(2)})` : `- 心情 mood：${renderMood(state.mood)}（${state.mood.toFixed(2)}）`,
+    locale === 'en-US' ? `- energy: ${renderEnergy(state.energy)} (${state.energy.toFixed(2)})` : `- 精力 energy：${renderEnergy(state.energy)}（${state.energy.toFixed(2)}）`,
+    locale === 'en-US' ? `- stress: ${renderStress(state.stress)} (${state.stress.toFixed(2)})` : `- 压力 stress：${renderStress(state.stress)}（${state.stress.toFixed(2)}）`,
     `- ${defaultPrompt}`,
   ].join('\n')
 }
 
-function buildEmotionAnalysisPrompt(promptOverride?: string | null): string {
+function buildEmotionAnalysisPrompt(promptOverride?: string | null, locale: AppLocale = 'zh-CN'): string {
   return promptOverride?.trim()
     ? promptOverride.trim()
-    : '你负责分析单轮对话对情绪状态的影响，只输出 JSON。'
+    : locale === 'en-US'
+      ? 'Analyze how one completed turn affects the emotional state. Output JSON only.'
+      : '你负责分析单轮对话对情绪状态的影响，只输出 JSON。'
 }
 
 function buildAnalysisRequest(
@@ -160,34 +192,34 @@ function buildAnalysisRequest(
   decayPerTurn: number,
   model: string | null,
   promptOverride?: string | null,
+  locale: AppLocale = 'zh-CN',
 ): PendingEmotionAnalysis {
   const assistantText = ctx.response
     ? extractConversationText(ctx.response.content as ConversationMessage['content'])
     : ''
 
   const analysisInput = [
-    '请分析这一轮已经完成的对话，应该如何改变这个 persona 的情绪状态。',
-    '只输出严格 JSON。',
-    '必须包含这些键：mood_delta、energy_delta、stress_delta、trigger。',
-    'mood_delta 必须落在 [-1, 1]。',
-    'energy_delta 和 stress_delta 也必须落在 [-1, 1]。',
-    '除非互动强度非常明显，否则增量要保持小幅变化。',
+    locale === 'en-US' ? 'Analyze the completed turn and decide how it should change this persona emotional state.' : '请分析这一轮已经完成的对话，应该如何改变这个 persona 的情绪状态。',
+    locale === 'en-US' ? 'Output strict JSON only.' : '只输出严格 JSON。',
+    locale === 'en-US' ? 'Must include these keys: mood_delta, energy_delta, stress_delta, trigger.' : '必须包含这些键：mood_delta、energy_delta、stress_delta、trigger。',
+    locale === 'en-US' ? 'All deltas must be in [-1, 1].' : 'mood_delta 必须落在 [-1, 1]。',
+    locale === 'en-US' ? 'Unless interaction intensity is obvious, keep deltas small.' : '除非互动强度非常明显，否则增量要保持小幅变化。',
     '',
-    `当前状态：${JSON.stringify(currentState)}`,
-    `基线状态：${JSON.stringify(baseline)}`,
-    `每轮衰减：${decayPerTurn}`,
+    `${locale === 'en-US' ? 'Current state' : '当前状态'}：${JSON.stringify(currentState)}`,
+    `${locale === 'en-US' ? 'Baseline state' : '基线状态'}：${JSON.stringify(baseline)}`,
+    `${locale === 'en-US' ? 'Decay per turn' : '每轮衰减'}：${decayPerTurn}`,
     '',
-    '用户消息：',
-    ctx.input.text || '（空）',
+    locale === 'en-US' ? 'User message:' : '用户消息：',
+    ctx.input.text || (locale === 'en-US' ? '(empty)' : '（空）'),
     '',
-    '助手回复：',
-    assistantText || '（空）',
+    locale === 'en-US' ? 'Assistant reply:' : '助手回复：',
+    assistantText || (locale === 'en-US' ? '(empty)' : '（空）'),
   ].join('\n')
 
   return {
     kind: 'dimensional',
     model,
-    systemPrompt: buildEmotionAnalysisPrompt(promptOverride),
+    systemPrompt: buildEmotionAnalysisPrompt(promptOverride, locale),
     messages: [
       {
         role: 'user',
@@ -227,9 +259,11 @@ export class DimensionalEmotionSystem implements AgentSystem {
   type = 'emotion'
 
   private readonly config
+  private readonly locale: AppLocale
 
-  constructor(config?: unknown) {
-    this.config = normalizeConfig(config)
+  constructor(config?: unknown, locale: AppLocale = 'zh-CN') {
+    this.locale = locale
+    this.config = normalizeConfig(config, locale)
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
@@ -243,7 +277,7 @@ export class DimensionalEmotionSystem implements AgentSystem {
     ctx.promptFragments.push({
       source: this.name,
       priority: 20,
-      content: buildEmotionFragment(currentState, this.config.fragmentPrompt),
+      content: buildEmotionFragment(currentState, this.config.fragmentPrompt, this.locale),
     })
   }
 
@@ -260,6 +294,7 @@ export class DimensionalEmotionSystem implements AgentSystem {
       this.config.decayPerTurn,
       this.config.analysisModel,
       this.config.analysisPrompt,
+      this.locale,
     )
   }
 

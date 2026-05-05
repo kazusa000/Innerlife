@@ -6,7 +6,7 @@ import {
   type LLMRequest,
   type LLMResponse,
 } from '@mas/core'
-import { agentRepo } from '@mas/db'
+import { agentRepo, appSettingsRepo } from '@mas/db'
 import {
   buildContextToShortTermPrompt,
   buildContextToShortTermSourceText,
@@ -38,6 +38,7 @@ import {
   type MemoryRecord,
   type RelationshipDimensions,
 } from '@mas/systems'
+import { readPersonalityPrompts } from '@mas/turing'
 
 type ProviderLike = Pick<LLMProvider, 'sendMessage'>
 type AgentRecord = NonNullable<ReturnType<typeof agentRepo.getAgent>>
@@ -103,21 +104,80 @@ function serializeSamples(samples: Record<string, unknown>) {
 }
 
 export function buildDefaultPromptTestInputs(agent: AgentRecord) {
+  const locale = appSettingsRepo.getAppLocale()
   const toolDefaults = Object.fromEntries(
     resolveAgentTools({
       tools: getDefaultTools(),
       modules: agent.modules,
       config: agent.tools ?? null,
+      locale,
     }).catalog.map((tool) => [
       `tools.${tool.name}.description`,
       {
         toolName: tool.name,
-        userMessage: tool.name === 'web_fetch'
-          ? '帮我查一下这个网页的内容。'
-          : '你还记得我之前说过的游戏吗？',
+        userMessage: locale === 'en-US'
+          ? tool.name === 'web_fetch'
+            ? 'Please check the content of this web page.'
+            : 'Do you remember the game I mentioned before?'
+          : tool.name === 'web_fetch'
+            ? '帮我查一下这个网页的内容。'
+            : '你还记得我之前说过的游戏吗？',
       },
     ]),
   )
+
+  if (locale === 'en-US') {
+    return {
+      'personality.systemPrompt': { userMessage: 'Do you remember what game I like?' },
+      'personality.personaPrompt': { userMessage: 'I am a bit tired today. Let us just talk.' },
+      'personality.thinkingModePrompt': { userMessage: 'Help me think through how to fix this memory system.' },
+      'memory.semanticAnalyzer': {
+        recentMessages: [
+          { role: 'user', text: 'My favorite game is StarCraft II.' },
+          { role: 'assistant', text: 'I will remember that.' },
+        ],
+        currentUserMessage: 'What was that game called again?',
+      },
+      'memory.contextToShortTerm': {
+        messages: [
+          { role: 'user', text: 'I recently started playing StarCraft II again.' },
+          { role: 'assistant', text: 'You mentioned it before too.' },
+          { role: 'user', text: 'Yes, remember that it is a game I like.' },
+        ],
+      },
+      'memory.entityMention': {
+        currentUserMessage: 'Is StarCraft II or World of Warcraft closer to the game I used to like?',
+      },
+      'memory.episodicExtraction': {
+        memories: [
+          { detail: 'The source says the user changed their favorite game from World of Warcraft to StarCraft II.', retrievalText: 'The user used to favor World of Warcraft and later changed to StarCraft II.', importance: 0.82 },
+          { detail: 'The source says the user cares whether SC2 and StarCraft II aliases merge correctly.', retrievalText: 'SC2 is an abbreviation for StarCraft II, and the user wants aliases to be stable.', importance: 0.76 },
+        ],
+      },
+      'memory.entityResolution': {
+        candidates: [{
+          local_entity_id: 'local-game-1',
+          surface: 'SC2',
+          type: 'object',
+          context_hint: 'abbreviation for a game mentioned by the user',
+          candidates: [{ entity_id: 'entity-sc2', canonical_name: 'StarCraft II', type: 'object', description: 'a game the user likes' }],
+        }],
+      },
+      'memory.shortTermFragment': {
+        memories: [{ detail: 'The source says the user just mentioned StarCraft II as a game they like.', retrievalText: 'The user likes StarCraft II.', importance: 0.7, observedStartAt: '2026-04-30T10:00:00.000Z', observedEndAt: '2026-04-30T10:05:00.000Z' }],
+      },
+      'memory.fixedFragment': {
+        memories: [{ detail: 'The source says the user has a stable preference for science-fiction real-time strategy games.', retrievalText: 'The user likes science-fiction real-time strategy games.', importance: 0.8, createdAt: '2026-04-30T10:00:00.000Z' }],
+      },
+      'emotion.fragment': { state: { mood: -0.15, energy: 0.45, stress: 0.65 } },
+      'emotion.analysis': { state: { mood: 0.05, energy: 0.55, stress: 0.3 }, userMessage: 'I tested a pile of bugs today and feel irritated.', assistantReply: 'It sounds like you have already narrowed the issue down; we can break it into smaller pieces.' },
+      'relationship.fragment': { state: { trust: 0.64, affinity: 0.58, familiarity: 0.42, respect: 0.7 }, counterpart: { name: 'WJJ', role: 'user', description: 'the person building the virtual persona system', note: 'prefers direct feedback on design issues' } },
+      'relationship.analysis': { state: { trust: 0.64, affinity: 0.58, familiarity: 0.42, respect: 0.7 }, counterpart: { name: 'WJJ' }, userMessage: 'This UI is hard to use. Look at it yourself.', assistantReply: 'I will inspect the actual page first, then tighten the layout.' },
+      'relationshipNamed.fragment': { state: { trust: 0.64, affinity: 0.58, familiarity: 0.42, respect: 0.7 }, counterpart: { name: 'WJJ', role: 'user', description: 'the person building the virtual persona system', note: 'prefers direct feedback on design issues' } },
+      'relationshipNamed.analysis': { state: { trust: 0.64, affinity: 0.58, familiarity: 0.42, respect: 0.7 }, counterpart: { name: 'WJJ' }, userMessage: 'This UI is hard to use. Look at it yourself.', assistantReply: 'I will inspect the actual page first, then tighten the layout.' },
+      ...toolDefaults,
+    }
+  }
 
   return {
     'personality.systemPrompt': {
@@ -479,6 +539,7 @@ async function runLlmTest(input: {
 }
 
 function renderToolDescription(agent: AgentRecord, testId: string, prompt: string | null, input: unknown) {
+  const locale = appSettingsRepo.getAppLocale()
   const toolName = isRecord(input)
     ? readText(input.toolName, testId.replace(/^tools\./, '').replace(/\.description$/, ''))
     : testId.replace(/^tools\./, '').replace(/\.description$/, '')
@@ -486,18 +547,26 @@ function renderToolDescription(agent: AgentRecord, testId: string, prompt: strin
     tools: getDefaultTools(),
     modules: agent.modules,
     config: agent.tools ?? null,
+    locale,
   })
   const item = resolved.catalog.find((tool) => tool.name === toolName)
   if (!item) {
     return Response.json({ error: `Unknown tool: ${toolName}` }, { status: 400 })
   }
   const description = prompt ?? item.effectiveDescription
-  const renderedOutput = [
-    '当前这轮可用工具描述预览：',
-    `- ${toolName}：${description}`,
-    '',
-    item.effectiveEnabled ? '该工具当前会暴露给主模型。' : `该工具当前不会暴露给主模型。${item.unavailableReason ? `原因：${item.unavailableReason}` : ''}`,
-  ].join('\n')
+  const renderedOutput = locale === 'en-US'
+    ? [
+      'Tool description preview for this turn:',
+      `- ${toolName}: ${description}`,
+      '',
+      item.effectiveEnabled ? 'This tool is currently exposed to the main model.' : `This tool is not currently exposed to the main model.${item.unavailableReason ? ` Reason: ${item.unavailableReason}` : ''}`,
+    ].join('\n')
+    : [
+      '当前这轮可用工具描述预览：',
+      `- ${toolName}：${description}`,
+      '',
+      item.effectiveEnabled ? '该工具当前会暴露给主模型。' : `该工具当前不会暴露给主模型。${item.unavailableReason ? `原因：${item.unavailableReason}` : ''}`,
+    ].join('\n')
   return Response.json({
     testId,
     mode: 'render',
@@ -510,14 +579,15 @@ function renderPromptTest(agent: AgentRecord, body: Required<Pick<PromptTestRunI
   const testId = String(body.testId)
   const input = body.input
   const prompt = readPromptOverride(body.prompt)
+  const locale = appSettingsRepo.getAppLocale()
 
   if (testId === 'emotion.fragment') {
-    const renderedOutput = buildEmotionFragment(readEmotionState(input), prompt)
+    const renderedOutput = buildEmotionFragment(readEmotionState(input), prompt, locale)
     return Response.json({ testId, mode: 'render', renderedOutput })
   }
   if (testId === 'relationship.fragment' || testId === 'relationshipNamed.fragment') {
     const counterpart = readCounterpart(input)
-    const renderedOutput = buildRelationshipFragment(readRelationshipState(input), prompt, counterpart.name, counterpart)
+    const renderedOutput = buildRelationshipFragment(readRelationshipState(input), prompt, counterpart.name, counterpart, locale)
     return Response.json({ testId, mode: 'render', renderedOutput })
   }
   if (testId === 'memory.shortTermFragment') {
@@ -526,6 +596,7 @@ function renderPromptTest(agent: AgentRecord, body: Required<Pick<PromptTestRunI
       fixedMemories: [],
       shortTermPrompt: prompt,
       showNoHitMemoryFragments: true,
+      locale,
     })
     return Response.json({ testId, mode: 'render', renderedOutput })
   }
@@ -535,19 +606,24 @@ function renderPromptTest(agent: AgentRecord, body: Required<Pick<PromptTestRunI
       fixedMemories: readMemoryRecords(input, 'fixed'),
       fixedPrompt: prompt,
       showNoHitMemoryFragments: true,
+      locale,
     })
     return Response.json({ testId, mode: 'render', renderedOutput })
   }
   if (testId === 'personality.systemPrompt') {
-    const storedPrompt = readText(agent.systemPrompt).trim()
+    const storedPrompt = readPersonalityPrompts(agent.modules, locale).systemPrompt
     return Response.json({ testId, mode: 'render', renderedOutput: prompt ?? (storedPrompt || `You are ${agent.name}.`) })
   }
   if (testId === 'personality.personaPrompt') {
-    const renderedOutput = prompt ? `角色额外约束：${prompt}` : '角色额外约束：（空）'
+    const renderedOutput = locale === 'en-US'
+      ? (prompt ? `Additional role constraints: ${prompt}` : 'Additional role constraints: (empty)')
+      : (prompt ? `角色额外约束：${prompt}` : '角色额外约束：（空）')
     return Response.json({ testId, mode: 'render', renderedOutput })
   }
   if (testId === 'personality.thinkingModePrompt') {
-    const renderedOutput = prompt ? `思考模式追加片段：\n${prompt}` : '思考模式追加片段：（空，不追加）'
+    const renderedOutput = locale === 'en-US'
+      ? (prompt ? `Thinking-mode appended fragment:\n${prompt}` : 'Thinking-mode appended fragment: (empty, nothing appended)')
+      : (prompt ? `思考模式追加片段：\n${prompt}` : '思考模式追加片段：（空，不追加）')
     return Response.json({ testId, mode: 'render', renderedOutput })
   }
   if (testId.startsWith('tools.') && testId.endsWith('.description')) {
@@ -573,6 +649,7 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
 
   const input = body.input
   const prompt = readPromptOverride(body.prompt)
+  const locale = appSettingsRepo.getAppLocale()
 
   if (
     testId.startsWith('personality.')
@@ -588,7 +665,7 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
     return Response.json({ error: 'Agent memory scheme must be sqlite' }, { status: 400 })
   }
 
-  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory, locale)
   const memorySettings = resolveMemoryPipelineSettings(agent.modules?.memory)
   const model = memoryConfig.summarizeModel ?? agent.model
   const actorLabels = resolveMemoryActorLabels({ agentId: agent.id, sessionId: 'sample-session', agentModules: agent.modules })
@@ -614,7 +691,7 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
       testId,
       mode: 'llm',
       model,
-      systemPrompt: buildSemanticAnalyzerPrompt(prompt ?? memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt),
+      systemPrompt: buildSemanticAnalyzerPrompt(prompt ?? memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt, locale),
       inputText,
       parse: parseJsonValue,
       provider,
@@ -626,7 +703,7 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
       testId,
       mode: 'llm',
       model,
-      systemPrompt: buildContextToShortTermPrompt(prompt ?? memoryConfig.contextToShortTermPrompt, memorySettings.maxShortTermMemoriesPerFlush),
+      systemPrompt: buildContextToShortTermPrompt(prompt ?? memoryConfig.contextToShortTermPrompt, memorySettings.maxShortTermMemoriesPerFlush, locale),
       inputText: buildContextSource(input),
       responseFormat: MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
       parse: (raw) => ({ memories: parseMemoryBatchWriteResponse(raw, memorySettings.maxShortTermMemoriesPerFlush) }),
@@ -639,7 +716,7 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
       testId,
       mode: 'llm',
       model,
-      systemPrompt: buildEntityMentionPrompt(prompt ?? memoryConfig.entityMentionPrompt),
+      systemPrompt: buildEntityMentionPrompt(prompt ?? memoryConfig.entityMentionPrompt, locale),
       inputText: readCurrentUserMessage(input),
       parse: (raw) => ({ mentions: parseEntityMentionResponse(raw) }),
       provider,
@@ -651,7 +728,7 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
       testId,
       mode: 'llm',
       model,
-      systemPrompt: buildEpisodicExtractionPrompt(prompt ?? memoryConfig.episodicExtractionPrompt),
+      systemPrompt: buildEpisodicExtractionPrompt(prompt ?? memoryConfig.episodicExtractionPrompt, locale),
       inputText: buildShortTermSource(input),
       parse: (raw) => parseEpisodicExtractionResponse(raw),
       provider,
@@ -675,7 +752,7 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
       testId,
       mode: 'llm',
       model,
-      systemPrompt: buildEntityResolutionPrompt(prompt ?? memoryConfig.entityResolutionPrompt),
+      systemPrompt: buildEntityResolutionPrompt(prompt ?? memoryConfig.entityResolutionPrompt, locale),
       inputText,
       parse: (raw) => ({ resolutions: parseEntityResolutionResponse(raw) }),
       provider,
@@ -687,7 +764,7 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
       testId,
       mode: 'llm',
       model: readModuleAnalysisModel(agent, 'emotion'),
-      systemPrompt: buildEmotionAnalysisPrompt(prompt),
+      systemPrompt: buildEmotionAnalysisPrompt(prompt, locale),
       inputText: buildAnalysisInput(input, 'emotion'),
       parse: parseEmotionAnalysis,
       provider,
@@ -699,7 +776,7 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
       testId,
       mode: 'llm',
       model: readModuleAnalysisModel(agent, 'relationship'),
-      systemPrompt: buildRelationshipAnalysisPrompt(prompt),
+      systemPrompt: buildRelationshipAnalysisPrompt(prompt, locale),
       inputText: buildAnalysisInput(input, 'relationship'),
       parse: parseRelationshipAnalysis,
       provider,
