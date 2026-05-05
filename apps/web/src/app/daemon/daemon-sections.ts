@@ -30,22 +30,32 @@ export interface DaemonNavFeatureGroup {
 
 export type DaemonNavGroup = DaemonNavLinkGroup | DaemonNavFeatureGroup
 
-const DAEMON_SECTIONS: DaemonSection[] = [
+const DAEMON_SECTIONS_BY_LOCALE: Record<'zh-CN' | 'en-US', DaemonSection[]> = {
+  'zh-CN': [
   { id: 'overview', anchor: 'daemon-section-overview', label: '概览', description: '运行状态' },
   { id: 'turing', anchor: 'daemon-section-turing', label: '图灵测试', description: '最近 run' },
   { id: 'flush', anchor: 'daemon-section-flush', label: '记忆 Flush', description: 'context → STM' },
   { id: 'sleep', anchor: 'daemon-section-sleep', label: '睡眠', description: 'STM → LTM' },
   { id: 'events', anchor: 'daemon-section-events', label: '事件流', description: '后台日志' },
-]
-
-export function getDaemonSections() {
-  return DAEMON_SECTIONS
+  ],
+  'en-US': [
+    { id: 'overview', anchor: 'daemon-section-overview', label: 'Overview', description: 'Runtime state' },
+    { id: 'turing', anchor: 'daemon-section-turing', label: 'Turing Tests', description: 'Recent runs' },
+    { id: 'flush', anchor: 'daemon-section-flush', label: 'Memory Flush', description: 'context → STM' },
+    { id: 'sleep', anchor: 'daemon-section-sleep', label: 'Sleep', description: 'STM → LTM' },
+    { id: 'events', anchor: 'daemon-section-events', label: 'Event Stream', description: 'Background log' },
+  ],
 }
 
-export function getDaemonNavGroups(): DaemonNavGroup[] {
-  const overviewSection = DAEMON_SECTIONS.find((section) => section.id === 'overview')!
-  const eventsSection = DAEMON_SECTIONS.find((section) => section.id === 'events')!
-  const features = DAEMON_SECTIONS.filter((section) => (
+export function getDaemonSections(locale: 'zh-CN' | 'en-US' = 'zh-CN') {
+  return DAEMON_SECTIONS_BY_LOCALE[locale]
+}
+
+export function getDaemonNavGroups(locale: 'zh-CN' | 'en-US' = 'zh-CN'): DaemonNavGroup[] {
+  const sections = getDaemonSections(locale)
+  const overviewSection = sections.find((section) => section.id === 'overview')!
+  const eventsSection = sections.find((section) => section.id === 'events')!
+  const features = sections.filter((section) => (
     section.id === 'turing' || section.id === 'flush' || section.id === 'sleep'
   ))
 
@@ -64,8 +74,8 @@ export function getDaemonNavGroups(): DaemonNavGroup[] {
     },
     {
       id: 'features',
-      label: '功能',
-      description: '图灵测试 / Flush / 睡眠',
+      label: locale === 'en-US' ? 'Features' : '功能',
+      description: locale === 'en-US' ? 'Turing Tests / Flush / Sleep' : '图灵测试 / Flush / 睡眠',
       children: features,
     },
   ]

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { SessionsList } from './SessionsList'
 import { TurnTree, type TurnNode } from './TurnTree'
 import { DetailPane } from './DetailPane'
+import { useAppLocale } from '../use-app-locale'
 
 interface Session {
   id: string
@@ -12,6 +13,7 @@ interface Session {
 }
 
 export default function ObserverPage() {
+  const locale = useAppLocale()
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [turns, setTurns] = useState<TurnNode[]>([])
@@ -55,9 +57,10 @@ export default function ObserverPage() {
         currentId={currentSessionId}
         onSelect={setCurrentSessionId}
         onClearAll={handleClearAll}
+        locale={locale}
       />
-      <TurnTree turns={turns} currentCallId={currentCallId} onSelectCall={setCurrentCallId} />
-      <DetailPane callId={currentCallId} />
+      <TurnTree turns={turns} currentCallId={currentCallId} onSelectCall={setCurrentCallId} locale={locale} />
+      <DetailPane callId={currentCallId} locale={locale} />
 
       <style jsx>{`
         .observer-workbench {

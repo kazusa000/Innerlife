@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { useEffect, useState } from 'react'
+import { useAppLocale } from '@/app/use-app-locale'
 import {
   getContextResetButtonLabel,
   getContextResetLoadingLabel,
@@ -59,6 +60,7 @@ export function Sidebar({
   resettingMode = null,
   resetNotice = null,
 }: Props) {
+  const locale = useAppLocale()
   const [counterparts, setCounterparts] = useState<Counterpart[]>([])
   const [selectedCounterpartId, setSelectedCounterpartId] = useState('')
   const [bindingNotice, setBindingNotice] = useState<string | null>(null)
@@ -95,7 +97,7 @@ export function Sidebar({
         }
       } catch {
         if (!cancelled) {
-          setBindingNotice('关系对象加载失败')
+          setBindingNotice(locale === 'en-US' ? 'Failed to load relationship counterparts' : '关系对象加载失败')
         }
       }
     }
@@ -104,7 +106,7 @@ export function Sidebar({
     return () => {
       cancelled = true
     }
-  }, [agentId, sessionId, relationshipScheme])
+  }, [agentId, sessionId, relationshipScheme, locale])
 
   async function handleCounterpartChange(nextId: string) {
     if (!sessionId) {
@@ -120,12 +122,14 @@ export function Sidebar({
         body: nextId ? JSON.stringify({ counterpartId: nextId }) : undefined,
       })
       if (!response.ok) {
-        throw new Error('保存关系对象失败')
+        throw new Error(locale === 'en-US' ? 'Failed to save relationship counterpart' : '保存关系对象失败')
       }
       setSelectedCounterpartId(nextId)
-      setBindingNotice(nextId ? '当前 session 已绑定关系对象' : '当前 session 已解绑关系对象')
+      setBindingNotice(nextId
+        ? (locale === 'en-US' ? 'Current session is bound to a relationship counterpart' : '当前 session 已绑定关系对象')
+        : (locale === 'en-US' ? 'Current session is unbound from relationship counterparts' : '当前 session 已解绑关系对象'))
     } catch {
-      setBindingNotice('保存关系对象失败')
+      setBindingNotice(locale === 'en-US' ? 'Failed to save relationship counterpart' : '保存关系对象失败')
     }
   }
 
@@ -137,7 +141,7 @@ export function Sidebar({
             <button
               onClick={onBack}
               className="back-btn"
-              aria-label="返回虚拟人列表"
+              aria-label={locale === 'en-US' ? 'Back to persona list' : '返回虚拟人列表'}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
                 <path
@@ -161,24 +165,28 @@ export function Sidebar({
             )}
           </div>
           <div className="agent-meta">
-            <span className="agent-eyebrow">当前对话对象</span>
+            <span className="agent-eyebrow">{locale === 'en-US' ? 'Current Chat Partner' : '当前对话对象'}</span>
             <span className="agent-name">{agentName}</span>
           </div>
         </div>
       )}
 
       <div className="rail-copy">
-        <p className="rail-label">单线对话</p>
-        <h2 className="rail-title">一条持续进行中的对话</h2>
+        <p className="rail-label">{locale === 'en-US' ? 'Single Thread' : '单线对话'}</p>
+        <h2 className="rail-title">{locale === 'en-US' ? 'One Continuous Conversation' : '一条持续进行中的对话'}</h2>
         <p className="rail-sub">
-          你和这个虚拟人只有一条对话线。底层 session 仍然存在，但只用于内部章节和状态边界，不再作为前端可操作对象。
+          {locale === 'en-US'
+            ? 'You and this persona share one conversation thread. The underlying session still exists, but only as an internal chapter and state boundary.'
+            : '你和这个虚拟人只有一条对话线。底层 session 仍然存在，但只用于内部章节和状态边界，不再作为前端可操作对象。'}
         </p>
       </div>
 
       <div className="rail-note">
-        <span className="rail-note-title">当前行为</span>
+        <span className="rail-note-title">{locale === 'en-US' ? 'Current Behavior' : '当前行为'}</span>
         <p className="rail-note-body">
-          进入聊天时会自动解析当前 active session。网页端不再提供新建、切换或删除 session。
+          {locale === 'en-US'
+            ? 'Entering chat automatically resolves the active session. The web UI no longer creates, switches, or deletes sessions directly.'
+            : '进入聊天时会自动解析当前 active session。网页端不再提供新建、切换或删除 session。'}
         </p>
         {onResetContext && (
           <div className="context-reset-actions">
@@ -189,8 +197,8 @@ export function Sidebar({
               disabled={isResetting}
             >
               {isResetting && resettingMode === 'clear'
-                ? getContextResetLoadingLabel('clear', memoryScheme)
-                : getContextResetButtonLabel('clear', memoryScheme)}
+                ? getContextResetLoadingLabel('clear', memoryScheme, locale)
+                : getContextResetButtonLabel('clear', memoryScheme, locale)}
             </button>
             {memoryScheme === 'sqlite' && (
               <button
@@ -200,8 +208,8 @@ export function Sidebar({
                 disabled={isResetting}
               >
                 {isResetting && resettingMode === 'flush'
-                  ? getContextResetLoadingLabel('flush', memoryScheme)
-                  : getContextResetButtonLabel('flush', memoryScheme)}
+                  ? getContextResetLoadingLabel('flush', memoryScheme, locale)
+                  : getContextResetButtonLabel('flush', memoryScheme, locale)}
               </button>
             )}
           </div>
@@ -215,9 +223,11 @@ export function Sidebar({
 
       {relationshipScheme === 'named-multi-dim' && (
         <div className="rail-note">
-          <span className="rail-note-title">当前关系对象</span>
+          <span className="rail-note-title">{locale === 'en-US' ? 'Current Relationship Counterpart' : '当前关系对象'}</span>
           <p className="rail-note-body">
-            这个 session 只绑定一个手动命名对象。未绑定时，关系系统在当前聊天中不生效。
+            {locale === 'en-US'
+              ? 'This session binds to one manually named counterpart. If unbound, the relationship system is inactive in this chat.'
+              : '这个 session 只绑定一个手动命名对象。未绑定时，关系系统在当前聊天中不生效。'}
           </p>
           <select
             className="counterpart-select"
@@ -226,7 +236,7 @@ export function Sidebar({
               void handleCounterpartChange(event.target.value)
             }}
           >
-            <option value="">未绑定对象</option>
+            <option value="">{locale === 'en-US' ? 'No counterpart bound' : '未绑定对象'}</option>
             {counterparts.map((counterpart) => (
               <option key={counterpart.id} value={counterpart.id}>
                 {counterpart.name}

@@ -1,6 +1,6 @@
 'use client'
 
-import { OBSERVER_UI_COPY, translateCallKind } from '../../lib/ui-copy'
+import { getObserverUiCopy, translateCallKind, type UiLocale } from '../../lib/ui-copy'
 
 export interface TurnNode {
   userMessageId: string
@@ -20,21 +20,23 @@ interface Props {
   turns: TurnNode[]
   currentCallId: string | null
   onSelectCall: (id: string) => void
+  locale: UiLocale
 }
 
-function describeCallKind(kind: TurnNode['calls'][number]['kind']) {
-  return translateCallKind(kind)
+function describeCallKind(kind: TurnNode['calls'][number]['kind'], locale: UiLocale) {
+  return translateCallKind(kind, locale)
 }
 
-export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
+export function TurnTree({ turns, currentCallId, onSelectCall, locale }: Props) {
+  const copy = getObserverUiCopy(locale)
   return (
     <section className="observer-turns">
       <div className="observer-panel-head observer-panel-head-compact">
         <span className="observer-eyebrow">Timeline</span>
-        <strong>调用轨迹</strong>
+        <strong>{locale === 'en-US' ? 'Call Trace' : '调用轨迹'}</strong>
       </div>
       {turns.length === 0 && (
-        <p className="observer-empty">当前会话还没有观测记录。</p>
+        <p className="observer-empty">{locale === 'en-US' ? 'This session has no observer records yet.' : '当前会话还没有观测记录。'}</p>
       )}
       {turns.map((turn) => (
         <div key={turn.userMessageId} className="observer-turn-group">
@@ -42,7 +44,7 @@ export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
             className="observer-user-text"
             title={turn.userText}
           >
-            用户：{turn.userText || '（空）'}
+            {locale === 'en-US' ? 'User' : '用户'}: {turn.userText || (locale === 'en-US' ? '(empty)' : '（空）')}
           </div>
           {turn.calls.map((c) => {
             const active = c.id === currentCallId
@@ -52,9 +54,9 @@ export function TurnTree({ turns, currentCallId, onSelectCall }: Props) {
                 onClick={() => onSelectCall(c.id)}
                 className={`observer-call-item${active ? ' observer-call-item-active' : ''}`}
               >
-                <span>{describeCallKind(c.kind)} #{c.turnIndex}</span>
+                <span>{describeCallKind(c.kind, locale)} #{c.turnIndex}</span>
                 <span>
-                  {c.stopReason ?? (c.finishedAt ? '?' : OBSERVER_UI_COPY.pending)}
+                  {c.stopReason ?? (c.finishedAt ? '?' : copy.pending)}
                 </span>
               </button>
             )

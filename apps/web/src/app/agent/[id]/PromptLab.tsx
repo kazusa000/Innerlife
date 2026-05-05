@@ -1,6 +1,7 @@
 'use client'
 
 import PromptTestPanel, { type PromptTestConfig } from './PromptTestPanel'
+import { useAppLocale } from '@/app/use-app-locale'
 import styles from './manager-ui.module.css'
 
 export type PromptField = {
@@ -31,6 +32,11 @@ export default function PromptLab({
   tests,
   onChange,
 }: PromptLabProps) {
+  const locale = useAppLocale()
+  const fallbackCopy = locale === 'en-US'
+    ? 'Edit and save the text that is currently effective. Empty fields fall back to the system default after saving.'
+    : '这里编辑并保存的是当前会生效的文本。清空后保存会回退到系统默认。'
+
   return (
     <section className={`${styles.panel} ${layout === 'grid' ? styles.promptLabPanel : ''}`}>
       <div className={styles.panelHead}>
@@ -38,9 +44,9 @@ export default function PromptLab({
           <p className={styles.panelLabel}>Prompt</p>
           <h4 className={styles.panelTitle}>{title}</h4>
         </div>
-        <span className={styles.panelPill}>{fields.length} 项</span>
+        <span className={styles.panelPill}>{locale === 'en-US' ? `${fields.length} items` : `${fields.length} 项`}</span>
       </div>
-      <p className={styles.panelCopy}>{copy}</p>
+      <p className={styles.panelCopy}>{copy === '这里编辑并保存的是当前会生效的文本。清空后保存会回退到系统默认。' ? fallbackCopy : copy}</p>
       <div className={layout === 'grid' ? styles.promptGrid : styles.promptStack}>
         {fields.map((field) => {
           const testConfig = tests?.[field.key]
@@ -58,7 +64,7 @@ export default function PromptLab({
                     onClick={() => onChange(field.key, '')}
                     disabled={!field.value.trim()}
                   >
-                    清空
+                    {locale === 'en-US' ? 'Clear' : '清空'}
                   </button>
                 </div>
               </div>

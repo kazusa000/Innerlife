@@ -1,6 +1,6 @@
 'use client'
 
-import { OBSERVER_UI_COPY } from '../../lib/ui-copy'
+import { getObserverUiCopy, type UiLocale } from '../../lib/ui-copy'
 
 interface Session {
   id: string
@@ -13,14 +13,16 @@ interface Props {
   currentId: string | null
   onSelect: (id: string) => void
   onClearAll: () => void
+  locale: UiLocale
 }
 
-export function SessionsList({ sessions, currentId, onSelect, onClearAll }: Props) {
+export function SessionsList({ sessions, currentId, onSelect, onClearAll, locale }: Props) {
+  const copy = getObserverUiCopy(locale)
   return (
     <aside className="observer-sessions">
       <div className="observer-panel-head">
         <span className="observer-eyebrow">Observer</span>
-        <strong>{OBSERVER_UI_COPY.sessions}</strong>
+        <strong>{copy.sessions}</strong>
       </div>
       <div className="observer-session-list">
         {sessions.map((s) => {
@@ -30,9 +32,9 @@ export function SessionsList({ sessions, currentId, onSelect, onClearAll }: Prop
               key={s.id}
               onClick={() => onSelect(s.id)}
               className={`observer-session-item${active ? ' observer-session-item-active' : ''}`}
-              title={s.title || OBSERVER_UI_COPY.untitled}
+              title={s.title || copy.untitled}
             >
-              {s.title || OBSERVER_UI_COPY.untitled}
+              {s.title || copy.untitled}
             </button>
           )
         })}
@@ -40,11 +42,11 @@ export function SessionsList({ sessions, currentId, onSelect, onClearAll }: Prop
       <div className="observer-danger-zone">
         <button
           onClick={() => {
-            if (confirm(OBSERVER_UI_COPY.clearAllDataConfirm)) onClearAll()
+            if (confirm(copy.clearAllDataConfirm)) onClearAll()
           }}
           className="observer-clear-button"
         >
-          {OBSERVER_UI_COPY.clearAllData}
+          {copy.clearAllData}
         </button>
       </div>
     </aside>

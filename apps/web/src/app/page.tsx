@@ -13,12 +13,13 @@ import {
   type MemoryScheme,
   type RelationshipScheme,
 } from './persona-modules'
-import { AGENT_MANAGER_TILES, type AgentManagerSection } from './manager-tiles'
+import { type AgentManagerSection } from './manager-tiles'
 import {
   countConfiguredHomeModules,
   resolveSelectedAgentId,
   type HomeAgentModuleState,
 } from './home-view-model'
+import { getHomeCopy, getManagerTiles, normalizeLocale, type AppLocale } from './app-i18n'
 
 interface Agent {
   id: string
@@ -40,32 +41,22 @@ const MODEL_LABELS: Record<string, string> = {
 const MODULE_STATUS = [
   {
     key: 'persona',
-    title: '人设',
-    subtitle: 'Prompt 与角色档案',
     section: 'personality',
   },
   {
     key: 'emotion',
-    title: '情绪',
-    subtitle: '心境、能量、压力',
     section: 'emotion',
   },
   {
     key: 'relationship',
-    title: '关系',
-    subtitle: '信任、熟悉、亲近',
     section: 'relationships',
   },
   {
     key: 'memory',
-    title: '记忆',
-    subtitle: '检索、归档、上下文',
     section: 'memory',
   },
 ] as const satisfies readonly {
   key: keyof HomeAgentModuleState | 'persona'
-  title: string
-  subtitle: string
   section: AgentManagerSection
 }[]
 
@@ -103,8 +94,9 @@ function readAgentSchemes(modules: Record<string, unknown> | null): HomeAgentMod
   }
 }
 
-function formatSchemeLabel(value: string) {
-  if (value === 'noop') return '关闭'
+function formatSchemeLabel(value: string, locale: AppLocale) {
+  const copy = getHomeCopy(locale)
+  if (value === 'noop') return copy.moduleValues.off
   if (value === 'dimensional') return 'Dimensional'
   if (value === 'multi-dim') return 'Multi-dim'
   if (value === 'named-multi-dim') return 'Named multi-dim'
@@ -112,18 +104,23 @@ function formatSchemeLabel(value: string) {
   return value
 }
 
-function formatMetricSchemeLabel(value: string) {
-  if (value === 'named-multi-dim') return '多对象'
-  if (value === 'multi-dim') return '多维'
-  return formatSchemeLabel(value)
+function formatMetricSchemeLabel(value: string, locale: AppLocale) {
+  const copy = getHomeCopy(locale)
+  if (value === 'named-multi-dim') return copy.moduleValues.multiObject
+  if (value === 'multi-dim') return copy.moduleValues.multiDim
+  return formatSchemeLabel(value, locale)
 }
 
 function moduleValue(
   schemes: HomeAgentModuleState,
   key: typeof MODULE_STATUS[number]['key'],
+  locale: AppLocale,
 ) {
-  if (key === 'persona') return schemes.personaConfigured ? '已配置' : '未配置'
-  return formatSchemeLabel(schemes[key])
+  const copy = getHomeCopy(locale)
+  if (key === 'persona') return schemes.personaConfigured
+    ? copy.moduleValues.configured
+    : copy.moduleValues.unconfigured
+  return formatSchemeLabel(schemes[key], locale)
 }
 
 function moduleEnabled(
@@ -147,8 +144,10 @@ export default function HomePage() {
   const [emotionScheme, setEmotionScheme] = useState<EmotionScheme>('noop')
   const [relationshipScheme, setRelationshipScheme] = useState<RelationshipScheme>('noop')
   const [memoryScheme, setMemoryScheme] = useState<MemoryScheme>('noop')
-  const [locale, setLocale] = useState<'zh-CN' | 'en-US'>('zh-CN')
+  const [locale, setLocale] = useState<AppLocale>('zh-CN')
   const router = useRouter()
+  const copy = getHomeCopy(locale)
+  const managerTiles = getManagerTiles(locale)
 
   async function loadAgents() {
     const res = await fetch('/api/agents')
@@ -163,13 +162,13 @@ export default function HomePage() {
 
   async function loadLocale() {
     const response = await fetch('/api/settings/locale', { cache: 'no-store' })
-    const data = await response.json().catch(() => null) as { locale?: 'zh-CN' | 'en-US' } | null
-    if (data?.locale === 'zh-CN' || data?.locale === 'en-US') {
-      setLocale(data.locale)
+    const data = await response.json().catch(() => null) as { locale?: AppLocale } | null
+    if (data?.locale) {
+      setLocale(normalizeLocale(data.locale))
     }
   }
 
-  async function updateLocale(nextLocale: 'zh-CN' | 'en-US') {
+  async function updateLocale(nextLocale: AppLocale) {
     setLocale(nextLocale)
     const response = await fetch('/api/settings/locale', {
       method: 'PATCH',
@@ -178,7 +177,7 @@ export default function HomePage() {
     })
     if (!response.ok) {
       await loadLocale()
-      alert(nextLocale === 'en-US' ? 'Failed to update language.' : '语言更新失败。')
+      alert(copy.languageUpdateFailed)
     }
   }
 
@@ -269,14 +268,14 @@ export default function HomePage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('删除这个虚拟人及其全部对话吗？')) return
+    if (!confirm(copy.deleteConfirm)) return
     const response = await fetch(`/api/agents/${id}`, { method: 'DELETE' })
     if (!response.ok) {
       const body = await response.json().catch(() => null)
       const message =
         body && typeof body.error === 'string'
           ? body.error
-          : `删除失败（${response.status}）`
+          : `${copy.deleteFailed} (${response.status})`
       alert(message)
       return
     }
@@ -301,22 +300,22 @@ export default function HomePage() {
         <header className="home-head">
           <div className="title-block">
             <p className="eyebrow">Multi Agent System</p>
-            <h1 className="home-title">角色大厅</h1>
+            <h1 className="home-title">{copy.title}</h1>
             <p className="home-sub">
-              管理你的虚拟人格、关系状态、记忆系统和运行入口。这里是进入每个角色之前的总控台。
+              {copy.subtitle}
             </p>
           </div>
           <div className="head-actions">
             <label className="locale-switch">
-              <span>{locale === 'en-US' ? 'System language' : '系统语言'}</span>
+              <span>{copy.systemLanguage}</span>
               <select
                 value={locale}
                 onChange={(event) => {
-                  void updateLocale(event.target.value === 'en-US' ? 'en-US' : 'zh-CN')
+                  void updateLocale(normalizeLocale(event.target.value))
                 }}
               >
-                <option value="zh-CN">中文</option>
-                <option value="en-US">English</option>
+                <option value="zh-CN">{copy.zhLanguage}</option>
+                <option value="en-US">{copy.enLanguage}</option>
               </select>
             </label>
             <button
@@ -333,7 +332,7 @@ export default function HomePage() {
                 setShowForm(true)
               }}
             >
-              <span className="button-mark">+</span> 新建虚拟人
+              <span className="button-mark">+</span> {copy.newAgent}
             </button>
           </div>
         </header>
@@ -344,38 +343,38 @@ export default function HomePage() {
               <div>
                 <p className="panel-label">Persona Builder</p>
                 <h3 className="form-title">
-                  {editingId ? '编辑虚拟人' : '创建虚拟人'}
+                  {editingId ? copy.editAgent : copy.createAgent}
                 </h3>
               </div>
               <button type="button" className="btn btn-ghost" onClick={resetForm}>
-                收起
+                {copy.collapse}
               </button>
             </div>
 
             <div className="form-grid">
               <label className="field">
-                <span className="field-label">名称</span>
+                <span className="field-label">{copy.name}</span>
                 <input
                   className="input"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  placeholder="例如 Hazel、Orion、Sage"
+                  placeholder={copy.namePlaceholder}
                   autoFocus
                 />
               </label>
 
               <label className="field wide">
-                <span className="field-label">描述</span>
+                <span className="field-label">{copy.description}</span>
                 <input
                   className="input"
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
-                  placeholder="例如：一位喜欢深夜倾听和看星星的安静陪伴者"
+                  placeholder={copy.descriptionPlaceholder}
                 />
               </label>
 
               <label className="field">
-                <span className="field-label">模型提供方</span>
+                <span className="field-label">{copy.provider}</span>
                 <select
                   className="input"
                   value={provider}
@@ -397,15 +396,15 @@ export default function HomePage() {
               </label>
 
               <label className="field wide">
-                <span className="field-label">模型</span>
+                <span className="field-label">{copy.model}</span>
                 <input
                   className="input"
                   value={model}
                   onChange={(event) => setModel(event.target.value)}
                   placeholder={
                     provider === 'openrouter'
-                      ? '例如 anthropic/claude-sonnet-4.6、openai/gpt-5.2'
-                      : '例如 claude-sonnet-4-6、claude-haiku-4-5-20251001'
+                      ? copy.modelOpenRouterPlaceholder
+                      : copy.modelAnthropicPlaceholder
                   }
                   list="model-suggestions"
                 />
@@ -421,7 +420,7 @@ export default function HomePage() {
               </label>
 
               <label className="field">
-                <span className="field-label">情绪方案</span>
+                <span className="field-label">{copy.emotionScheme}</span>
                 <select
                   className="input"
                   value={emotionScheme}
@@ -434,7 +433,7 @@ export default function HomePage() {
               </label>
 
               <label className="field">
-                <span className="field-label">关系方案</span>
+                <span className="field-label">{copy.relationshipScheme}</span>
                 <select
                   className="input"
                   value={relationshipScheme}
@@ -448,7 +447,7 @@ export default function HomePage() {
               </label>
 
               <label className="field">
-                <span className="field-label">记忆方案</span>
+                <span className="field-label">{copy.memoryScheme}</span>
                 <select
                   className="input"
                   value={memoryScheme}
@@ -463,10 +462,10 @@ export default function HomePage() {
 
             <div className="form-actions">
               <button type="submit" className="btn btn-primary">
-                {editingId ? '保存更改' : '创建虚拟人'}
+                {editingId ? copy.saveChanges : copy.createAgent}
               </button>
               <button type="button" className="btn btn-ghost" onClick={resetForm}>
-                取消
+                {copy.cancel}
               </button>
             </div>
           </form>
@@ -476,9 +475,9 @@ export default function HomePage() {
           <section className="empty-stage">
             <div className="empty-art" aria-hidden />
             <div className="empty-copy">
-              <p className="panel-label">No persona online</p>
-              <h2>还没有虚拟人</h2>
-              <p>先创建一个角色，再进入聊天、人设、情绪、关系和记忆管理。</p>
+              <p className="panel-label">{copy.noPersonaOnline}</p>
+              <h2>{copy.emptyTitle}</h2>
+              <p>{copy.emptyBody}</p>
               <button
                 className="btn btn-primary"
                 onClick={() => {
@@ -486,7 +485,7 @@ export default function HomePage() {
                   setShowForm(true)
                 }}
               >
-                <span className="button-mark">+</span> 创建第一个虚拟人
+                <span className="button-mark">+</span> {copy.createFirst}
               </button>
             </div>
           </section>
@@ -494,11 +493,11 @@ export default function HomePage() {
 
         {agents.length > 0 && selectedAgent && selectedSchemes && (
           <section className="hall-grid">
-            <aside className="roster-panel" aria-label="虚拟人列表">
+            <aside className="roster-panel" aria-label={copy.rosterTitle}>
               <div className="panel-topline">
                 <div>
                   <p className="panel-label">Roster</p>
-                  <h2>虚拟人格</h2>
+                  <h2>{copy.rosterTitle}</h2>
                 </div>
                 <span className="count-pill">{agents.length}</span>
               </div>
@@ -539,7 +538,7 @@ export default function HomePage() {
               </div>
             </aside>
 
-            <section className="focus-panel" aria-label="当前虚拟人">
+            <section className="focus-panel" aria-label={copy.currentAgentLabel}>
               <div className="focus-art" aria-hidden />
               <div className="focus-content">
                 <div className="focus-portrait">
@@ -564,21 +563,21 @@ export default function HomePage() {
                   </div>
                   <h2 className="agent-name">{selectedAgent.name}</h2>
                   <p className="agent-desc">
-                    {selectedAgent.description || '这个虚拟人还没有描述。可以进入人设页补充角色背景、说话风格和互动边界。'}
+                    {selectedAgent.description || copy.noDescription}
                   </p>
 
                   <div className="focus-metrics">
                     <div>
                       <strong>{configuredCount}/4</strong>
-                      <span>核心模块</span>
+                      <span>{copy.coreModules}</span>
                     </div>
                     <div>
-                      <strong>{formatMetricSchemeLabel(selectedSchemes.relationship)}</strong>
-                      <span>关系系统</span>
+                      <strong>{formatMetricSchemeLabel(selectedSchemes.relationship, locale)}</strong>
+                      <span>{copy.relationshipSystem}</span>
                     </div>
                     <div>
-                      <strong>{formatMetricSchemeLabel(selectedSchemes.memory)}</strong>
-                      <span>记忆系统</span>
+                      <strong>{formatMetricSchemeLabel(selectedSchemes.memory, locale)}</strong>
+                      <span>{copy.memorySystem}</span>
                     </div>
                   </div>
 
@@ -587,34 +586,34 @@ export default function HomePage() {
                       className="btn btn-primary"
                       onClick={() => handleChat(selectedAgent.id)}
                     >
-                      打开聊天
+                      {copy.openChat}
                     </button>
                     <button
                       className="btn"
                       onClick={() => openManager(selectedAgent.id, 'personality')}
                     >
-                      人设档案
+                      {copy.personaProfile}
                     </button>
                     <button className="btn btn-ghost" onClick={() => startEdit(selectedAgent)}>
-                      编辑基础信息
+                      {copy.editBasicInfo}
                     </button>
                     <button
                       type="button"
                       className="btn btn-danger"
                       onClick={() => handleDelete(selectedAgent.id)}
                     >
-                      删除虚拟人
+                      {copy.deleteAgent}
                     </button>
                   </div>
                 </div>
               </div>
             </section>
 
-            <aside className="system-panel" aria-label="角色系统状态">
+            <aside className="system-panel" aria-label={copy.systemsTitle}>
               <div className="panel-topline">
                 <div>
                   <p className="panel-label">Systems</p>
-                  <h2>角色系统</h2>
+                  <h2>{copy.systemsTitle}</h2>
                 </div>
                 <span className="count-pill">{configuredCount}/4</span>
               </div>
@@ -632,10 +631,10 @@ export default function HomePage() {
                       <span className="module-texture" aria-hidden />
                       <span className="module-copy">
                         <span className="module-row">
-                          <strong>{module.title}</strong>
-                          <em>{moduleValue(selectedSchemes, module.key)}</em>
+                          <strong>{copy.moduleTitles[module.section]}</strong>
+                          <em>{moduleValue(selectedSchemes, module.key, locale)}</em>
                         </span>
-                        <small>{module.subtitle}</small>
+                        <small>{copy.moduleSubtitles[module.section]}</small>
                       </span>
                     </button>
                   )
@@ -643,7 +642,7 @@ export default function HomePage() {
               </div>
 
               <div className="manager-strip">
-                {AGENT_MANAGER_TILES.map((tile) => (
+                {managerTiles.map((tile) => (
                   <button
                     key={tile.section}
                     className="manager-tile"

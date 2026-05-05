@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useTransition } from 'react'
+import { useAppLocale } from '../use-app-locale'
 import styles from '../agent/[id]/manager-ui.module.css'
 import { DaemonContextFlushPanel } from './DaemonContextFlushPanel'
 import { DaemonEventsPanel } from './DaemonEventsPanel'
@@ -46,6 +47,7 @@ function readErrorMessage(value: unknown, fallback: string) {
 }
 
 export default function DaemonWorkbench() {
+  const locale = useAppLocale()
   const [overview, setOverview] = useState<DaemonOverviewData>(DEFAULT_OVERVIEW)
   const [runs, setRuns] = useState<DaemonTuringRunView[]>([])
   const [flushSessions, setFlushSessions] = useState<DaemonContextFlushItem[]>([])
@@ -86,11 +88,11 @@ export default function DaemonWorkbench() {
         eventResponse.json() as Promise<unknown>,
       ])
 
-      if (!overviewResponse.ok) throw new Error(readErrorMessage(overviewPayload, '加载 daemon 概览失败'))
-      if (!runResponse.ok) throw new Error(readErrorMessage(runPayload, '加载图灵测试列表失败'))
-      if (!flushResponse.ok) throw new Error(readErrorMessage(flushPayload, '加载 flush 列表失败'))
-      if (!sleepResponse.ok) throw new Error(readErrorMessage(sleepPayload, '加载睡眠列表失败'))
-      if (!eventResponse.ok) throw new Error(readErrorMessage(eventPayload, '加载事件流失败'))
+      if (!overviewResponse.ok) throw new Error(readErrorMessage(overviewPayload, locale === 'en-US' ? 'Failed to load daemon overview' : '加载 daemon 概览失败'))
+      if (!runResponse.ok) throw new Error(readErrorMessage(runPayload, locale === 'en-US' ? 'Failed to load Turing test runs' : '加载图灵测试列表失败'))
+      if (!flushResponse.ok) throw new Error(readErrorMessage(flushPayload, locale === 'en-US' ? 'Failed to load flush list' : '加载 flush 列表失败'))
+      if (!sleepResponse.ok) throw new Error(readErrorMessage(sleepPayload, locale === 'en-US' ? 'Failed to load sleep list' : '加载睡眠列表失败'))
+      if (!eventResponse.ok) throw new Error(readErrorMessage(eventPayload, locale === 'en-US' ? 'Failed to load event stream' : '加载事件流失败'))
 
       const overviewData = overviewPayload as { daemon: DaemonOverviewData['daemon']; tickIntervalMs: number; recentEventCounts: DaemonOverviewData['recentEventCounts'] }
       const runData = runPayload as { runs: DaemonTuringRunView[] }
@@ -108,7 +110,7 @@ export default function DaemonWorkbench() {
       setSleepAgents(Array.isArray(sleepData.agents) ? sleepData.agents : [])
       setEvents(Array.isArray(eventData.events) ? eventData.events : [])
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '加载 daemon 工作台失败')
+      setError(nextError instanceof Error ? nextError.message : locale === 'en-US' ? 'Failed to load daemon workbench' : '加载 daemon 工作台失败')
     } finally {
       setLoading(false)
     }
@@ -120,7 +122,7 @@ export default function DaemonWorkbench() {
       void refresh()
     }, 5000)
     return () => clearInterval(interval)
-  }, [])
+  }, [locale])
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -175,7 +177,7 @@ export default function DaemonWorkbench() {
       })
       const data = await response.json() as unknown
       if (!response.ok) {
-        throw new Error(readErrorMessage(data, '执行 flush 失败'))
+        throw new Error(readErrorMessage(data, locale === 'en-US' ? 'Failed to run flush' : '执行 flush 失败'))
       }
       if (
         data
@@ -190,13 +192,13 @@ export default function DaemonWorkbench() {
       ) {
         const reason = 'reason' in data.result && typeof data.result.reason === 'string'
           ? data.result.reason
-          : 'flush 未执行'
+          : locale === 'en-US' ? 'flush did not run' : 'flush 未执行'
         throw new Error(reason)
       }
-      showNotice('已触发一次手动 flush。')
+      showNotice(locale === 'en-US' ? 'Manual flush triggered.' : '已触发一次手动 flush。')
       await refresh()
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '执行 flush 失败')
+      setError(nextError instanceof Error ? nextError.message : locale === 'en-US' ? 'Failed to run flush' : '执行 flush 失败')
     } finally {
       setFlushingSessionId(null)
     }
@@ -213,7 +215,7 @@ export default function DaemonWorkbench() {
       })
       const data = await response.json() as unknown
       if (!response.ok) {
-        throw new Error(readErrorMessage(data, '执行睡眠失败'))
+        throw new Error(readErrorMessage(data, locale === 'en-US' ? 'Failed to run sleep' : '执行睡眠失败'))
       }
       if (
         data
@@ -228,13 +230,13 @@ export default function DaemonWorkbench() {
       ) {
         const reason = 'reason' in data.result && typeof data.result.reason === 'string'
           ? data.result.reason
-          : '睡眠未执行'
+          : locale === 'en-US' ? 'sleep did not run' : '睡眠未执行'
         throw new Error(reason)
       }
-      showNotice('已触发一次手动睡觉。')
+      showNotice(locale === 'en-US' ? 'Manual sleep triggered.' : '已触发一次手动睡觉。')
       await refresh()
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '执行睡眠失败')
+      setError(nextError instanceof Error ? nextError.message : locale === 'en-US' ? 'Failed to run sleep' : '执行睡眠失败')
     } finally {
       setSleepingAgentId(null)
     }
@@ -244,10 +246,12 @@ export default function DaemonWorkbench() {
     <main className={`${styles.workspace} daemon-workbench`}>
       <header className={styles.hero}>
         <div>
-          <p className={styles.eyebrow}>后台系统</p>
+          <p className={styles.eyebrow}>{locale === 'en-US' ? 'Background System' : '后台系统'}</p>
           <h1 className={styles.title}>Daemon Workbench</h1>
           <p className={styles.copy}>
-            从全局视角观察 daemon、图灵测试任务、context flush、睡眠沉淀和后台事件流。
+            {locale === 'en-US'
+              ? 'Observe the daemon, Turing test jobs, context flushes, sleep consolidation, and background event stream from one global view.'
+              : '从全局视角观察 daemon、图灵测试任务、context flush、睡眠沉淀和后台事件流。'}
           </p>
         </div>
         <div className={styles.heroActions}>
@@ -256,7 +260,7 @@ export default function DaemonWorkbench() {
             onClick={() => startTransition(() => { void refresh() })}
             disabled={pending || loading}
           >
-            {loading ? '加载中…' : '刷新'}
+            {loading ? (locale === 'en-US' ? 'Loading...' : '加载中…') : (locale === 'en-US' ? 'Refresh' : '刷新')}
           </button>
         </div>
       </header>
@@ -265,7 +269,7 @@ export default function DaemonWorkbench() {
       {notice ? <p className={styles.notice}>{notice}</p> : null}
 
       <div className={styles.sectionLayout}>
-          <DaemonSectionNav activeSection={activeSection} />
+          <DaemonSectionNav activeSection={activeSection} locale={locale} />
 
         <div className={styles.contentStack}>
           <div
@@ -274,7 +278,7 @@ export default function DaemonWorkbench() {
             ref={registerSection('overview')}
             className={styles.sectionPanel}
           >
-            <DaemonOverviewPanel {...overview} />
+            <DaemonOverviewPanel {...overview} locale={locale} />
           </div>
 
           <div
@@ -283,7 +287,7 @@ export default function DaemonWorkbench() {
             ref={registerSection('events')}
             className={styles.sectionPanel}
           >
-            <DaemonEventsPanel events={events} />
+            <DaemonEventsPanel events={events} locale={locale} />
           </div>
 
           <div
@@ -292,7 +296,7 @@ export default function DaemonWorkbench() {
             ref={registerSection('turing')}
             className={styles.sectionPanel}
           >
-            <DaemonTuringPanel runs={runs} />
+            <DaemonTuringPanel runs={runs} locale={locale} />
           </div>
 
           <div
@@ -305,6 +309,7 @@ export default function DaemonWorkbench() {
               sessions={flushSessions}
               flushingSessionId={flushingSessionId}
               onFlush={handleFlush}
+              locale={locale}
             />
           </div>
 
@@ -318,6 +323,7 @@ export default function DaemonWorkbench() {
               agents={sleepAgents}
               sleepingAgentId={sleepingAgentId}
               onSleep={handleSleep}
+              locale={locale}
             />
           </div>
         </div>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useAppLocale } from '@/app/use-app-locale'
 import { ObserverDrawer } from './ObserverDrawer'
 import {
   formatDayLabel,
@@ -258,6 +259,7 @@ function initials(name: string | undefined) {
 }
 
 export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }: Props) {
+  const locale = useAppLocale()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [visibleDayKeys, setVisibleDayKeys] = useState<string[]>([])
   const [input, setInput] = useState('')
@@ -372,8 +374,8 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
 
   function markInterrupted(currentText: string) {
     const content = currentText
-      ? `${currentText}${INTERRUPTED_SUFFIX}`
-      : '（中断）'
+      ? `${currentText}${locale === 'en-US' ? ' — (interrupted)' : INTERRUPTED_SUFFIX}`
+      : (locale === 'en-US' ? '(interrupted)' : '（中断）')
 
     setAssistantText(content)
   }
@@ -570,7 +572,7 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
         ensureVisibleDay(createdAt)
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: `连接错误：${err}`, createdAt },
+          { role: 'assistant', content: `${locale === 'en-US' ? 'Connection error' : '连接错误'}: ${err}`, createdAt },
         ])
       }
     } finally {
@@ -589,17 +591,17 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
         <header className="chat-header">
           <div className="chat-header-title">
             <span className="dot" aria-hidden />
-            <h1>对话</h1>
+            <h1>{locale === 'en-US' ? 'Chat' : '对话'}</h1>
           </div>
           <button
             onClick={() => setObserverOpen((o) => !o)}
-            title="切换观测器"
+            title={locale === 'en-US' ? 'Toggle observer' : '切换观测器'}
             className={`btn btn-ghost${observerOpen ? ' is-active' : ''}`}
           >
-            观测器
+            {locale === 'en-US' ? 'Observer' : '观测器'}
           </button>
-          <label className="reasoning-toggle" title="切换主对话思考模式">
-            <span>思考</span>
+          <label className="reasoning-toggle" title={locale === 'en-US' ? 'Toggle main-chat thinking mode' : '切换主对话思考模式'}>
+            <span>{locale === 'en-US' ? 'Think' : '思考'}</span>
             <input
               type="checkbox"
               checked={reasoningEnabled}
@@ -615,16 +617,18 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
         <div className="thread">
           {nextHiddenDayKey && (
             <button type="button" className="history-more" onClick={loadPreviousDay}>
-              查看更多历史消息 · {formatDayLabel(nextHiddenDayKey)}
+              {locale === 'en-US' ? 'Show more history' : '查看更多历史消息'} · {formatDayLabel(nextHiddenDayKey, new Date(), locale)}
             </button>
           )}
 
           {visibleMessages.length === 0 && (
             <div className="thread-empty">
               <div className="thread-empty-glyph" aria-hidden />
-              <p className="thread-empty-title">今天还没有消息</p>
+              <p className="thread-empty-title">{locale === 'en-US' ? 'No messages today' : '今天还没有消息'}</p>
               <p className="thread-empty-sub">
-                从任何一句话开始都行，可以是想法、问题，或者一句轻轻的问候。
+                {locale === 'en-US'
+                  ? 'Start with anything: a thought, a question, or a quiet hello.'
+                  : '从任何一句话开始都行，可以是想法、问题，或者一句轻轻的问候。'}
               </p>
             </div>
           )}
@@ -636,7 +640,7 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
 
             return (
               <div key={`${msg.createdAt}-${i}`}>
-                {showDayDivider && <div className="day-divider">{formatDayLabel(dayKey)}</div>}
+                {showDayDivider && <div className="day-divider">{formatDayLabel(dayKey, new Date(), locale)}</div>}
                 <div className={`msg msg-${msg.role}`}>
                   {msg.role === 'assistant' && (
                     <div
@@ -654,7 +658,7 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
                   <div className="msg-stack">
                     {msg.thinking && (
                       <details className="thinking-panel" open={isStreaming && i === visibleMessages.length - 1}>
-                        <summary>思考内容</summary>
+                        <summary>{locale === 'en-US' ? 'Thinking' : '思考内容'}</summary>
                         <pre>{msg.thinking}</pre>
                       </details>
                     )}
@@ -675,7 +679,7 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
           {currentTools.map((tool, i) => (
             <div key={i} className="tool-call">
               <div className="tool-head">
-                <span className="tool-badge">工具</span>
+                <span className="tool-badge">{locale === 'en-US' ? 'Tool' : '工具'}</span>
                 <code>
                   {tool.toolName}
                   <span className="tool-input">
@@ -703,7 +707,7 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="输入消息…"
+              placeholder={locale === 'en-US' ? 'Type a message...' : '输入消息…'}
               disabled={isStreaming}
               className="composer-input"
             />
@@ -712,7 +716,7 @@ export function ChatArea({ sessionId, agentModules, agentName, agentAvatarUrl }:
               onClick={isStreaming ? handleStop : undefined}
               disabled={!isStreaming && !input.trim()}
               className={`composer-send${isStreaming ? ' is-stop' : ''}`}
-              aria-label={isStreaming ? '停止' : '发送'}
+              aria-label={isStreaming ? (locale === 'en-US' ? 'Stop' : '停止') : (locale === 'en-US' ? 'Send' : '发送')}
             >
               {isStreaming ? (
                 <span className="stop-glyph" aria-hidden />

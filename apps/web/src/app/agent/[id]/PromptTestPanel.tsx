@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { getPromptTestCopy } from '@/lib/ui-copy'
+import { useAppLocale } from '@/app/use-app-locale'
 import styles from './manager-ui.module.css'
 
 export type PromptTestConfig = {
@@ -30,13 +32,13 @@ function readErrorMessage(value: unknown, fallback: string) {
   return fallback
 }
 
-async function readResponseBody(response: Response) {
+async function readResponseBody(response: Response, copy: ReturnType<typeof getPromptTestCopy>) {
   const text = await response.text()
   if (!text.trim()) {
     return {
       error: response.ok
-        ? '接口返回了空响应'
-        : `接口返回了空错误响应（${response.status} ${response.statusText || 'Error'}）`,
+        ? copy.emptyResponse
+        : `${copy.emptyErrorResponse} (${response.status} ${response.statusText || 'Error'})`,
     }
   }
 
@@ -45,8 +47,8 @@ async function readResponseBody(response: Response) {
   } catch {
     return {
       error: response.ok
-        ? '接口返回了非 JSON 响应'
-        : `接口返回了非 JSON 错误响应（${response.status} ${response.statusText || 'Error'}）`,
+        ? copy.nonJsonResponse
+        : `${copy.nonJsonErrorResponse} (${response.status} ${response.statusText || 'Error'})`,
       rawText: text,
     }
   }
@@ -169,6 +171,8 @@ export default function PromptTestPanel({
   defaultInput,
   prompt,
 }: PromptTestPanelProps) {
+  const locale = useAppLocale()
+  const copy = getPromptTestCopy(locale)
   const fallbackInput = useMemo(() => stringifyInput(defaultInput), [defaultInput])
   const [inputText, setInputText] = useState(fallbackInput)
   const [outputText, setOutputText] = useState('')
@@ -185,20 +189,20 @@ export default function PromptTestPanel({
       setError(null)
       try {
         const response = await fetch(`/api/agents/${agentId}/prompt-tests`, { cache: 'no-store' })
-        const data = await readResponseBody(response) as {
+        const data = await readResponseBody(response, copy) as {
           defaults?: Record<string, unknown>
           samples?: Record<string, unknown>
           error?: string
         }
         if (!response.ok) {
-          throw new Error(readErrorMessage(data, '加载 prompt 测试样例失败'))
+          throw new Error(readErrorMessage(data, copy.loadSampleFailed))
         }
         if (!cancelled) {
           setInputText(stringifyInput(data.samples?.[testId] ?? data.defaults?.[testId] ?? defaultInput))
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '加载 prompt 测试样例失败')
+          setError(err instanceof Error ? err.message : copy.loadSampleFailed)
           setInputText(fallbackInput)
         }
       } finally {
@@ -212,7 +216,7 @@ export default function PromptTestPanel({
     return () => {
       cancelled = true
     }
-  }, [agentId, defaultInput, fallbackInput, testId])
+  }, [agentId, copy.loadSampleFailed, defaultInput, fallbackInput, testId])
 
   function parseInput() {
     try {
@@ -220,7 +224,7 @@ export default function PromptTestPanel({
     } catch (err) {
       return {
         ok: false as const,
-        error: err instanceof Error ? err.message : '输入必须是 JSON',
+        error: err instanceof Error ? err.message : copy.invalidJson,
       }
     }
   }
@@ -228,7 +232,7 @@ export default function PromptTestPanel({
   async function runTest() {
     const parsed = parseInput()
     if (!parsed.ok) {
-      setError(`输入 JSON 无效：${parsed.error}`)
+      setError(`${copy.invalidJsonPrefix}: ${parsed.error}`)
       return
     }
 
@@ -244,13 +248,13 @@ export default function PromptTestPanel({
           input: parsed.value,
         }),
       })
-      const data = await readResponseBody(response)
+      const data = await readResponseBody(response, copy)
       if (!response.ok) {
-        throw new Error(readErrorMessage(data, '运行 prompt 测试失败'))
+        throw new Error(readErrorMessage(data, copy.runFailed))
       }
       setOutputText(stringifyInput(data))
     } catch (err) {
-      setError(err instanceof Error ? err.message : '运行 prompt 测试失败')
+      setError(err instanceof Error ? err.message : copy.runFailed)
     } finally {
       setRunning(false)
     }
@@ -259,7 +263,7 @@ export default function PromptTestPanel({
   async function saveSample() {
     const parsed = parseInput()
     if (!parsed.ok) {
-      setError(`输入 JSON 无效：${parsed.error}`)
+      setError(`${copy.invalidJsonPrefix}: ${parsed.error}`)
       return
     }
 
@@ -274,12 +278,12 @@ export default function PromptTestPanel({
           input: parsed.value,
         }),
       })
-      const data = await readResponseBody(response)
+      const data = await readResponseBody(response, copy)
       if (!response.ok) {
-        throw new Error(readErrorMessage(data, '保存 prompt 测试样例失败'))
+        throw new Error(readErrorMessage(data, copy.saveFailed))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存 prompt 测试样例失败')
+      setError(err instanceof Error ? err.message : copy.saveFailed)
     } finally {
       setSaving(false)
     }
@@ -298,12 +302,12 @@ export default function PromptTestPanel({
           reset: true,
         }),
       })
-      const data = await readResponseBody(response)
+      const data = await readResponseBody(response, copy)
       if (!response.ok) {
-        throw new Error(readErrorMessage(data, '重置 prompt 测试样例失败'))
+        throw new Error(readErrorMessage(data, copy.resetFailed))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '重置 prompt 测试样例失败')
+      setError(err instanceof Error ? err.message : copy.resetFailed)
     } finally {
       setSaving(false)
     }
@@ -313,18 +317,18 @@ export default function PromptTestPanel({
     <div className={styles.promptTestPanel}>
       <div className={styles.promptTestHead}>
         <div>
-          <span className={styles.promptTestTitle}>测试面板</span>
+          <span className={styles.promptTestTitle}>{copy.panelTitle}</span>
           <span className={styles.promptTestId}>{testId}</span>
         </div>
         <div className={styles.promptActions}>
           <button type="button" className={styles.subtleButton} onClick={() => void saveSample()} disabled={saving || loading}>
-            {saving ? '保存中…' : '保存样例'}
+            {saving ? copy.saving : copy.saveSample}
           </button>
           <button type="button" className={styles.subtleButton} onClick={() => void resetSample()} disabled={saving || loading}>
-            重置样例
+            {copy.resetSample}
           </button>
           <button type="button" className={styles.primaryButton} onClick={() => void runTest()} disabled={running || loading}>
-            {running ? '运行中…' : '运行测试'}
+            {running ? copy.running : copy.runTest}
           </button>
         </div>
       </div>
@@ -345,7 +349,7 @@ export default function PromptTestPanel({
             rows={10}
             value={outputText}
             readOnly
-            placeholder="运行后显示实际输出。"
+            placeholder={copy.outputPlaceholder}
           />
         </label>
       </div>

@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { COMMON_UI_COPY } from '@/lib/ui-copy'
+import { getCommonUiCopy } from '@/lib/ui-copy'
+import { useAppLocale } from '@/app/use-app-locale'
 import ToolsManager, { type ToolManagerItem } from './ToolsManager'
 
 interface ToolsRoutePayload {
@@ -11,6 +12,8 @@ interface ToolsRoutePayload {
 }
 
 export default function ToolsManagerShell({ agentId }: { agentId: string }) {
+  const locale = useAppLocale()
+  const commonCopy = getCommonUiCopy(locale)
   const [payload, setPayload] = useState<ToolsRoutePayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -28,7 +31,7 @@ export default function ToolsManagerShell({ agentId }: { agentId: string }) {
         })
         const data = await response.json()
         if (!response.ok) {
-          throw new Error(typeof data?.error === 'string' ? data.error : '加载工具管理入口失败')
+          throw new Error(typeof data?.error === 'string' ? data.error : locale === 'en-US' ? 'Failed to load tools manager' : '加载工具管理入口失败')
         }
 
         if (!cancelled) {
@@ -36,7 +39,7 @@ export default function ToolsManagerShell({ agentId }: { agentId: string }) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '加载工具管理入口失败')
+          setError(err instanceof Error ? err.message : locale === 'en-US' ? 'Failed to load tools manager' : '加载工具管理入口失败')
         }
       } finally {
         if (!cancelled) {
@@ -50,25 +53,27 @@ export default function ToolsManagerShell({ agentId }: { agentId: string }) {
     return () => {
       cancelled = true
     }
-  }, [agentId])
+  }, [agentId, locale])
 
   return (
     <main className="tools-page">
       <div className="tools-wrap">
         <header className="tools-head">
           <div>
-            <p className="tools-eyebrow">{COMMON_UI_COPY.unifiedEntry}</p>
-            <h1 className="tools-title">工具管理</h1>
+            <p className="tools-eyebrow">{commonCopy.unifiedEntry}</p>
+            <h1 className="tools-title">{locale === 'en-US' ? 'Tool Management' : '工具管理'}</h1>
             <p className="tools-sub">
-              固定入口 `/agent/{agentId}/tools`。在这里管理该 persona 的工具开关、中文提示词和当前可生效条件。
+              {locale === 'en-US'
+                ? 'Stable entry `/agent/{agentId}/tools`. Manage tool toggles, localized tool descriptions, and current availability requirements for this persona.'
+                : '固定入口 `/agent/{agentId}/tools`。在这里管理该 persona 的工具开关、本地化提示词和当前可生效条件。'}
             </p>
           </div>
           <div className="tools-actions">
             <Link href="/" className="tools-link">
-              {COMMON_UI_COPY.backToPersonas}
+              {commonCopy.backToPersonas}
             </Link>
             <Link href={`/chat?agent=${agentId}`} className="tools-link tools-link-primary">
-              {COMMON_UI_COPY.openChat}
+              {commonCopy.openChat}
             </Link>
           </div>
         </header>
@@ -76,7 +81,7 @@ export default function ToolsManagerShell({ agentId }: { agentId: string }) {
         <section className="tools-card">
           <div className="tools-card-head">
             <div>
-              <p className="tools-label">{COMMON_UI_COPY.agent}</p>
+              <p className="tools-label">{commonCopy.agent}</p>
               <h2 className="tools-card-title">{agentId}</h2>
             </div>
             {payload && (
@@ -86,11 +91,11 @@ export default function ToolsManagerShell({ agentId }: { agentId: string }) {
             )}
           </div>
 
-          {loading && <p className="tools-copy">正在加载工具管理入口…</p>}
+          {loading && <p className="tools-copy">{locale === 'en-US' ? 'Loading tools manager...' : '正在加载工具管理入口…'}</p>}
 
           {!loading && error && (
             <div className="tools-state">
-              <h3>入口加载失败</h3>
+              <h3>{locale === 'en-US' ? 'Failed to Load Entry' : '入口加载失败'}</h3>
               <p>{error}</p>
             </div>
           )}

@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type ComponentType } from 'react'
-import { COMMON_UI_COPY } from '@/lib/ui-copy'
+import { getCommonUiCopy } from '@/lib/ui-copy'
+import { useAppLocale } from '@/app/use-app-locale'
 import EmotionManagerDimensional from './EmotionManager.dimensional'
 
 interface AgentEmotionMeta {
@@ -22,6 +23,8 @@ const emotionManagersByScheme = {
 } satisfies Record<string, ComponentType<EmotionManagerProps>>
 
 export default function EmotionManagerShell({ agentId }: { agentId: string }) {
+  const locale = useAppLocale()
+  const commonCopy = getCommonUiCopy(locale)
   const [meta, setMeta] = useState<AgentEmotionMeta | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -40,7 +43,7 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
         const data = await response.json()
         if (!response.ok) {
           throw new Error(
-            typeof data?.error === 'string' ? data.error : '加载情绪管理入口失败',
+            typeof data?.error === 'string' ? data.error : locale === 'en-US' ? 'Failed to load emotion manager' : '加载情绪管理入口失败',
           )
         }
 
@@ -49,7 +52,7 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '加载情绪管理入口失败')
+          setError(err instanceof Error ? err.message : locale === 'en-US' ? 'Failed to load emotion manager' : '加载情绪管理入口失败')
         }
       } finally {
         if (!cancelled) {
@@ -63,7 +66,7 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
     return () => {
       cancelled = true
     }
-  }, [agentId])
+  }, [agentId, locale])
 
   const Manager = meta?.scheme
     ? emotionManagersByScheme[meta.scheme as keyof typeof emotionManagersByScheme]
@@ -74,19 +77,20 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
       <div className="emotion-wrap">
         <header className="emotion-head">
           <div>
-            <p className="emotion-eyebrow">{COMMON_UI_COPY.unifiedEntry}</p>
-            <h1 className="emotion-title">情绪管理</h1>
+            <p className="emotion-eyebrow">{commonCopy.unifiedEntry}</p>
+            <h1 className="emotion-title">{locale === 'en-US' ? 'Emotion Management' : '情绪管理'}</h1>
             <p className="emotion-sub">
-              固定入口 `/agent/{agentId}/emotion`。当前页面只根据 `emotion.scheme`
-              分发到对应子系统。
+              {locale === 'en-US'
+                ? 'Stable entry `/agent/{agentId}/emotion`. This page dispatches to the matching subsystem based on `emotion.scheme`.'
+                : '固定入口 `/agent/{agentId}/emotion`。当前页面只根据 `emotion.scheme` 分发到对应子系统。'}
             </p>
           </div>
           <div className="emotion-actions">
             <Link href="/" className="emotion-link">
-              {COMMON_UI_COPY.backToPersonas}
+              {commonCopy.backToPersonas}
             </Link>
             <Link href={`/chat?agent=${agentId}`} className="emotion-link emotion-link-primary">
-              {COMMON_UI_COPY.openChat}
+              {commonCopy.openChat}
             </Link>
           </div>
         </header>
@@ -94,27 +98,28 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
         <section className="emotion-card">
           <div className="emotion-card-head">
             <div>
-              <p className="emotion-label">{COMMON_UI_COPY.agent}</p>
+              <p className="emotion-label">{commonCopy.agent}</p>
               <h2 className="emotion-card-title">{agentId}</h2>
             </div>
-            {meta && <span className="emotion-pill">{meta.scheme ?? COMMON_UI_COPY.unconfigured}</span>}
+            {meta && <span className="emotion-pill">{meta.scheme ?? commonCopy.unconfigured}</span>}
           </div>
 
-          {loading && <p className="emotion-copy">正在加载情绪管理入口…</p>}
+          {loading && <p className="emotion-copy">{locale === 'en-US' ? 'Loading emotion manager...' : '正在加载情绪管理入口…'}</p>}
 
           {!loading && error && (
             <div className="emotion-state">
-              <h3>入口加载失败</h3>
+              <h3>{locale === 'en-US' ? 'Failed to Load Entry' : '入口加载失败'}</h3>
               <p>{error}</p>
             </div>
           )}
 
           {!loading && !error && meta && !meta.configured && (
             <div className="emotion-state">
-              <h3>情绪模块尚未开启</h3>
+              <h3>{locale === 'en-US' ? 'Emotion Module Is Not Enabled' : '情绪模块尚未开启'}</h3>
               <p>
-                这个虚拟人还没有启用情绪管理。当前固定入口已经就绪，但如果你想使用
-                `dimensional`，先回到首页的虚拟人编辑区启用情绪方案。
+                {locale === 'en-US'
+                  ? 'This persona has not enabled emotion management. Go back to the home page and enable the `dimensional` emotion scheme first.'
+                  : '这个虚拟人还没有启用情绪管理。当前固定入口已经就绪，但如果你想使用 `dimensional`，先回到首页的虚拟人编辑区启用情绪方案。'}
               </p>
             </div>
           )}
@@ -127,10 +132,11 @@ export default function EmotionManagerShell({ agentId }: { agentId: string }) {
 
           {!loading && !error && meta?.configured && !Manager && (
             <div className="emotion-state">
-              <h3>该方案的管理器尚未实现</h3>
+              <h3>{locale === 'en-US' ? 'Manager Not Implemented for This Scheme' : '该方案的管理器尚未实现'}</h3>
               <p>
-                当前方案是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理界面
-                还没接入。
+                {locale === 'en-US'
+                  ? <>Current scheme is <code>{meta.scheme}</code>. The entry route is stable, but the matching management UI is not connected yet.</>
+                  : <>当前方案是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理界面还没接入。</>}
               </p>
             </div>
           )}

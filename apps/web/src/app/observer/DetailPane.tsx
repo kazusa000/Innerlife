@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { formatDurationLabel } from '../../lib/format-duration'
 import { CompactionView, EmotionView, MemoryView, MessagesView, ResponseView } from '@/lib/call-renderers'
-import { OBSERVER_UI_COPY, translateCallKind, translateObserverTab } from '../../lib/ui-copy'
+import { getObserverUiCopy, translateCallKind, translateObserverTab, type UiLocale } from '../../lib/ui-copy'
 
 interface CallDetail {
   id: string
@@ -25,12 +25,14 @@ interface CallDetail {
 
 interface Props {
   callId: string | null
+  locale: UiLocale
 }
 
 type Tab = 'system' | 'tools' | 'history' | 'metadata' | 'compaction' | 'emotion' | 'memory' | 'response'
 const OUTPUT_TABS: Tab[] = ['response']
 
-export function DetailPane({ callId }: Props) {
+export function DetailPane({ callId, locale }: Props) {
+  const copy = getObserverUiCopy(locale)
   const [detail, setDetail] = useState<CallDetail | null>(null)
   const [tab, setTab] = useState<Tab>('history')
 
@@ -54,12 +56,12 @@ export function DetailPane({ callId }: Props) {
   if (!callId) {
     return (
         <div className="observer-detail observer-detail-empty">
-        {OBSERVER_UI_COPY.selectCall}
+        {copy.selectCall}
         </div>
     )
   }
   if (!detail) {
-    return <div className="observer-detail observer-detail-empty">{OBSERVER_UI_COPY.loading}</div>
+    return <div className="observer-detail observer-detail-empty">{copy.loading}</div>
   }
 
   const inputTabs: Tab[] = [
@@ -76,11 +78,11 @@ export function DetailPane({ callId }: Props) {
   return (
     <main className="observer-detail">
       <div className="observer-detail-meta">
-        {translateCallKind(detail.kind)} · {detail.model} · {OBSERVER_UI_COPY.inputTokens} {detail.inputTokens ?? '?'} / {OBSERVER_UI_COPY.outputTokens} {detail.outputTokens ?? '?'} tokens · {detail.stopReason ?? OBSERVER_UI_COPY.pending}{duration ? ` · ${duration}` : ''}
+        {translateCallKind(detail.kind, locale)} · {detail.model} · {copy.inputTokens} {detail.inputTokens ?? '?'} / {copy.outputTokens} {detail.outputTokens ?? '?'} tokens · {detail.stopReason ?? copy.pending}{duration ? ` · ${duration}` : ''}
       </div>
       <div className="observer-tabs">
         <span className="observer-tabs-label">
-          {OBSERVER_UI_COPY.input}
+          {copy.input}
         </span>
         {inputTabs.map((t) => (
           <button
@@ -88,12 +90,12 @@ export function DetailPane({ callId }: Props) {
             onClick={() => setTab(t)}
             className={`observer-tab${tab === t ? ' observer-tab-active' : ''}`}
           >
-            {translateObserverTab(t)}
+            {translateObserverTab(t, locale)}
           </button>
         ))}
         <span className="observer-tabs-spacer" />
         <span className="observer-tabs-label">
-          {OBSERVER_UI_COPY.output}
+          {copy.output}
         </span>
         {OUTPUT_TABS.map((t) => (
           <button
@@ -101,7 +103,7 @@ export function DetailPane({ callId }: Props) {
             onClick={() => setTab(t)}
             className={`observer-tab${tab === t ? ' observer-tab-active' : ''}`}
           >
-            {translateObserverTab(t)}
+            {translateObserverTab(t, locale)}
           </button>
         ))}
       </div>

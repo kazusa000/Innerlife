@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type ComponentType } from 'react'
-import { COMMON_UI_COPY } from '@/lib/ui-copy'
+import { getCommonUiCopy } from '@/lib/ui-copy'
+import { useAppLocale } from '@/app/use-app-locale'
 import MemoryManagerSqlite from './MemoryManager.sqlite'
 
 interface AgentMemoryMeta {
@@ -22,6 +23,8 @@ const memoryManagersByScheme = {
 } satisfies Record<string, ComponentType<MemoryManagerProps>>
 
 export default function MemoryManagerShell({ agentId }: { agentId: string }) {
+  const locale = useAppLocale()
+  const commonCopy = getCommonUiCopy(locale)
   const [meta, setMeta] = useState<AgentMemoryMeta | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -39,7 +42,7 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
         })
         const data = await response.json()
         if (!response.ok) {
-          throw new Error(typeof data?.error === 'string' ? data.error : '加载记忆管理入口失败')
+          throw new Error(typeof data?.error === 'string' ? data.error : locale === 'en-US' ? 'Failed to load memory manager' : '加载记忆管理入口失败')
         }
 
         if (!cancelled) {
@@ -47,7 +50,7 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '加载记忆管理入口失败')
+          setError(err instanceof Error ? err.message : locale === 'en-US' ? 'Failed to load memory manager' : '加载记忆管理入口失败')
         }
       } finally {
         if (!cancelled) {
@@ -61,7 +64,7 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
     return () => {
       cancelled = true
     }
-  }, [agentId])
+  }, [agentId, locale])
 
   const Manager = meta?.scheme
     ? memoryManagersByScheme[meta.scheme as keyof typeof memoryManagersByScheme]
@@ -72,18 +75,20 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
       <div className="memory-wrap">
         <header className="memory-head">
           <div>
-            <p className="memory-eyebrow">{COMMON_UI_COPY.unifiedEntry}</p>
-            <h1 className="memory-title">记忆管理</h1>
+            <p className="memory-eyebrow">{commonCopy.unifiedEntry}</p>
+            <h1 className="memory-title">{locale === 'en-US' ? 'Memory Management' : '记忆管理'}</h1>
             <p className="memory-sub">
-              固定入口 `/agent/{agentId}/memory`。当前页面只根据 `memory.scheme` 分发到对应子系统。
+              {locale === 'en-US'
+                ? 'Stable entry `/agent/{agentId}/memory`. This page dispatches to the matching subsystem based on `memory.scheme`.'
+                : '固定入口 `/agent/{agentId}/memory`。当前页面只根据 `memory.scheme` 分发到对应子系统。'}
             </p>
           </div>
           <div className="memory-actions">
             <Link href="/" className="memory-link">
-              {COMMON_UI_COPY.backToPersonas}
+              {commonCopy.backToPersonas}
             </Link>
             <Link href={`/chat?agent=${agentId}`} className="memory-link memory-link-primary">
-              {COMMON_UI_COPY.openChat}
+              {commonCopy.openChat}
             </Link>
           </div>
         </header>
@@ -91,31 +96,32 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
         <section className="memory-card">
           <div className="memory-card-head">
             <div>
-              <p className="memory-label">{COMMON_UI_COPY.agent}</p>
+              <p className="memory-label">{commonCopy.agent}</p>
               <h2 className="memory-card-title">{agentId}</h2>
             </div>
             {meta && (
               <span className="memory-pill">
-                {meta.scheme ?? COMMON_UI_COPY.unconfigured}
+                {meta.scheme ?? commonCopy.unconfigured}
               </span>
             )}
           </div>
 
-          {loading && <p className="memory-copy">正在加载记忆管理入口…</p>}
+          {loading && <p className="memory-copy">{locale === 'en-US' ? 'Loading memory manager...' : '正在加载记忆管理入口…'}</p>}
 
           {!loading && error && (
             <div className="memory-state">
-              <h3>入口加载失败</h3>
+              <h3>{locale === 'en-US' ? 'Failed to Load Entry' : '入口加载失败'}</h3>
               <p>{error}</p>
             </div>
           )}
 
           {!loading && !error && meta && !meta.configured && (
             <div className="memory-state">
-              <h3>记忆模块尚未开启</h3>
+              <h3>{locale === 'en-US' ? 'Memory Module Is Not Enabled' : '记忆模块尚未开启'}</h3>
               <p>
-                这个虚拟人还没有启用记忆管理。回到首页编辑虚拟人，把 `记忆方案`
-                切到 `sqlite` 后再进入这里。
+                {locale === 'en-US'
+                  ? 'This persona has not enabled memory management. Go back to the home page, edit the persona, set `memory scheme` to `sqlite`, then return here.'
+                  : '这个虚拟人还没有启用记忆管理。回到首页编辑虚拟人，把 `记忆方案` 切到 `sqlite` 后再进入这里。'}
               </p>
             </div>
           )}
@@ -128,10 +134,11 @@ export default function MemoryManagerShell({ agentId }: { agentId: string }) {
 
           {!loading && !error && meta?.configured && !Manager && (
             <div className="memory-state">
-              <h3>该方案的管理器尚未实现</h3>
+              <h3>{locale === 'en-US' ? 'Manager Not Implemented for This Scheme' : '该方案的管理器尚未实现'}</h3>
               <p>
-                当前方案是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理界面
-                还没接入。
+                {locale === 'en-US'
+                  ? <>Current scheme is <code>{meta.scheme}</code>. The entry route is stable, but the matching management UI is not connected yet.</>
+                  : <>当前方案是 <code>{meta.scheme}</code>。入口路由已经稳定保留，但对应的管理界面还没接入。</>}
               </p>
             </div>
           )}
