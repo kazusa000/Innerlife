@@ -24,6 +24,8 @@ const EPISODIC_GRAPH_WEIGHT = 0.4
 const EPISODIC_TEXT_WEIGHT = 0.5
 const EPISODIC_IMPORTANCE_WEIGHT = 0.1
 const EPISODIC_SUMMARY_EMBEDDING_BACKFILL_BATCH_SIZE = 100
+const DEFAULT_EPISODIC_ACTIVATION_TTL_MINUTES = 20
+const DEFAULT_EPISODIC_ACTIVATION_MAX_ACTIVE = 5
 
 function formatOffset(minutesEastOfUtc: number): string {
   const sign = minutesEastOfUtc >= 0 ? '+' : '-'
@@ -87,6 +89,15 @@ function parseDate(value: unknown) {
 
 function readQueryText(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function resolveEpisodicActivationConfig(agent: NonNullable<ReturnType<typeof agentRepo.getAgent>>) {
+  const config = agent.tools?.search_long_term_memory?.episodicActivation
+  return {
+    enabled: config?.enabled ?? true,
+    ttlMinutes: Math.max(1, Math.min(24 * 60, Math.floor(config?.ttlMinutes ?? DEFAULT_EPISODIC_ACTIVATION_TTL_MINUTES))),
+    maxActive: Math.max(1, Math.min(20, Math.floor(config?.maxActive ?? DEFAULT_EPISODIC_ACTIVATION_MAX_ACTIVE))),
+  }
 }
 
 function extractMessageText(message: Message) {
@@ -257,6 +268,7 @@ export const SearchLongTermMemoryTool: Tool = {
     const topK = typeof input.top_k === 'number' && Number.isFinite(input.top_k)
       ? Math.max(1, Math.min(5, Math.floor(input.top_k)))
       : Math.max(1, Math.min(5, memoryConfig.longTermSearchDefaultTopK ?? 3))
+    const episodicActivationConfig = resolveEpisodicActivationConfig(agent)
     const effectiveQueries = [
       semanticQuery
         ? { source: 'semantic_analyzer', query: semanticQuery, weight: SEMANTIC_QUERY_WEIGHT }
@@ -406,6 +418,19 @@ export const SearchLongTermMemoryTool: Tool = {
       .slice(0, topK)
 
     if (episodic.length > 0) {
+      const now = new Date()
+      if (episodicActivationConfig.enabled) {
+        episodicMemoryGraphRepo.activateEpisodicMemories({
+          agentId,
+          memories: episodic
+            .slice(0, episodicActivationConfig.maxActive)
+            .map((hit) => ({ memoryId: hit.memory.id, score: hit.finalScore })),
+          sourceToolName: SearchLongTermMemoryTool.name,
+          activatedAt: now,
+          expiresAt: new Date(now.getTime() + episodicActivationConfig.ttlMinutes * 60_000),
+        })
+      }
+
       return {
         output: [
           '情景记忆召回结果：',
@@ -416,6 +441,11 @@ export const SearchLongTermMemoryTool: Tool = {
           mode: 'episodic_hybrid',
           effectiveQueries,
           textQuery,
+          episodicActivation: {
+            enabled: episodicActivationConfig.enabled,
+            ttlMinutes: episodicActivationConfig.ttlMinutes,
+            maxActive: episodicActivationConfig.maxActive,
+          },
           entityMentions: mentions,
           entityCandidates: mentionCandidates.map((candidate) => ({
             mention: {

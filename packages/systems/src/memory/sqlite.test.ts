@@ -7,6 +7,7 @@ import {
   getDb,
   getMemoryDb,
   getRawSqlite,
+  episodicMemoryGraphRepo,
   memoryRepo,
   resetDb,
   resetMemoryDb,
@@ -665,6 +666,60 @@ test('memory sqlite can suppress no-hit short-term and fixed fragments', async (
   await system.beforeLLM?.(ctx)
 
   assert.equal(ctx.promptFragments.length, 0)
+})
+
+test('memory sqlite injects agent-level active episodic memories before llm', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrapDb(dbPath, memoryDbPath)
+    const now = new Date()
+    const entity = episodicMemoryGraphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: 'Pippa长期记忆设计',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+    const memory = episodicMemoryGraphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '王家骏和 Amadeus 讨论 Pippa 的长期记忆设计。',
+      sourceText: 'source',
+      detail: '王家骏和 Amadeus 讨论 Pippa 的长期记忆设计细节。',
+      importance: 0.9,
+      observedStartAt: now,
+      observedEndAt: now,
+      entityLinks: [{ entityId: entity.id, weight: 1 }],
+      now,
+    })
+    episodicMemoryGraphRepo.activateEpisodicMemories({
+      agentId: 'agent-1',
+      memories: [{ memoryId: memory.id, score: 0.88 }],
+      sourceToolName: 'search_long_term_memory',
+      activatedAt: now,
+      expiresAt: new Date(now.getTime() + 20 * 60_000),
+    })
+
+    const system = new MemorySqliteSystem({
+      retrieveTopK: 5,
+      embedder: createEmbedder({}),
+    })
+    const ctx = createContext('继续说刚刚那个设计')
+
+    await system.beforeTurn?.(ctx)
+    await system.beforeLLM?.(ctx)
+
+    assert.match(ctx.promptFragments[0]?.content ?? '', /此刻自然浮现的情景记忆/)
+    assert.match(ctx.promptFragments[0]?.content ?? '', /Pippa 的长期记忆设计/)
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('memory sqlite renders short-term observed time and keeps fixed created time in prompt fragments', async () => {

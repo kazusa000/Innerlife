@@ -57,7 +57,15 @@ export async function PATCH(
     return Response.json({ error: 'tools must be an object or null' }, { status: 400 })
   }
 
-  const nextTools: Record<string, { enabled?: boolean; description?: string }> = {}
+  const nextTools: Record<string, {
+    enabled?: boolean
+    description?: string
+    episodicActivation?: {
+      enabled?: boolean
+      ttlMinutes?: number
+      maxActive?: number
+    }
+  }> = {}
 
   if (isRecord(body.tools)) {
     for (const [toolName, rawEntry] of Object.entries(body.tools)) {
@@ -65,7 +73,7 @@ export async function PATCH(
         return Response.json({ error: `tools.${toolName} must be an object` }, { status: 400 })
       }
 
-      const nextEntry: { enabled?: boolean; description?: string } = {}
+      const nextEntry: (typeof nextTools)[string] = {}
       if (rawEntry.enabled !== undefined) {
         if (typeof rawEntry.enabled !== 'boolean') {
           return Response.json({ error: `tools.${toolName}.enabled must be a boolean` }, { status: 400 })
@@ -84,7 +92,36 @@ export async function PATCH(
         }
       }
 
-      if (nextEntry.enabled !== undefined || nextEntry.description !== undefined) {
+      if (rawEntry.episodicActivation !== undefined) {
+        if (!isRecord(rawEntry.episodicActivation)) {
+          return Response.json({ error: `tools.${toolName}.episodicActivation must be an object` }, { status: 400 })
+        }
+
+        const episodicActivation: NonNullable<(typeof nextTools)[string]['episodicActivation']> = {}
+        if (rawEntry.episodicActivation.enabled !== undefined) {
+          if (typeof rawEntry.episodicActivation.enabled !== 'boolean') {
+            return Response.json({ error: `tools.${toolName}.episodicActivation.enabled must be a boolean` }, { status: 400 })
+          }
+          episodicActivation.enabled = rawEntry.episodicActivation.enabled
+        }
+        if (rawEntry.episodicActivation.ttlMinutes !== undefined) {
+          if (typeof rawEntry.episodicActivation.ttlMinutes !== 'number' || !Number.isFinite(rawEntry.episodicActivation.ttlMinutes)) {
+            return Response.json({ error: `tools.${toolName}.episodicActivation.ttlMinutes must be a number` }, { status: 400 })
+          }
+          episodicActivation.ttlMinutes = Math.max(1, Math.min(24 * 60, Math.floor(rawEntry.episodicActivation.ttlMinutes)))
+        }
+        if (rawEntry.episodicActivation.maxActive !== undefined) {
+          if (typeof rawEntry.episodicActivation.maxActive !== 'number' || !Number.isFinite(rawEntry.episodicActivation.maxActive)) {
+            return Response.json({ error: `tools.${toolName}.episodicActivation.maxActive must be a number` }, { status: 400 })
+          }
+          episodicActivation.maxActive = Math.max(1, Math.min(20, Math.floor(rawEntry.episodicActivation.maxActive)))
+        }
+        if (Object.keys(episodicActivation).length > 0) {
+          nextEntry.episodicActivation = episodicActivation
+        }
+      }
+
+      if (nextEntry.enabled !== undefined || nextEntry.description !== undefined || nextEntry.episodicActivation !== undefined) {
         nextTools[toolName] = nextEntry
       }
     }

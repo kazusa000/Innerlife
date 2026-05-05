@@ -1,5 +1,6 @@
 import {
   agentRepo,
+  episodicMemoryGraphRepo,
   memoryRepo,
   relationshipCounterpartRepo,
   sessionRelationshipBindingRepo,
@@ -36,6 +37,7 @@ const DEFAULT_MAX_SHORT_TERM_MEMORIES_PER_FLUSH = 3
 const DEFAULT_SEMANTIC_ANALYZER_HISTORY_MESSAGES = 6
 const MAX_SEMANTIC_HISTORY_MESSAGE_CHARS = 180
 const DEFAULT_LONG_TERM_SEARCH_TOP_K = 3
+const DEFAULT_EPISODIC_ACTIVATION_MAX_ACTIVE = 5
 const DEFAULT_SLEEP_TIME_LOCAL = '03:00'
 const DEFAULT_SLEEP_INTERVAL_DAYS = 1
 const DEFAULT_SHOW_NO_HIT_MEMORY_FRAGMENTS = true
@@ -1127,6 +1129,17 @@ export class MemorySqliteSystem implements AgentSystem {
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
+    const agent = agentRepo.getAgent(ctx.agentId)
+    const activeEpisodicLimit = agent?.tools?.search_long_term_memory?.episodicActivation?.maxActive
+      ?? DEFAULT_EPISODIC_ACTIVATION_MAX_ACTIVE
+    episodicMemoryGraphRepo.pruneExpiredEpisodicMemoryActivations({ agentId: ctx.agentId })
+    ctx.state.episodicMemories = episodicMemoryGraphRepo
+      .listActiveEpisodicMemories({
+        agentId: ctx.agentId,
+        limit: Math.max(1, Math.min(20, Math.floor(activeEpisodicLimit))),
+      })
+      .map((item) => item.memory)
+
     const actorLabels = resolveMemoryActorLabels({
       agentId: ctx.agentId,
       sessionId: ctx.sessionId,

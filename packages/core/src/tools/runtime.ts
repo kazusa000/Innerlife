@@ -1,5 +1,5 @@
 import { isSqliteMemoryConfig } from '@mas/systems'
-import type { AgentToolsConfig, BuiltInToolName, Tool } from './types'
+import type { AgentToolConfig, AgentToolsConfig, BuiltInToolName, Tool } from './types'
 
 export interface ResolvedToolCatalogItem {
   name: string
@@ -10,6 +10,11 @@ export interface ResolvedToolCatalogItem {
   overrideDescription: string | null
   effectiveDescription: string
   unavailableReason: string | null
+  episodicActivation: {
+    enabled: boolean
+    ttlMinutes: number
+    maxActive: number
+  } | null
 }
 
 export interface ResolveAgentToolsInput {
@@ -27,6 +32,11 @@ export interface ResolvedAgentTools {
 const defaultEnabledByTool: Record<BuiltInToolName, boolean> = {
   search_long_term_memory: true,
   web_fetch: false,
+}
+export const DEFAULT_EPISODIC_ACTIVATION_CONFIG = {
+  enabled: true,
+  ttlMinutes: 20,
+  maxActive: 5,
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -46,7 +56,7 @@ export function normalizeAgentToolsConfig(config: Record<string, unknown> | null
       continue
     }
 
-    const entry: { enabled?: boolean; description?: string } = {}
+    const entry: AgentToolConfig = {}
     if (typeof rawEntry.enabled === 'boolean') {
       entry.enabled = rawEntry.enabled
     }
@@ -55,7 +65,23 @@ export function normalizeAgentToolsConfig(config: Record<string, unknown> | null
       entry.description = rawEntry.description.trim()
     }
 
-    if (entry.enabled !== undefined || entry.description !== undefined) {
+    if (isRecord(rawEntry.episodicActivation)) {
+      const episodicActivation: NonNullable<AgentToolConfig['episodicActivation']> = {}
+      if (typeof rawEntry.episodicActivation.enabled === 'boolean') {
+        episodicActivation.enabled = rawEntry.episodicActivation.enabled
+      }
+      if (typeof rawEntry.episodicActivation.ttlMinutes === 'number' && Number.isFinite(rawEntry.episodicActivation.ttlMinutes)) {
+        episodicActivation.ttlMinutes = Math.max(1, Math.min(24 * 60, Math.floor(rawEntry.episodicActivation.ttlMinutes)))
+      }
+      if (typeof rawEntry.episodicActivation.maxActive === 'number' && Number.isFinite(rawEntry.episodicActivation.maxActive)) {
+        episodicActivation.maxActive = Math.max(1, Math.min(20, Math.floor(rawEntry.episodicActivation.maxActive)))
+      }
+      if (Object.keys(episodicActivation).length > 0) {
+        entry.episodicActivation = episodicActivation
+      }
+    }
+
+    if (entry.enabled !== undefined || entry.description !== undefined || entry.episodicActivation !== undefined) {
       normalized[toolName] = entry
     }
   }
@@ -109,6 +135,13 @@ export function resolveAgentTools(input: ResolveAgentToolsInput): ResolvedAgentT
     const effectiveDescription = overrideDescription ?? tool.description
     const unavailableReason = resolveToolAvailability(tool, input.modules)
     const effectiveEnabled = configuredEnabled && unavailableReason === null
+    const episodicActivation = builtInName === 'search_long_term_memory'
+      ? {
+          enabled: override?.episodicActivation?.enabled ?? DEFAULT_EPISODIC_ACTIVATION_CONFIG.enabled,
+          ttlMinutes: override?.episodicActivation?.ttlMinutes ?? DEFAULT_EPISODIC_ACTIVATION_CONFIG.ttlMinutes,
+          maxActive: override?.episodicActivation?.maxActive ?? DEFAULT_EPISODIC_ACTIVATION_CONFIG.maxActive,
+        }
+      : null
 
     return {
       name: tool.name,
@@ -119,6 +152,7 @@ export function resolveAgentTools(input: ResolveAgentToolsInput): ResolvedAgentT
       overrideDescription,
       effectiveDescription,
       unavailableReason,
+      episodicActivation,
     }
   })
 

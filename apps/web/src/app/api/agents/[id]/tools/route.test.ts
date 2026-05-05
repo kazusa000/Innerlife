@@ -121,3 +121,69 @@ test('tools route persists enabled state and description override', async () => 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('tools route persists long-term memory episodic activation settings', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-agent-tools-route-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+
+    const agent = agentRepo.createAgent({
+      name: 'Tooly',
+      model: 'claude-sonnet-4-6',
+      modules: {
+        memory: {
+          scheme: 'sqlite',
+        },
+      },
+    })!
+
+    const response = await PATCH(
+      new Request('http://localhost', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tools: {
+            search_long_term_memory: {
+              enabled: true,
+              episodicActivation: {
+                enabled: true,
+                ttlMinutes: 20,
+                maxActive: 5,
+              },
+            },
+          },
+        }),
+      }),
+      {
+        params: Promise.resolve({ id: agent.id }),
+      },
+    )
+
+    assert.equal(response.status, 200)
+    const payload = await response.json()
+    const longTermSearch = payload.tools.find((tool: { name: string }) => tool.name === 'search_long_term_memory')
+
+    assert.deepEqual(longTermSearch?.episodicActivation, {
+      enabled: true,
+      ttlMinutes: 20,
+      maxActive: 5,
+    })
+    assert.deepEqual(agentRepo.getAgent(agent.id)?.tools, {
+      search_long_term_memory: {
+        enabled: true,
+        episodicActivation: {
+          enabled: true,
+          ttlMinutes: 20,
+          maxActive: 5,
+        },
+      },
+    })
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

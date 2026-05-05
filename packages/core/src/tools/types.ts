@@ -12,6 +12,11 @@ export type BuiltInToolName = 'search_long_term_memory' | 'web_fetch'
 export interface AgentToolConfig {
   enabled?: boolean
   description?: string
+  episodicActivation?: {
+    enabled?: boolean
+    ttlMinutes?: number
+    maxActive?: number
+  }
 }
 
 export type AgentToolsConfig = Partial<Record<BuiltInToolName, AgentToolConfig>>

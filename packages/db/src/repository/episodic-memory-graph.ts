@@ -43,6 +43,14 @@ export interface EpisodicMemoryWithEntitiesRecord extends EpisodicMemoryRecord {
   entities: EpisodicMemoryEntityLinkRecord[]
 }
 
+export interface ActiveEpisodicMemoryRecord {
+  memory: EpisodicMemoryRecord
+  activatedAt: Date
+  expiresAt: Date
+  sourceToolName: string
+  score: number
+}
+
 export interface MemoryEntityWithStatsRecord extends MemoryEntityRecord {
   aliases: string[]
   episodicMemoryCount: number
@@ -1025,6 +1033,7 @@ export function deleteEpisodicMemoryByAgent(agentId: string, memoryId: string) {
       return false
     }
     sqlite.prepare(`DELETE FROM episodic_memory_entities WHERE memory_id = ?`).run(memoryId)
+    sqlite.prepare(`DELETE FROM episodic_memory_activations WHERE agent_id = ? AND episodic_memory_id = ?`).run(agentId, memoryId)
     const result = sqlite.prepare(`
       DELETE FROM episodic_memories
       WHERE agent_id = ? AND id = ?
@@ -1706,4 +1715,127 @@ export function recallEpisodicMemories(input: {
     .slice(0, Math.max(1, input.topK))
     .map((row) => getEpisodicMemory(row.id))
     .filter((memory): memory is EpisodicMemoryRecord => Boolean(memory))
+}
+
+export function activateEpisodicMemories(input: {
+  agentId: string
+  memories: Array<{ memoryId: string; score: number }>
+  sourceToolName: string
+  activatedAt?: Date
+  expiresAt: Date
+}) {
+  const activatedAt = input.activatedAt ?? new Date()
+  const sourceToolName = normalizeText(input.sourceToolName) || 'unknown'
+  const sqlite = getMemoryRawSqlite()
+  const upsert = sqlite.prepare(`
+    INSERT INTO episodic_memory_activations (
+      agent_id,
+      episodic_memory_id,
+      activated_at,
+      expires_at,
+      source_tool_name,
+      score
+    )
+    SELECT ?, ?, ?, ?, ?, ?
+    WHERE EXISTS (
+      SELECT 1
+      FROM episodic_memories
+      WHERE agent_id = ? AND id = ?
+    )
+    ON CONFLICT(agent_id, episodic_memory_id) DO UPDATE SET
+      activated_at = excluded.activated_at,
+      expires_at = excluded.expires_at,
+      source_tool_name = excluded.source_tool_name,
+      score = max(episodic_memory_activations.score, excluded.score)
+  `)
+
+  const activate = sqlite.transaction(() => {
+    for (const memory of input.memories) {
+      const memoryId = normalizeText(memory.memoryId)
+      if (!memoryId) {
+        continue
+      }
+      upsert.run(
+        input.agentId,
+        memoryId,
+        activatedAt.getTime(),
+        input.expiresAt.getTime(),
+        sourceToolName,
+        clip01(memory.score),
+        input.agentId,
+        memoryId,
+      )
+    }
+  })
+
+  activate()
+}
+
+export function listActiveEpisodicMemories(input: {
+  agentId: string
+  now?: Date
+  limit?: number
+}): ActiveEpisodicMemoryRecord[] {
+  const now = input.now ?? new Date()
+  const limit = Math.max(1, Math.floor(input.limit ?? 5))
+  const sqlite = getMemoryRawSqlite()
+  const rows = sqlite.prepare(`
+    SELECT
+      m.id,
+      m.agent_id,
+      m.session_id,
+      m.summary,
+      m.source_text,
+      m.detail,
+      m.retrieval_embedding,
+      m.retrieval_model,
+      m.importance,
+      m.observed_start_at,
+      m.observed_end_at,
+      m.created_at,
+      a.activated_at,
+      a.expires_at,
+      a.source_tool_name,
+      a.score
+    FROM episodic_memory_activations a
+    JOIN episodic_memories m ON m.id = a.episodic_memory_id
+    WHERE a.agent_id = ?
+      AND m.agent_id = ?
+      AND a.expires_at > ?
+    ORDER BY a.score DESC, a.activated_at DESC
+    LIMIT ?
+  `).all(input.agentId, input.agentId, now.getTime(), limit) as Array<EpisodicMemoryRow & {
+    activated_at: number
+    expires_at: number
+    source_tool_name: string
+    score: number
+  }>
+
+  return rows.map((row) => ({
+    memory: mapEpisodicMemory(row),
+    activatedAt: new Date(row.activated_at),
+    expiresAt: new Date(row.expires_at),
+    sourceToolName: row.source_tool_name,
+    score: clip01(row.score),
+  }))
+}
+
+export function pruneExpiredEpisodicMemoryActivations(input: {
+  agentId?: string
+  now?: Date
+}) {
+  const sqlite = getMemoryRawSqlite()
+  const now = input.now ?? new Date()
+  if (input.agentId) {
+    sqlite.prepare(`
+      DELETE FROM episodic_memory_activations
+      WHERE agent_id = ? AND expires_at <= ?
+    `).run(input.agentId, now.getTime())
+    return
+  }
+
+  sqlite.prepare(`
+    DELETE FROM episodic_memory_activations
+    WHERE expires_at <= ?
+  `).run(now.getTime())
 }

@@ -8,6 +8,11 @@ export type AgentProvider = 'anthropic' | 'openrouter'
 export type AgentToolsConfig = Record<string, {
   enabled?: boolean
   description?: string
+  episodicActivation?: {
+    enabled?: boolean
+    ttlMinutes?: number
+    maxActive?: number
+  }
 }>
 
 type AgentConfig = {
@@ -75,7 +80,7 @@ function parseToolsConfig(config: unknown): AgentToolsConfig | undefined {
       continue
     }
 
-    const entry: { enabled?: boolean; description?: string } = {}
+    const entry: AgentToolsConfig[string] = {}
     if (typeof rawEntry.enabled === 'boolean') {
       entry.enabled = rawEntry.enabled
     }
@@ -84,7 +89,23 @@ function parseToolsConfig(config: unknown): AgentToolsConfig | undefined {
       entry.description = rawEntry.description.trim()
     }
 
-    if (entry.enabled !== undefined || entry.description !== undefined) {
+    if (isRecord(rawEntry.episodicActivation)) {
+      const episodicActivation: NonNullable<AgentToolsConfig[string]['episodicActivation']> = {}
+      if (typeof rawEntry.episodicActivation.enabled === 'boolean') {
+        episodicActivation.enabled = rawEntry.episodicActivation.enabled
+      }
+      if (typeof rawEntry.episodicActivation.ttlMinutes === 'number' && Number.isFinite(rawEntry.episodicActivation.ttlMinutes)) {
+        episodicActivation.ttlMinutes = Math.max(1, Math.min(24 * 60, Math.floor(rawEntry.episodicActivation.ttlMinutes)))
+      }
+      if (typeof rawEntry.episodicActivation.maxActive === 'number' && Number.isFinite(rawEntry.episodicActivation.maxActive)) {
+        episodicActivation.maxActive = Math.max(1, Math.min(20, Math.floor(rawEntry.episodicActivation.maxActive)))
+      }
+      if (Object.keys(episodicActivation).length > 0) {
+        entry.episodicActivation = episodicActivation
+      }
+    }
+
+    if (entry.enabled !== undefined || entry.description !== undefined || entry.episodicActivation !== undefined) {
       nextTools[toolName] = entry
     }
   }

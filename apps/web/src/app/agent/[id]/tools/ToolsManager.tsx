@@ -13,6 +13,11 @@ export interface ToolManagerItem {
   overrideDescription: string | null
   effectiveDescription: string
   unavailableReason: string | null
+  episodicActivation: {
+    enabled: boolean
+    ttlMinutes: number
+    maxActive: number
+  } | null
 }
 
 interface ToolsManagerProps {
@@ -22,12 +27,18 @@ interface ToolsManagerProps {
 
 type ToolDraftItem = ToolManagerItem & {
   description: string
+  episodicActivationDraft: {
+    enabled: boolean
+    ttlMinutes: number
+    maxActive: number
+  } | null
 }
 
 function hydrateTools(tools: ToolManagerItem[]): ToolDraftItem[] {
   return tools.map((tool) => ({
     ...tool,
     description: tool.effectiveDescription,
+    episodicActivationDraft: tool.episodicActivation ? { ...tool.episodicActivation } : null,
   }))
 }
 
@@ -39,6 +50,13 @@ function buildPatchPayload(tools: ToolDraftItem[]) {
         {
           enabled: tool.configuredEnabled,
           description: tool.description.trim(),
+          episodicActivation: tool.episodicActivationDraft
+            ? {
+                enabled: tool.episodicActivationDraft.enabled,
+                ttlMinutes: tool.episodicActivationDraft.ttlMinutes,
+                maxActive: tool.episodicActivationDraft.maxActive,
+              }
+            : undefined,
         },
       ]),
     ),
@@ -78,6 +96,23 @@ export default function ToolsManager({ agentId, initialTools }: ToolsManagerProp
   function updateTool(name: string, patch: Partial<ToolDraftItem>) {
     setTools((current) =>
       current.map((tool) => (tool.name === name ? { ...tool, ...patch } : tool)),
+    )
+  }
+
+  function updateEpisodicActivation(name: string, patch: Partial<NonNullable<ToolDraftItem['episodicActivationDraft']>>) {
+    setTools((current) =>
+      current.map((tool) => {
+        if (tool.name !== name || !tool.episodicActivationDraft) {
+          return tool
+        }
+        return {
+          ...tool,
+          episodicActivationDraft: {
+            ...tool.episodicActivationDraft,
+            ...patch,
+          },
+        }
+      }),
     )
   }
 
@@ -210,6 +245,66 @@ export default function ToolsManager({ agentId, initialTools }: ToolsManagerProp
                   </label>
                 </div>
               </div>
+
+              {tool.name === 'search_long_term_memory' && tool.episodicActivationDraft && (
+                <div className={styles.promptCard}>
+                  <p className={styles.promptLabel}>情景记忆临时激活</p>
+                  <div className={styles.promptStack}>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>启用临时激活</span>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          padding: '12px 14px',
+                          borderRadius: 16,
+                          border: '1px solid rgba(96, 165, 250, 0.18)',
+                          background: 'rgba(5, 10, 22, 0.82)',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={tool.episodicActivationDraft.enabled}
+                          onChange={(event) =>
+                            updateEpisodicActivation(tool.name, { enabled: event.target.checked })}
+                        />
+                        <span style={{ color: 'var(--text-primary)', lineHeight: 1.6 }}>
+                          tool 召回的情景记忆会在一段时间内自然浮现到聊天前 prompt。
+                        </span>
+                      </div>
+                    </label>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>激活持续分钟数</span>
+                      <input
+                        className={styles.input}
+                        type="number"
+                        min={1}
+                        max={1440}
+                        value={tool.episodicActivationDraft.ttlMinutes}
+                        onChange={(event) =>
+                          updateEpisodicActivation(tool.name, {
+                            ttlMinutes: Math.max(1, Math.min(1440, Number(event.target.value) || 20)),
+                          })}
+                      />
+                    </label>
+                    <label className={styles.field}>
+                      <span className={styles.fieldLabel}>最多激活条数</span>
+                      <input
+                        className={styles.input}
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={tool.episodicActivationDraft.maxActive}
+                        onChange={(event) =>
+                          updateEpisodicActivation(tool.name, {
+                            maxActive: Math.max(1, Math.min(20, Number(event.target.value) || 5)),
+                          })}
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         ))}

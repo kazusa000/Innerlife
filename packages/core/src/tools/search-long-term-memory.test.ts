@@ -298,6 +298,15 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
         { id: coffee.id, canonicalName: '焦糖咖啡', weight: 0.8 },
       ],
     )
+    const activeMemories = episodicMemoryGraphRepo.listActiveEpisodicMemories({
+      agentId: agent.id,
+      now: new Date(),
+      limit: 5,
+    })
+    assert.equal(activeMemories.length, 1)
+    assert.equal(activeMemories[0]?.memory.summary, 'WJJ 在安特卫普旧书店边喝焦糖咖啡边复盘 memory v2。')
+    assert.equal(activeMemories[0]?.sourceToolName, 'search_long_term_memory')
+    assert.ok(activeMemories[0]!.expiresAt.getTime() - activeMemories[0]!.activatedAt.getTime() >= 19 * 60 * 1000)
     assert.match(result.output, /WJJ 在安特卫普旧书店边喝焦糖咖啡边复盘 memory v2/)
   } finally {
     resetDb()

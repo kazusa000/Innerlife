@@ -29,6 +29,7 @@ test('memory db bootstrap creates entity graph and episodic memory tables', () =
     assert.ok(tables.includes('memory_entity_edges'))
     assert.ok(tables.includes('episodic_memories'))
     assert.ok(tables.includes('episodic_memory_entities'))
+    assert.ok(tables.includes('episodic_memory_activations'))
     assert.equal(tables.includes('memory_entity_activations'), false)
 
     const entityColumns = getMemoryRawSqlite().pragma("table_info('memory_entities')") as Array<{ name: string }>
@@ -43,6 +44,94 @@ test('memory db bootstrap creates entity graph and episodic memory tables', () =
     assert.ok(episodicColumnNames.includes('summary'))
     assert.ok(episodicColumnNames.includes('detail'))
     assert.equal(episodicColumnNames.includes('retrieval_text'), false)
+  } finally {
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('episodic memory activations are agent scoped and expire by time', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-entity-graph-'))
+  const dbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath)
+    const now = new Date('2026-05-05T10:00:00.000Z')
+    const later = new Date('2026-05-05T10:20:00.000Z')
+    const expired = new Date('2026-05-05T10:30:00.000Z')
+    const entity = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: 'Pippa长期记忆设计',
+      confidence: 0.9,
+      aliases: [],
+      now,
+    })
+    const memory = graphRepo.createEpisodicMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      summary: '王家骏和 Amadeus 讨论 Pippa 的长期记忆设计。',
+      sourceText: 'source',
+      detail: 'detail',
+      importance: 0.8,
+      observedStartAt: now,
+      observedEndAt: now,
+      entityLinks: [{ entityId: entity.id, weight: 1 }],
+      now,
+    })
+    graphRepo.createEpisodicMemory({
+      agentId: 'agent-2',
+      sessionId: 'session-2',
+      summary: '另一个 agent 的情景记忆。',
+      sourceText: 'source',
+      detail: 'detail',
+      importance: 0.8,
+      observedStartAt: now,
+      observedEndAt: now,
+      entityLinks: [],
+      now,
+    })
+
+    graphRepo.activateEpisodicMemories({
+      agentId: 'agent-1',
+      memories: [{ memoryId: memory.id, score: 0.42 }],
+      sourceToolName: 'search_long_term_memory',
+      activatedAt: now,
+      expiresAt: later,
+    })
+
+    assert.deepEqual(
+      graphRepo.listActiveEpisodicMemories({
+        agentId: 'agent-1',
+        now: new Date('2026-05-05T10:10:00.000Z'),
+        limit: 5,
+      }).map((item) => ({
+        id: item.memory.id,
+        score: item.score,
+        expiresAt: item.expiresAt.toISOString(),
+      })),
+      [{
+        id: memory.id,
+        score: 0.42,
+        expiresAt: later.toISOString(),
+      }],
+    )
+    assert.deepEqual(
+      graphRepo.listActiveEpisodicMemories({
+        agentId: 'agent-2',
+        now: new Date('2026-05-05T10:10:00.000Z'),
+        limit: 5,
+      }),
+      [],
+    )
+    assert.deepEqual(
+      graphRepo.listActiveEpisodicMemories({
+        agentId: 'agent-1',
+        now: expired,
+        limit: 5,
+      }),
+      [],
+    )
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
