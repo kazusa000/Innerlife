@@ -1,4 +1,4 @@
-import { agentRepo, emotionStateRepo } from '@mas/db'
+import { agentRepo, appSettingsRepo, emotionStateRepo } from '@mas/db'
 import {
   buildEmotionAnalysisPrompt,
   buildEmotionFragment,
@@ -20,6 +20,7 @@ type DimensionalConfig = {
   fragmentPrompt: string | null
   analysisPrompt: string | null
 }
+type AppLocale = appSettingsRepo.AppLocale
 
 type HistoryEntry = {
   state: EmotionBaseline
@@ -77,15 +78,33 @@ function normalizeBaseline(
   }
 }
 
-function normalizeDimensionalConfig(module: unknown): DimensionalConfig {
+function readLocalizedPrompt(record: Record<string, unknown> | null | undefined, key: string, locale: AppLocale) {
+  const localized = record?.[`${key}ByLocale`]
+  if (isRecord(localized)) {
+    const value = localized[locale]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return locale === 'zh-CN' ? readText(record?.[key]) : null
+}
+
+function writeLocalizedPrompt(record: Record<string, unknown>, key: string, locale: AppLocale, value: string | null) {
+  const localizedKey = `${key}ByLocale`
+  const localized = isRecord(record[localizedKey]) ? { ...(record[localizedKey] as Record<string, unknown>) } : {}
+  if (value) localized[locale] = value
+  else delete localized[locale]
+  if (Object.keys(localized).length > 0) record[localizedKey] = localized
+  else delete record[localizedKey]
+}
+
+function normalizeDimensionalConfig(module: unknown, locale: AppLocale): DimensionalConfig {
   const record = readEmotionModule({ emotion: module })
   return {
     scheme: 'dimensional',
     baseline: normalizeBaseline(record?.baseline),
     decayPerTurn: clampDecay(record?.decayPerTurn, undefined),
     analysisModel: readText(record?.analysisModel),
-    fragmentPrompt: readText(record?.fragmentPrompt),
-    analysisPrompt: readText(record?.analysisPrompt),
+    fragmentPrompt: readLocalizedPrompt(record, 'fragmentPrompt', locale),
+    analysisPrompt: readLocalizedPrompt(record, 'analysisPrompt', locale),
   }
 }
 
@@ -100,7 +119,7 @@ function mapHistoryEntry(
   }
 }
 
-function buildPayload(agentId: string, config: DimensionalConfig) {
+function buildPayload(agentId: string, config: DimensionalConfig, locale: AppLocale) {
   const history = emotionStateRepo
     .listRecentEmotionStatesByAgent(agentId, 10)
     .map(mapHistoryEntry)
@@ -114,11 +133,12 @@ function buildPayload(agentId: string, config: DimensionalConfig) {
     analysisModel: config.analysisModel,
     fragmentPrompt: config.fragmentPrompt,
     analysisPrompt: config.analysisPrompt,
+    locale,
     currentState,
-    fragmentPromptDefault: buildEmotionFragment(currentState ?? config.baseline),
-    fragmentPromptEffective: buildEmotionFragment(currentState ?? config.baseline, config.fragmentPrompt),
-    analysisPromptDefault: buildEmotionAnalysisPrompt(),
-    analysisPromptEffective: buildEmotionAnalysisPrompt(config.analysisPrompt),
+    fragmentPromptDefault: buildEmotionFragment(currentState ?? config.baseline, null, locale),
+    fragmentPromptEffective: buildEmotionFragment(currentState ?? config.baseline, config.fragmentPrompt, locale),
+    analysisPromptDefault: buildEmotionAnalysisPrompt(null, locale),
+    analysisPromptEffective: buildEmotionAnalysisPrompt(config.analysisPrompt, locale),
     history,
   }
 }
@@ -200,7 +220,8 @@ export function getDimensionalEmotionConfig(agentId: string) {
     )
   }
 
-  return Response.json(buildPayload(agentId, normalizeDimensionalConfig(agent.modules?.emotion)))
+  const locale = appSettingsRepo.getAppLocale()
+  return Response.json(buildPayload(agentId, normalizeDimensionalConfig(agent.modules?.emotion, locale), locale))
 }
 
 export function updateDimensionalEmotionConfig(agentId: string, body: unknown) {
@@ -214,7 +235,8 @@ export function updateDimensionalEmotionConfig(agentId: string, body: unknown) {
     return parsed.response
   }
 
-  const current = normalizeDimensionalConfig(agent.modules?.emotion)
+  const locale = appSettingsRepo.getAppLocale()
+  const current = normalizeDimensionalConfig(agent.modules?.emotion, locale)
   const next: DimensionalConfig = {
     scheme: 'dimensional',
     baseline: {
@@ -227,25 +249,24 @@ export function updateDimensionalEmotionConfig(agentId: string, body: unknown) {
       parsed.value.analysisModel !== undefined
         ? readText(parsed.value.analysisModel)
         : current.analysisModel,
-    fragmentPrompt:
-      parsed.value.fragmentPrompt !== undefined
-        ? readText(parsed.value.fragmentPrompt)
-        : current.fragmentPrompt,
-    analysisPrompt:
-      parsed.value.analysisPrompt !== undefined
-        ? readText(parsed.value.analysisPrompt)
-        : current.analysisPrompt,
+    fragmentPrompt: parsed.value.fragmentPrompt !== undefined ? readText(parsed.value.fragmentPrompt) : current.fragmentPrompt,
+    analysisPrompt: parsed.value.analysisPrompt !== undefined ? readText(parsed.value.analysisPrompt) : current.analysisPrompt,
   }
 
   const nextModules = isRecord(agent.modules) ? { ...agent.modules } : {}
-  nextModules.emotion = {
+  const nextEmotion: Record<string, unknown> = {
     scheme: 'dimensional',
     baseline: next.baseline,
     ...(typeof next.decayPerTurn === 'number' ? { decayPerTurn: next.decayPerTurn } : {}),
     ...(next.analysisModel ? { analysisModel: next.analysisModel } : {}),
-    ...(next.fragmentPrompt ? { fragmentPrompt: next.fragmentPrompt } : {}),
-    ...(next.analysisPrompt ? { analysisPrompt: next.analysisPrompt } : {}),
   }
+  const existingEmotion = isRecord(agent.modules?.emotion) ? agent.modules?.emotion as Record<string, unknown> : {}
+  for (const key of ['fragmentPromptByLocale', 'analysisPromptByLocale'] as const) {
+    if (isRecord(existingEmotion[key])) nextEmotion[key] = existingEmotion[key]
+  }
+  if (parsed.value.fragmentPrompt !== undefined) writeLocalizedPrompt(nextEmotion, 'fragmentPrompt', locale, next.fragmentPrompt)
+  if (parsed.value.analysisPrompt !== undefined) writeLocalizedPrompt(nextEmotion, 'analysisPrompt', locale, next.analysisPrompt)
+  nextModules.emotion = nextEmotion
   agentRepo.updateAgent(agentId, { modules: nextModules })
 
   if (parsed.value.currentState !== undefined) {
@@ -263,5 +284,5 @@ export function updateDimensionalEmotionConfig(agentId: string, body: unknown) {
     })
   }
 
-  return Response.json(buildPayload(agentId, next))
+  return Response.json(buildPayload(agentId, next, locale))
 }

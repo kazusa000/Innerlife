@@ -6,23 +6,25 @@ import { getDaemonNavGroups, type DaemonSectionId } from './daemon-sections'
 
 interface DaemonSectionNavProps {
   activeSection: DaemonSectionId
+  locale: 'zh-CN' | 'en-US'
 }
 
-const NAV_GROUPS = getDaemonNavGroups()
-
-export function DaemonSectionNav({ activeSection }: DaemonSectionNavProps) {
+export function DaemonSectionNav({ activeSection, locale }: DaemonSectionNavProps) {
+  const navGroups = getDaemonNavGroups(locale)
   return (
     <aside className={styles.sideNav}>
       <div className={styles.sideNavHead}>
-        <p className={styles.eyebrow}>后台控制台</p>
+        <p className={styles.eyebrow}>{locale === 'en-US' ? 'Background Console' : '后台控制台'}</p>
         <h2 className={styles.sideNavTitle}>Daemon Workbench</h2>
         <p className={styles.sideNavCopy}>
-          查看 daemon 本体、图灵测试 run、记忆 flush、睡眠沉淀和最近后台事件。
+          {locale === 'en-US'
+            ? 'Inspect the daemon, memory flushes, sleep consolidation, and recent background events.'
+            : '查看 daemon 本体、记忆 flush、睡眠沉淀和最近后台事件。'}
         </p>
       </div>
 
       <nav className={styles.sideNavList} aria-label="Daemon sections">
-        {NAV_GROUPS.map((group) => {
+        {navGroups.map((group) => {
           if (group.id !== 'features') {
             return (
               <a

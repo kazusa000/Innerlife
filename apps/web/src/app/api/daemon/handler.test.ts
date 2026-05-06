@@ -16,14 +16,12 @@ import {
   resetMemoryDb,
   sessionContextStateRepo,
   sessionRepo,
-  turingRunRepo,
 } from '@mas/db'
 import {
   getDaemonContextFlushList,
   getDaemonEventsFeed,
   getDaemonOverview,
   getDaemonSleepList,
-  getDaemonTuringRunSummaries,
   runDaemonContextFlush,
   runDaemonSleep,
 } from './handler'
@@ -141,13 +139,6 @@ function seedBaseData() {
     lastHeartbeatAt: new Date('2026-04-22T09:01:00.000Z'),
   })
   daemonEventRepo.appendEvent({
-    kind: 'run_completed',
-    scope: 'turing',
-    message: 'turing run completed',
-    payload: { runId: 'run-1' },
-    createdAt: new Date('2026-04-22T09:02:00.000Z'),
-  })
-  daemonEventRepo.appendEvent({
     kind: 'flush_success',
     scope: 'memory_flush',
     message: 'context flush completed',
@@ -162,21 +153,9 @@ function seedBaseData() {
     createdAt: new Date('2026-04-22T09:04:00.000Z'),
   })
 
-  const run = turingRunRepo.createRun({
-    sourceAgentId: sqliteAgent.id,
-    judgeProvider: 'openrouter',
-    judgeModel: 'qwen/qwen3.5-flash-02-23',
-  })
-  turingRunRepo.setRunStatus(run.id, {
-    status: 'running',
-    currentStage: 'daily_flow',
-    startedAt: new Date('2026-04-22T09:00:00.000Z'),
-  })
-
   return {
     sqliteAgent,
     activeSession,
-    runId: run.id,
   }
 }
 
@@ -196,9 +175,8 @@ test('getDaemonOverview returns daemon state and recent event counts', async () 
     assert.equal(data.daemon.pid, 4242)
     assert.equal(data.tickIntervalMs, 7000)
     assert.deepEqual(data.recentEventCounts, {
-      total: 3,
+      total: 2,
       daemon: 0,
-      turing: 1,
       memoryFlush: 1,
       memorySleep: 1,
     })
@@ -232,30 +210,6 @@ test('getDaemonEventsFeed returns newest-first daemon events', async () => {
     assert.equal(data.events[0].kind, 'flush_failed')
     assert.equal(data.events[0].scope, 'memory_flush')
     assert.equal(data.events[0].payload.sessionId, activeSession.id)
-  } finally {
-    resetDb()
-    resetMemoryDb()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('getDaemonTuringRunSummaries returns recent runs with source agent names', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mas-daemon-api-'))
-  const dbPath = join(dir, 'data.db')
-  const memoryDbPath = join(dir, 'memory.db')
-
-  try {
-    bootstrap(dbPath, memoryDbPath)
-    const { sqliteAgent, runId } = seedBaseData()
-
-    const response = await getDaemonTuringRunSummaries()
-    assert.equal(response.status, 200)
-    const data = await response.json()
-
-    assert.equal(data.runs[0].id, runId)
-    assert.equal(data.runs[0].sourceAgentId, sqliteAgent.id)
-    assert.equal(data.runs[0].sourceAgentName, 'SQLite Agent')
-    assert.equal(data.runs[0].currentStage, 'daily_flow')
   } finally {
     resetDb()
     resetMemoryDb()

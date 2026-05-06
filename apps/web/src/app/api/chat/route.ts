@@ -1,5 +1,5 @@
-import { executeChatTurn } from '@mas/turing'
 import { initDb } from '@/lib/db-init'
+import { executeChatTurn } from '@/lib/chat-executor'
 
 export async function POST(request: Request) {
   initDb()

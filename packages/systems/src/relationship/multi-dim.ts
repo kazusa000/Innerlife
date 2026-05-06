@@ -26,8 +26,11 @@ interface RelationshipConfig {
   decayPerTurn?: number
   analysisModel?: string | null
   fragmentPrompt?: string | null
+  fragmentPromptByLocale?: Partial<Record<'zh-CN' | 'en-US', string>>
   analysisPrompt?: string | null
+  analysisPromptByLocale?: Partial<Record<'zh-CN' | 'en-US', string>>
 }
+type AppLocale = 'zh-CN' | 'en-US'
 
 function clampUnit(value: unknown, fallback = 0): number {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -62,7 +65,23 @@ function normalizeDimensions(value: Partial<RelationshipDimensions> | undefined)
   }
 }
 
-function normalizeConfig(config: unknown) {
+function readLocalizedPrompt(
+  record: RelationshipConfig,
+  key: 'fragmentPrompt' | 'analysisPrompt',
+  locale: AppLocale,
+) {
+  const localized = record[`${key}ByLocale`]
+  const localizedText = localized?.[locale]
+  if (typeof localizedText === 'string' && localizedText.trim()) {
+    return localizedText.trim()
+  }
+  const legacy = record[key]
+  return locale === 'zh-CN' && typeof legacy === 'string' && legacy.trim()
+    ? legacy.trim()
+    : null
+}
+
+function normalizeConfig(config: unknown, locale: AppLocale = 'zh-CN') {
   const record = config && typeof config === 'object'
     ? (config as RelationshipConfig)
     : {}
@@ -74,14 +93,8 @@ function normalizeConfig(config: unknown) {
       typeof record.analysisModel === 'string' && record.analysisModel.trim()
         ? record.analysisModel.trim()
         : null,
-    fragmentPrompt:
-      typeof record.fragmentPrompt === 'string' && record.fragmentPrompt.trim()
-        ? record.fragmentPrompt.trim()
-        : null,
-    analysisPrompt:
-      typeof record.analysisPrompt === 'string' && record.analysisPrompt.trim()
-        ? record.analysisPrompt.trim()
-        : null,
+    fragmentPrompt: readLocalizedPrompt(record, 'fragmentPrompt', locale),
+    analysisPrompt: readLocalizedPrompt(record, 'analysisPrompt', locale),
   }
 }
 
@@ -134,14 +147,29 @@ export function buildRelationshipFragment(
   promptOverride?: string | null,
   counterpartName = '用户',
   counterpart?: Pick<RelationshipCounterpartRef, 'role' | 'description' | 'note'> | null,
+  locale: AppLocale = 'zh-CN',
 ): string {
-  const defaultPrompt = '让这些关系状态轻微影响语气、耐心、亲疏感和措辞，但不要直接复述数值，也不要声称自己在“模拟关系分数”。'
+  const defaultPrompt = locale === 'en-US'
+    ? 'Let these relationship states subtly influence tone, patience, closeness, and wording, but do not recite the values or say you are "simulating relationship scores".'
+    : '让这些关系状态轻微影响语气、耐心、亲疏感和措辞，但不要直接复述数值，也不要声称自己在“模拟关系分数”。'
   const profileLines = [
-    counterpart?.role ? `- 关系角色：${counterpart.role}` : null,
-    counterpart?.description ? `- 对象描述：${counterpart.description}` : null,
-    counterpart?.note ? `- 角色主观备注：${counterpart.note}` : null,
+    counterpart?.role ? `- ${locale === 'en-US' ? 'Relationship role' : '关系角色'}：${counterpart.role}` : null,
+    counterpart?.description ? `- ${locale === 'en-US' ? 'Counterpart description' : '对象描述'}：${counterpart.description}` : null,
+    counterpart?.note ? `- ${locale === 'en-US' ? 'Persona note' : '角色主观备注'}：${counterpart.note}` : null,
   ].filter((line): line is string => Boolean(line))
   if (promptOverride?.trim()) {
+    if (locale === 'en-US') {
+      return [
+        `Current relationship state reference with ${counterpartName}:`,
+        `Current conversation counterpart: ${counterpartName}`,
+        ...profileLines,
+        `- trust: ${renderTrust(state.trust)} (${state.trust.toFixed(2)})`,
+        `- affinity: ${renderAffinity(state.affinity)} (${state.affinity.toFixed(2)})`,
+        `- familiarity: ${renderFamiliarity(state.familiarity)} (${state.familiarity.toFixed(2)})`,
+        `- respect: ${renderRespect(state.respect)} (${state.respect.toFixed(2)})`,
+        promptOverride.trim(),
+      ].join('\n')
+    }
     return [
       `当前你与${counterpartName}的关系状态参考：`,
       `当前谈话对象：${counterpartName}`,
@@ -155,8 +183,10 @@ export function buildRelationshipFragment(
   }
 
   return [
-    `当前你与${counterpartName}的关系状态（会随互动缓慢变化）：`,
-    `当前谈话对象：${counterpartName}`,
+    locale === 'en-US'
+      ? `Current relationship state with ${counterpartName} (changes slowly through interaction):`
+      : `当前你与${counterpartName}的关系状态（会随互动缓慢变化）：`,
+    locale === 'en-US' ? `Current conversation counterpart: ${counterpartName}` : `当前谈话对象：${counterpartName}`,
     ...profileLines,
     `- trust：${renderTrust(state.trust)}（${state.trust.toFixed(2)}）`,
     `- affinity：${renderAffinity(state.affinity)}（${state.affinity.toFixed(2)}）`,
@@ -166,10 +196,12 @@ export function buildRelationshipFragment(
   ].join('\n')
 }
 
-function buildRelationshipAnalysisPrompt(promptOverride?: string | null): string {
+function buildRelationshipAnalysisPrompt(promptOverride?: string | null, locale: AppLocale = 'zh-CN'): string {
   return promptOverride?.trim()
     ? promptOverride.trim()
-    : '你负责分析单轮对话对关系状态的影响，只输出 JSON。'
+    : locale === 'en-US'
+      ? 'Analyze how one completed turn affects the relationship state. Output JSON only.'
+      : '你负责分析单轮对话对关系状态的影响，只输出 JSON。'
 }
 
 function readCurrentState(ctx: TurnContext, fallback: RelationshipDimensions): RelationshipDimensions {
@@ -192,35 +224,36 @@ function buildAnalysisRequest(
     kind?: PendingRelationshipAnalysis['kind']
     counterpart?: RelationshipCounterpartRef | null
   },
+  locale: AppLocale = 'zh-CN',
 ): PendingRelationshipAnalysis {
   const assistantText = ctx.response
     ? extractConversationText(ctx.response.content as ConversationMessage['content'])
     : ''
-  const counterpartName = input?.counterpart?.name ?? '当前用户'
+  const counterpartName = input?.counterpart?.name ?? (locale === 'en-US' ? 'current user' : '当前用户')
 
   const analysisInput = [
-    '请分析这一轮已经完成的对话，应该如何改变这个 persona 面向当前用户的关系状态。',
-    '只输出严格 JSON。',
-    '必须包含这些键：trust_delta、affinity_delta、familiarity_delta、respect_delta、trigger。',
-    '所有 *_delta 的数值都必须落在 [-1, 1]。',
-    '除非互动强度非常明显，否则增量要保持小幅变化。',
+    locale === 'en-US' ? 'Analyze the completed turn and decide how it should change this persona relationship state toward the current user.' : '请分析这一轮已经完成的对话，应该如何改变这个 persona 面向当前用户的关系状态。',
+    locale === 'en-US' ? 'Output strict JSON only.' : '只输出严格 JSON。',
+    locale === 'en-US' ? 'Must include these keys: trust_delta, affinity_delta, familiarity_delta, respect_delta, trigger.' : '必须包含这些键：trust_delta、affinity_delta、familiarity_delta、respect_delta、trigger。',
+    locale === 'en-US' ? 'All *_delta values must be in [-1, 1].' : '所有 *_delta 的数值都必须落在 [-1, 1]。',
+    locale === 'en-US' ? 'Unless interaction intensity is obvious, keep deltas small.' : '除非互动强度非常明显，否则增量要保持小幅变化。',
     '',
-    `当前面对的对象：${counterpartName}`,
-    `当前状态：${JSON.stringify(currentState)}`,
-    `基线状态：${JSON.stringify(baseline)}`,
-    `每轮衰减：${decayPerTurn}`,
+    `${locale === 'en-US' ? 'Current counterpart' : '当前面对的对象'}：${counterpartName}`,
+    `${locale === 'en-US' ? 'Current state' : '当前状态'}：${JSON.stringify(currentState)}`,
+    `${locale === 'en-US' ? 'Baseline state' : '基线状态'}：${JSON.stringify(baseline)}`,
+    `${locale === 'en-US' ? 'Decay per turn' : '每轮衰减'}：${decayPerTurn}`,
     '',
-    '用户消息：',
-    ctx.input.text || '（空）',
+    locale === 'en-US' ? 'User message:' : '用户消息：',
+    ctx.input.text || (locale === 'en-US' ? '(empty)' : '（空）'),
     '',
-    '助手回复：',
-    assistantText || '（空）',
+    locale === 'en-US' ? 'Assistant reply:' : '助手回复：',
+    assistantText || (locale === 'en-US' ? '(empty)' : '（空）'),
   ].join('\n')
 
   return {
     kind: input?.kind ?? 'multi-dim',
     model,
-    systemPrompt: buildRelationshipAnalysisPrompt(promptOverride),
+    systemPrompt: buildRelationshipAnalysisPrompt(promptOverride, locale),
     messages: [
       {
         role: 'user',
@@ -297,9 +330,11 @@ export class MultiDimRelationshipSystem implements AgentSystem {
   type = 'relationship'
 
   private readonly config
+  private readonly locale: AppLocale
 
-  constructor(config?: unknown) {
-    this.config = normalizeConfig(config)
+  constructor(config?: unknown, locale: AppLocale = 'zh-CN') {
+    this.locale = locale
+    this.config = normalizeConfig(config, locale)
   }
 
   async beforeTurn(ctx: TurnContext): Promise<void> {
@@ -315,7 +350,9 @@ export class MultiDimRelationshipSystem implements AgentSystem {
       content: buildRelationshipFragment(
         readCurrentState(ctx, this.config.baseline),
         this.config.fragmentPrompt,
-        '用户',
+        this.locale === 'en-US' ? 'user' : '用户',
+        null,
+        this.locale,
       ),
     })
   }
@@ -332,7 +369,8 @@ export class MultiDimRelationshipSystem implements AgentSystem {
       this.config.decayPerTurn,
       this.config.analysisModel,
       this.config.analysisPrompt,
-      { kind: 'multi-dim', counterpart: { id: DEFAULT_COUNTERPART_ID, name: '用户', type: 'user' } },
+      { kind: 'multi-dim', counterpart: { id: DEFAULT_COUNTERPART_ID, name: this.locale === 'en-US' ? 'user' : '用户', type: 'user' } },
+      this.locale,
     )
   }
 

@@ -1257,7 +1257,6 @@ Modify the daemon `tick` callback:
 tick: async ({ signal }) => {
   await processMemoryJobs(signal)
   await processWorldJobs({ signal })
-  await processNextQueuedTuringRun(signal)
 },
 ```
 

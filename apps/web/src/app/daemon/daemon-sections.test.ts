@@ -5,7 +5,6 @@ import { getDaemonNavGroups, getDaemonSections } from './daemon-sections'
 test('daemon workbench sections define left navigation order and anchors', () => {
   assert.deepEqual(getDaemonSections(), [
     { id: 'overview', anchor: 'daemon-section-overview', label: '概览', description: '运行状态' },
-    { id: 'turing', anchor: 'daemon-section-turing', label: '图灵测试', description: '最近 run' },
     { id: 'flush', anchor: 'daemon-section-flush', label: '记忆 Flush', description: 'context → STM' },
     { id: 'sleep', anchor: 'daemon-section-sleep', label: '睡眠', description: 'STM → LTM' },
     { id: 'events', anchor: 'daemon-section-events', label: '事件流', description: '后台日志' },
@@ -29,9 +28,8 @@ test('daemon workbench nav groups collapse function-related sections under 功�
     {
       id: 'features',
       label: '功能',
-      description: '图灵测试 / Flush / 睡眠',
+      description: 'Flush / 睡眠',
       children: [
-        { id: 'turing', label: '图灵测试', anchor: 'daemon-section-turing', description: '最近 run' },
         { id: 'flush', label: '记忆 Flush', anchor: 'daemon-section-flush', description: 'context → STM' },
         { id: 'sleep', label: '睡眠', anchor: 'daemon-section-sleep', description: 'STM → LTM' },
       ],

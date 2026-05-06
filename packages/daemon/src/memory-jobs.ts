@@ -2,6 +2,7 @@ import { createProvider, type LLMProvider, type Message } from '@mas/core'
 import {
   agentMemorySleepStateRepo,
   agentRepo,
+  appSettingsRepo,
   daemonEventRepo,
   episodicMemoryGraphRepo,
   memoryRepo,
@@ -454,7 +455,8 @@ export async function runContextFlushForSession(input: {
   })
 
   const settings = resolveMemoryPipelineSettings(agent.modules?.memory)
-  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+  const locale = appSettingsRepo.getAppLocale()
+  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory, locale)
   const dbMessages = messageRepo.getSessionMessages(input.sessionId)
   if (dbMessages.length === 0) {
     daemonEventRepo.appendEvent({
@@ -578,6 +580,7 @@ export async function runContextFlushForSession(input: {
     systemPrompt: buildContextToShortTermPrompt(
       memoryConfig.contextToShortTermPrompt,
       settings.maxShortTermMemoriesPerFlush,
+      locale,
     ),
     messages: [
       {
@@ -705,7 +708,8 @@ export async function runSleepForAgent(input: {
     return { ok: false as const, reason: 'not_sleep_time' as const }
   }
 
-  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+  const locale = appSettingsRepo.getAppLocale()
+  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory, locale)
   const shortTermMemories = memoryRepo
     .listMemoriesByAgentOldestFirst(agent.id)
     .filter((memory) => memory.layer === 'short_term')
@@ -737,6 +741,7 @@ export async function runSleepForAgent(input: {
     systemPrompt: buildShortTermToLongTermPrompt(
       memoryConfig.shortTermToLongTermPrompt,
       settings.maxShortTermMemoriesPerFlush,
+      locale,
     ),
     messages: [
       {
@@ -813,7 +818,8 @@ export async function runEpisodicConsolidationForAgent(input: {
   }
 
   const now = input.now ?? new Date()
-  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
+  const locale = appSettingsRepo.getAppLocale()
+  const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory, locale)
   const provider = input.provider ?? createProvider(agent.provider)
   const embedder = input.embedder ?? createOpenRouterMemoryEmbedder()
   const retrievalModel = memoryConfig.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL
@@ -839,7 +845,7 @@ export async function runEpisodicConsolidationForAgent(input: {
     const sourceText = buildShortTermToLongTermSourceText(shortTermMemories)
     const extractionResponse = await provider.sendMessage({
       model: memoryConfig.summarizeModel ?? agent.model,
-      systemPrompt: buildEpisodicExtractionPrompt(memoryConfig.episodicExtractionPrompt),
+      systemPrompt: buildEpisodicExtractionPrompt(memoryConfig.episodicExtractionPrompt, locale),
       messages: [
         {
           role: 'user',
@@ -894,7 +900,7 @@ export async function runEpisodicConsolidationForAgent(input: {
         const batchLocalEntityIds = new Set(candidateBatch.map((candidate) => candidate.local_entity_id))
         const resolutionResponse = await provider.sendMessage({
           model: memoryConfig.summarizeModel ?? agent.model,
-          systemPrompt: buildEntityResolutionPrompt(memoryConfig.entityResolutionPrompt),
+          systemPrompt: buildEntityResolutionPrompt(memoryConfig.entityResolutionPrompt, locale),
           messages: [
             {
               role: 'user',

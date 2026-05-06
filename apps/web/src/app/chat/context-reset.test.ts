@@ -13,6 +13,7 @@ test('getContextResetButtonLabel supports clear and flush modes', () => {
   assert.equal(getContextResetButtonLabel('clear', 'noop'), '清除上下文')
   assert.equal(getContextResetButtonLabel('flush', 'noop'), '清除上下文')
   assert.equal(getContextResetButtonLabel('clear', null), '清除上下文')
+  assert.equal(getContextResetButtonLabel('flush', 'sqlite', 'en-US'), 'Clear Context and Write Short-Term Memory')
 })
 
 test('getContextResetLoadingLabel supports clear and flush modes', () => {
@@ -35,6 +36,26 @@ test('buildContextResetRequestBody only enables flushContext for sqlite flush mo
 })
 
 test('buildContextResetNotice reports successful sqlite flushes with STM count', () => {
+  assert.deepEqual(buildContextResetNotice({
+    mode: 'flush',
+    memoryScheme: 'sqlite',
+    responseOk: true,
+    locale: 'en-US',
+    contextFlush: {
+      ok: true,
+      mode: 'manual',
+      createdCount: 2,
+      memoryIds: ['memory-1', 'memory-2'],
+      nextActiveStartMessageId: 'message-9',
+      flushedMessageCount: 8,
+    },
+  }), {
+    tone: 'success',
+    text: 'Context cleared and 2 short-term memories were written.',
+  })
+})
+
+test('buildContextResetNotice reports successful sqlite flushes with STM count in zh-CN by default', () => {
   assert.deepEqual(buildContextResetNotice({
     mode: 'flush',
     memoryScheme: 'sqlite',

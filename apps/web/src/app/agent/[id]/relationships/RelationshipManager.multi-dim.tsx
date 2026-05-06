@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useAppLocale } from '@/app/use-app-locale'
 import PromptLab from '../PromptLab'
 import { DEFAULT_PROMPT_TEST_INPUTS } from '../PromptTestPanel'
 import styles from '../manager-ui.module.css'
@@ -71,6 +72,7 @@ function readErrorMessage(value: unknown, fallback: string) {
 }
 
 export default function RelationshipManagerMultiDim({ agentId }: RelationshipManagerProps) {
+  const locale = useAppLocale()
   const [baseline, setBaseline] = useState<RelationshipBaseline>({
     ...DEFAULT_RELATIONSHIP_BASELINE,
   })
@@ -98,10 +100,10 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
         })
         const data = await response.json() as unknown
         if (!response.ok) {
-          throw new Error(readErrorMessage(data, '加载关系配置失败'))
+          throw new Error(readErrorMessage(data, locale === 'en-US' ? 'Failed to load relationship settings' : '加载关系配置失败'))
         }
         if (!isRelationshipResponse(data)) {
-          throw new Error('加载关系配置失败')
+          throw new Error(locale === 'en-US' ? 'Failed to load relationship settings' : '加载关系配置失败')
         }
 
         if (!cancelled) {
@@ -115,7 +117,7 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '加载关系配置失败')
+          setError(err instanceof Error ? err.message : locale === 'en-US' ? 'Failed to load relationship settings' : '加载关系配置失败')
         }
       } finally {
         if (!cancelled) {
@@ -128,7 +130,7 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
     return () => {
       cancelled = true
     }
-  }, [agentId])
+  }, [agentId, locale])
 
   async function saveConfig() {
     setSaving(true)
@@ -149,10 +151,10 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
       })
       const data = await response.json() as unknown
       if (!response.ok) {
-        throw new Error(readErrorMessage(data, '保存关系配置失败'))
+        throw new Error(readErrorMessage(data, locale === 'en-US' ? 'Failed to save relationship settings' : '保存关系配置失败'))
       }
       if (!isRelationshipResponse(data)) {
-        throw new Error('保存关系配置失败')
+        throw new Error(locale === 'en-US' ? 'Failed to save relationship settings' : '保存关系配置失败')
       }
 
       setBaseline(data.baseline)
@@ -162,22 +164,22 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
       setAnalysisPrompt(data.analysisPrompt ?? data.analysisPromptDefault)
       setCurrentState(data.currentState)
       setHistory(data.history)
-      setNotice('关系 baseline、模型和 prompt 已保存。')
+      setNotice(locale === 'en-US' ? 'Relationship baseline, model, and prompts saved.' : '关系 baseline、模型和 prompt 已保存。')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存关系配置失败')
+      setError(err instanceof Error ? err.message : locale === 'en-US' ? 'Failed to save relationship settings' : '保存关系配置失败')
     } finally {
       setSaving(false)
     }
   }
 
   if (loading) {
-    return <p className={styles.copy}>正在加载 multi-dim relationship 配置…</p>
+    return <p className={styles.copy}>{locale === 'en-US' ? 'Loading multi-dim relationship settings...' : '正在加载 multi-dim relationship 配置…'}</p>
   }
 
   if (error) {
     return (
       <div className={styles.emptyState}>
-        <h3>关系配置加载失败</h3>
+        <h3>{locale === 'en-US' ? 'Failed to Load Relationship Settings' : '关系配置加载失败'}</h3>
         <p className={styles.emptyCopy}>{error}</p>
       </div>
     )
@@ -187,11 +189,12 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
     <section className={styles.workspace}>
       <div className={styles.hero}>
         <div>
-          <p className={styles.eyebrow}>关系管理</p>
+          <p className={styles.eyebrow}>{locale === 'en-US' ? 'Relationship Management' : '关系管理'}</p>
           <h3 className={styles.title}>Multi-dim</h3>
           <p className={styles.copy}>
-            这页负责长期 baseline、分析模型和全部关系 prompt。
-            当前运行中的关系状态与最近 history 会在下方单独展示，方便你一边调一边观察。
+            {locale === 'en-US'
+              ? 'This page controls the long-term baseline, analysis model, and relationship prompts. The active relationship state and recent history are shown below so you can tune and observe together.'
+              : '这页负责长期 baseline、分析模型和全部关系 prompt。当前运行中的关系状态与最近 history 会在下方单独展示，方便你一边调一边观察。'}
           </p>
         </div>
         <div className={styles.heroActions}>
@@ -202,7 +205,7 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
             onClick={() => void saveConfig()}
             disabled={saving}
           >
-            {saving ? '保存中…' : '保存更改'}
+            {saving ? (locale === 'en-US' ? 'Saving...' : '保存中…') : (locale === 'en-US' ? 'Save Changes' : '保存更改')}
           </button>
         </div>
       </div>
@@ -214,18 +217,18 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
         <section className={`${styles.panel} ${styles.panelFrame}`}>
           <div className={styles.panelHead}>
             <div>
-              <p className={styles.panelLabel}>结构配置</p>
+              <p className={styles.panelLabel}>{locale === 'en-US' ? 'Structure Settings' : '结构配置'}</p>
               <h4 className={styles.panelTitle}>Baseline & Model</h4>
             </div>
-            <span className={styles.panelPill}>4 维 + 模型</span>
+            <span className={styles.panelPill}>{locale === 'en-US' ? '4 dimensions + model' : '4 维 + 模型'}</span>
           </div>
 
           <div className={styles.traitGrid}>
             {([
-              ['trust', '信任基线', '越高越容易把用户当成可信对象。'],
-              ['affinity', '亲和基线', '越高越容易表现出亲近和温度。'],
-              ['familiarity', '熟悉基线', '越高越像已经认识一段时间。'],
-              ['respect', '尊重基线', '越高越容易维持郑重和分寸感。'],
+              ['trust', locale === 'en-US' ? 'Trust baseline' : '信任基线', locale === 'en-US' ? 'Higher means the persona more easily treats the user as trustworthy.' : '越高越容易把用户当成可信对象。'],
+              ['affinity', locale === 'en-US' ? 'Affinity baseline' : '亲和基线', locale === 'en-US' ? 'Higher means the persona more easily shows warmth and closeness.' : '越高越容易表现出亲近和温度。'],
+              ['familiarity', locale === 'en-US' ? 'Familiarity baseline' : '熟悉基线', locale === 'en-US' ? 'Higher means it feels more like they have known each other for a while.' : '越高越像已经认识一段时间。'],
+              ['respect', locale === 'en-US' ? 'Respect baseline' : '尊重基线', locale === 'en-US' ? 'Higher means the persona more easily keeps seriousness and boundaries.' : '越高越容易维持郑重和分寸感。'],
             ] as Array<[keyof RelationshipBaseline, string, string]>).map(([key, label, hint]) => (
               <label key={key} className={styles.traitCard}>
                 <div className={styles.traitHead}>
@@ -252,7 +255,7 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
 
           <div className={styles.fieldGrid}>
             <label className={styles.field}>
-              <span className={styles.fieldLabel}>每轮衰减</span>
+              <span className={styles.fieldLabel}>{locale === 'en-US' ? 'Decay per turn' : '每轮衰减'}</span>
               <input
                 className={styles.input}
                 type="number"
@@ -266,12 +269,12 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
             </label>
 
             <label className={styles.field}>
-              <span className={styles.fieldLabel}>分析模型</span>
+              <span className={styles.fieldLabel}>{locale === 'en-US' ? 'Analysis model' : '分析模型'}</span>
               <input
                 className={styles.input}
                 value={analysisModel}
                 onChange={(event) => setAnalysisModel(event.target.value)}
-                placeholder="留空则回退主模型"
+                placeholder={locale === 'en-US' ? 'Leave blank to fall back to the main model' : '留空则回退主模型'}
               />
             </label>
           </div>
@@ -284,17 +287,25 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
               {
                 key: 'fragmentPrompt',
                 label: 'Fragment Prompt',
-                helper: '控制 trust / affinity / familiarity / respect 如何轻微渗入主对话语气。',
+                helper: locale === 'en-US'
+                  ? 'Controls how trust / affinity / familiarity / respect subtly affect the main chat tone.'
+                  : '控制 trust / affinity / familiarity / respect 如何轻微渗入主对话语气。',
                 value: fragmentPrompt,
-                placeholder: '例如：让关系状态轻微影响亲疏感和分寸，不要播报数值。清空后保存会继续使用系统默认片段。',
+                placeholder: locale === 'en-US'
+                  ? 'For example: Let relationship state subtly affect closeness and boundaries; do not announce numeric values. Clear and save to keep using the system default fragment.'
+                  : '例如：让关系状态轻微影响亲疏感和分寸，不要播报数值。清空后保存会继续使用系统默认片段。',
                 rows: 7,
               },
               {
                 key: 'analysisPrompt',
                 label: 'Analysis Prompt',
-                helper: '控制每轮关系分析如何读上下文、如何输出四维 delta。',
+                helper: locale === 'en-US'
+                  ? 'Controls how each turn reads context and outputs four-dimensional deltas.'
+                  : '控制每轮关系分析如何读上下文、如何输出四维 delta。',
                 value: analysisPrompt,
-                placeholder: '例如：请判断这一轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。清空后保存会回退系统默认。',
+                placeholder: locale === 'en-US'
+                  ? 'For example: Judge this turn’s trust/affinity/familiarity/respect changes and output JSON only. Clear and save to fall back to the system default.'
+                  : '例如：请判断这一轮对 trust/affinity/familiarity/respect 的变化，只输出 JSON。清空后保存会回退系统默认。',
                 rows: 8,
               },
             ]}
@@ -322,36 +333,36 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
       <div className={styles.statusGrid}>
         <section className={styles.panel}>
           <div className={styles.panelHead}>
-            <h4 className={styles.panelTitle}>当前关系</h4>
-            <span className={styles.panelPill}>{currentState ? '运行中' : '空'}</span>
+            <h4 className={styles.panelTitle}>{locale === 'en-US' ? 'Current Relationship' : '当前关系'}</h4>
+            <span className={styles.panelPill}>{currentState ? (locale === 'en-US' ? 'Active' : '运行中') : (locale === 'en-US' ? 'Empty' : '空')}</span>
           </div>
           {currentState ? (
             <dl className={styles.metricList}>
               <div>
-                <dt>信任</dt>
+                <dt>{locale === 'en-US' ? 'Trust' : '信任'}</dt>
                 <dd>{currentState.trust.toFixed(2)}</dd>
               </div>
               <div>
-                <dt>亲和</dt>
+                <dt>{locale === 'en-US' ? 'Affinity' : '亲和'}</dt>
                 <dd>{currentState.affinity.toFixed(2)}</dd>
               </div>
               <div>
-                <dt>熟悉</dt>
+                <dt>{locale === 'en-US' ? 'Familiarity' : '熟悉'}</dt>
                 <dd>{currentState.familiarity.toFixed(2)}</dd>
               </div>
               <div>
-                <dt>尊重</dt>
+                <dt>{locale === 'en-US' ? 'Respect' : '尊重'}</dt>
                 <dd>{currentState.respect.toFixed(2)}</dd>
               </div>
             </dl>
           ) : (
-            <p className={styles.panelCopy}>还没有当前关系状态。多聊几轮后这里会出现当前四维关系。</p>
+            <p className={styles.panelCopy}>{locale === 'en-US' ? 'No current relationship state yet. It will appear here after a few chat turns.' : '还没有当前关系状态。多聊几轮后这里会出现当前四维关系。'}</p>
           )}
         </section>
 
         <section className={styles.panel}>
           <div className={styles.panelHead}>
-            <h4 className={styles.panelTitle}>最近历史</h4>
+            <h4 className={styles.panelTitle}>{locale === 'en-US' ? 'Recent History' : '最近历史'}</h4>
             <span className={styles.panelPill}>{history.length}</span>
           </div>
           {history.length > 0 ? (
@@ -370,7 +381,7 @@ export default function RelationshipManagerMultiDim({ agentId }: RelationshipMan
               ))}
             </div>
           ) : (
-            <p className={styles.panelCopy}>还没有关系历史记录。</p>
+            <p className={styles.panelCopy}>{locale === 'en-US' ? 'No relationship history yet.' : '还没有关系历史记录。'}</p>
           )}
         </section>
       </div>

@@ -1,5 +1,6 @@
 import {
   agentRepo,
+  appSettingsRepo,
   relationshipCounterpartRepo,
   relationshipRepo,
   sessionRelationshipBindingRepo,
@@ -27,6 +28,7 @@ type NamedMultiDimConfig = {
   fragmentPrompt: string | null
   analysisPrompt: string | null
 }
+type AppLocale = appSettingsRepo.AppLocale
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -92,19 +94,37 @@ function normalizeBaseline(
   }
 }
 
-function normalizeNamedMultiDimConfig(module: unknown): NamedMultiDimConfig {
+function readLocalizedPrompt(record: Record<string, unknown> | null | undefined, key: string, locale: AppLocale) {
+  const localized = record?.[`${key}ByLocale`]
+  if (isRecord(localized)) {
+    const value = localized[locale]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return locale === 'zh-CN' ? readText(record?.[key]) : null
+}
+
+function writeLocalizedPrompt(record: Record<string, unknown>, key: string, locale: AppLocale, value: string | null) {
+  const localizedKey = `${key}ByLocale`
+  const localized = isRecord(record[localizedKey]) ? { ...(record[localizedKey] as Record<string, unknown>) } : {}
+  if (value) localized[locale] = value
+  else delete localized[locale]
+  if (Object.keys(localized).length > 0) record[localizedKey] = localized
+  else delete record[localizedKey]
+}
+
+function normalizeNamedMultiDimConfig(module: unknown, locale: AppLocale): NamedMultiDimConfig {
   const record = readRelationshipModule({ relationship: module })
   return {
     scheme: 'named-multi-dim',
     baseline: normalizeBaseline(record?.baseline),
     decayPerTurn: clampDecay(record?.decayPerTurn, undefined),
     analysisModel: readText(record?.analysisModel),
-    fragmentPrompt: readText(record?.fragmentPrompt),
-    analysisPrompt: readText(record?.analysisPrompt),
+    fragmentPrompt: readLocalizedPrompt(record, 'fragmentPrompt', locale),
+    analysisPrompt: readLocalizedPrompt(record, 'analysisPrompt', locale),
   }
 }
 
-function buildPayload(agentId: string, config: NamedMultiDimConfig, selectedCounterpartId?: string | null) {
+function buildPayload(agentId: string, config: NamedMultiDimConfig, selectedCounterpartId: string | null | undefined, locale: AppLocale) {
   const counterparts = relationshipCounterpartRepo.listRelationshipCounterpartsByAgent(agentId)
   const selectedCounterpart = selectedCounterpartId
     ? counterparts.find((item) => item.id === selectedCounterpartId) ?? null
@@ -121,6 +141,7 @@ function buildPayload(agentId: string, config: NamedMultiDimConfig, selectedCoun
     analysisModel: config.analysisModel,
     fragmentPrompt: config.fragmentPrompt,
     analysisPrompt: config.analysisPrompt,
+    locale,
     counterparts: counterparts.map((item) => ({
       ...serializeCounterpart(item),
     })),
@@ -133,17 +154,19 @@ function buildPayload(agentId: string, config: NamedMultiDimConfig, selectedCoun
     fragmentPromptDefault: buildRelationshipFragment(
       relationship?.dimensions ?? config.baseline,
       null,
-      selectedCounterpart?.name ?? '当前对象',
+      selectedCounterpart?.name ?? (locale === 'en-US' ? 'current counterpart' : '当前对象'),
       selectedCounterpart ?? null,
+      locale,
     ),
     fragmentPromptEffective: buildRelationshipFragment(
       relationship?.dimensions ?? config.baseline,
       config.fragmentPrompt,
-      selectedCounterpart?.name ?? '当前对象',
+      selectedCounterpart?.name ?? (locale === 'en-US' ? 'current counterpart' : '当前对象'),
       selectedCounterpart ?? null,
+      locale,
     ),
-    analysisPromptDefault: buildRelationshipAnalysisPrompt(),
-    analysisPromptEffective: buildRelationshipAnalysisPrompt(config.analysisPrompt),
+    analysisPromptDefault: buildRelationshipAnalysisPrompt(null, locale),
+    analysisPromptEffective: buildRelationshipAnalysisPrompt(config.analysisPrompt, locale),
   }
 }
 
@@ -195,7 +218,8 @@ export function getNamedMultiDimRelationshipConfig(agentId: string, selectedCoun
     )
   }
 
-  return Response.json(buildPayload(agentId, normalizeNamedMultiDimConfig(agent.modules?.relationship), selectedCounterpartId))
+  const locale = appSettingsRepo.getAppLocale()
+  return Response.json(buildPayload(agentId, normalizeNamedMultiDimConfig(agent.modules?.relationship, locale), selectedCounterpartId, locale))
 }
 
 export function updateNamedMultiDimRelationshipConfig(agentId: string, body: unknown) {
@@ -209,7 +233,8 @@ export function updateNamedMultiDimRelationshipConfig(agentId: string, body: unk
     return parsed.response
   }
 
-  const current = normalizeNamedMultiDimConfig(agent.modules?.relationship)
+  const locale = appSettingsRepo.getAppLocale()
+  const current = normalizeNamedMultiDimConfig(agent.modules?.relationship, locale)
   const next: NamedMultiDimConfig = {
     scheme: 'named-multi-dim',
     baseline: {
@@ -234,17 +259,22 @@ export function updateNamedMultiDimRelationshipConfig(agentId: string, body: unk
   }
 
   const nextModules = isRecord(agent.modules) ? { ...agent.modules } : {}
-  nextModules.relationship = {
+  const nextRelationship: Record<string, unknown> = {
     scheme: 'named-multi-dim',
     baseline: next.baseline,
     ...(typeof next.decayPerTurn === 'number' ? { decayPerTurn: next.decayPerTurn } : {}),
     ...(next.analysisModel ? { analysisModel: next.analysisModel } : {}),
-    ...(next.fragmentPrompt ? { fragmentPrompt: next.fragmentPrompt } : {}),
-    ...(next.analysisPrompt ? { analysisPrompt: next.analysisPrompt } : {}),
   }
+  const existingRelationship = isRecord(agent.modules?.relationship) ? agent.modules?.relationship as Record<string, unknown> : {}
+  for (const key of ['fragmentPromptByLocale', 'analysisPromptByLocale'] as const) {
+    if (isRecord(existingRelationship[key])) nextRelationship[key] = existingRelationship[key]
+  }
+  if (parsed.value.fragmentPrompt !== undefined) writeLocalizedPrompt(nextRelationship, 'fragmentPrompt', locale, next.fragmentPrompt)
+  if (parsed.value.analysisPrompt !== undefined) writeLocalizedPrompt(nextRelationship, 'analysisPrompt', locale, next.analysisPrompt)
+  nextModules.relationship = nextRelationship
   agentRepo.updateAgent(agentId, { modules: nextModules })
 
-  return Response.json(buildPayload(agentId, next))
+  return Response.json(buildPayload(agentId, next, undefined, locale))
 }
 
 export function createNamedRelationshipCounterpart(agentId: string, body: unknown) {

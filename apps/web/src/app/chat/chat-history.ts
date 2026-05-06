@@ -23,13 +23,17 @@ export function formatMessageTime(value: DatedMessage['createdAt']): string {
   return `${hours}:${minutes}`
 }
 
-export function formatDayLabel(dayKey: string, now: Date = new Date()): string {
+export function formatDayLabel(
+  dayKey: string,
+  now: Date = new Date(),
+  locale: 'zh-CN' | 'en-US' = 'zh-CN',
+): string {
   const todayKey = localDayKey(now)
-  if (dayKey === todayKey) return '今天'
+  if (dayKey === todayKey) return locale === 'en-US' ? 'Today' : '今天'
 
   const yesterday = new Date(now)
   yesterday.setDate(yesterday.getDate() - 1)
-  if (dayKey === localDayKey(yesterday)) return '昨天'
+  if (dayKey === localDayKey(yesterday)) return locale === 'en-US' ? 'Yesterday' : '昨天'
 
   const [year, month, day] = dayKey.split('-')
   return `${year}-${month}-${day}`

@@ -12,6 +12,7 @@ export type BuiltInToolName = 'search_long_term_memory' | 'web_fetch'
 export interface AgentToolConfig {
   enabled?: boolean
   description?: string
+  descriptionByLocale?: Partial<Record<'zh-CN' | 'en-US', string>>
   episodicActivation?: {
     enabled?: boolean
     ttlMinutes?: number
@@ -23,6 +24,7 @@ export type AgentToolsConfig = Partial<Record<BuiltInToolName, AgentToolConfig>>
 
 export interface ToolCallOptions {
   signal?: AbortSignal
+  locale?: 'zh-CN' | 'en-US'
   agentId?: string
   sessionId?: string
   memoryRetrievalQuery?: string | null

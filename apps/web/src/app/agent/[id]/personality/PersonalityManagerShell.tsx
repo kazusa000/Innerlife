@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { COMMON_UI_COPY } from '@/lib/ui-copy'
+import { getCommonUiCopy } from '@/lib/ui-copy'
+import { useAppLocale } from '@/app/use-app-locale'
 import PromptTestPanel, { DEFAULT_PROMPT_TEST_INPUTS } from '../PromptTestPanel'
 import styles from '../manager-ui.module.css'
 
@@ -39,6 +40,8 @@ function readErrorMessage(value: unknown, fallback: string) {
 }
 
 export default function PersonalityManagerShell({ agentId }: { agentId: string }) {
+  const locale = useAppLocale()
+  const commonCopy = getCommonUiCopy(locale)
   const [systemPrompt, setSystemPrompt] = useState('')
   const [personaPrompt, setPersonaPrompt] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
@@ -61,10 +64,10 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
         })
         const data = await response.json() as unknown
         if (!response.ok) {
-          throw new Error(readErrorMessage(data, '加载人设失败'))
+          throw new Error(readErrorMessage(data, locale === 'en-US' ? 'Failed to load persona settings' : '加载人设失败'))
         }
         if (!isPersonalityConfig(data)) {
-          throw new Error('加载人设失败')
+          throw new Error(locale === 'en-US' ? 'Failed to load persona settings' : '加载人设失败')
         }
 
         if (!cancelled) {
@@ -75,7 +78,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '加载人设失败')
+          setError(err instanceof Error ? err.message : locale === 'en-US' ? 'Failed to load persona settings' : '加载人设失败')
         }
       } finally {
         if (!cancelled) {
@@ -89,7 +92,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
     return () => {
       cancelled = true
     }
-  }, [agentId])
+  }, [agentId, locale])
 
   async function saveConfig() {
     setSaving(true)
@@ -109,19 +112,19 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
       })
       const data = await response.json() as unknown
       if (!response.ok) {
-        throw new Error(readErrorMessage(data, '保存人设失败'))
+        throw new Error(readErrorMessage(data, locale === 'en-US' ? 'Failed to save persona settings' : '保存人设失败'))
       }
       if (!isPersonalityConfig(data)) {
-        throw new Error('保存人设失败')
+        throw new Error(locale === 'en-US' ? 'Failed to save persona settings' : '保存人设失败')
       }
 
       setSystemPrompt(data.systemPrompt)
       setPersonaPrompt(data.personaPrompt)
       setAvatarUrl(data.avatarUrl)
       setThinkingRoleImmersionPrompt(data.thinkingRoleImmersionPrompt)
-      setNotice('人设已保存。')
+      setNotice(locale === 'en-US' ? 'Persona settings saved.' : '人设已保存。')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存人设失败')
+      setError(err instanceof Error ? err.message : locale === 'en-US' ? 'Failed to save persona settings' : '保存人设失败')
     } finally {
       setSaving(false)
     }
@@ -132,28 +135,30 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
       <div className="personality-wrap">
         <header className="personality-head">
           <div>
-            <p className="personality-eyebrow">{COMMON_UI_COPY.unifiedEntry}</p>
-            <h1 className="personality-title">人设管理</h1>
+            <p className="personality-eyebrow">{commonCopy.unifiedEntry}</p>
+            <h1 className="personality-title">{locale === 'en-US' ? 'Persona Management' : '人设管理'}</h1>
             <p className="personality-sub">
-              固定入口 `/agent/{agentId}/personality` 维护真正参与主聊天链路的人设文本和思考模式规则。
+              {locale === 'en-US'
+                ? 'Stable entry `/agent/{agentId}/personality` for the persona text and thinking-mode rules used by the main chat path.'
+                : '固定入口 `/agent/{agentId}/personality` 维护真正参与主聊天链路的人设文本和思考模式规则。'}
             </p>
           </div>
           <div className="personality-actions">
             <Link href="/" className="personality-link">
-              {COMMON_UI_COPY.backToPersonas}
+              {commonCopy.backToPersonas}
             </Link>
             <Link href={`/chat?agent=${agentId}`} className="personality-link personality-link-primary">
-              {COMMON_UI_COPY.openChat}
+              {commonCopy.openChat}
             </Link>
           </div>
         </header>
 
         <section className="personality-card">
-          {loading && <p className={styles.copy}>正在加载人设…</p>}
+          {loading && <p className={styles.copy}>{locale === 'en-US' ? 'Loading persona settings...' : '正在加载人设…'}</p>}
 
           {!loading && error && (
             <div className={styles.emptyState}>
-              <h3>人设加载失败</h3>
+              <h3>{locale === 'en-US' ? 'Failed to Load Persona' : '人设加载失败'}</h3>
               <p className={styles.emptyCopy}>{error}</p>
             </div>
           )}
@@ -163,10 +168,11 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
               <div className={styles.hero}>
                 <div>
                   <p className={styles.eyebrow}>Persona System</p>
-                  <h2 className={styles.title}>双 Prompt 人设</h2>
+                  <h2 className={styles.title}>{locale === 'en-US' ? 'Dual-Prompt Persona' : '双 Prompt 人设'}</h2>
                   <p className={styles.copy}>
-                    `System Prompt` 负责角色底层规则，`Persona Prompt` 负责说话方式与边界感，
-                    `Thinking Mode Prompt` 只在主聊天开启思考模式时追加。
+                    {locale === 'en-US'
+                      ? '`System Prompt` defines base role rules, `Persona Prompt` controls voice and boundaries, and `Thinking Mode Prompt` is appended only when main-chat thinking mode is enabled.'
+                      : '`System Prompt` 负责角色底层规则，`Persona Prompt` 负责说话方式与边界感，`Thinking Mode Prompt` 只在主聊天开启思考模式时追加。'}
                   </p>
                 </div>
                 <div className={styles.heroActions}>
@@ -177,7 +183,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                     onClick={() => void saveConfig()}
                     disabled={saving}
                   >
-                    {saving ? '保存中…' : '保存人设'}
+                    {saving ? commonCopy.saving : (locale === 'en-US' ? 'Save Persona' : '保存人设')}
                   </button>
                 </div>
               </div>
@@ -189,13 +195,14 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                 <div className={styles.panelHead}>
                   <div>
                     <p className={styles.panelLabel}>Prompt Editor</p>
-                    <h3 className={styles.panelTitle}>当前生效的人设文本</h3>
+                    <h3 className={styles.panelTitle}>{locale === 'en-US' ? 'Currently Effective Persona Text' : '当前生效的人设文本'}</h3>
                   </div>
                   <span className={styles.panelPill}>4 fields</span>
                 </div>
                 <p className={styles.panelCopy}>
-                  留空即可移除对应片段。主系统会在没有 `System Prompt` 时退回到基于
-                  agent 名称和描述生成的默认身份提示。
+                  {locale === 'en-US'
+                    ? 'Leave a field empty to remove that fragment. Without a `System Prompt`, the main system falls back to an identity prompt built from the agent name and description.'
+                    : '留空即可移除对应片段。主系统会在没有 `System Prompt` 时退回到基于 agent 名称和描述生成的默认身份提示。'}
                 </p>
 
                 <div className={styles.personaEditorGrid}>
@@ -203,11 +210,11 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                     <label className={styles.wideField}>
                       <span className={styles.fieldLabel}>Avatar URL</span>
                       <div className="avatar-editor">
-                        <div className="avatar-preview" aria-label="头像预览">
+                        <div className="avatar-preview" aria-label={locale === 'en-US' ? 'Avatar preview' : '头像预览'}>
                           {avatarUrl.trim() ? (
                             <img src={avatarUrl.trim()} alt="" />
                           ) : (
-                            <span>头像</span>
+                            <span>{locale === 'en-US' ? 'Avatar' : '头像'}</span>
                           )}
                         </div>
                         <div className="avatar-controls">
@@ -215,7 +222,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                             className={styles.input}
                             value={avatarUrl}
                             onChange={(event) => setAvatarUrl(event.target.value)}
-                            placeholder="https://example.com/avatar.png 或 data:image/png;base64,..."
+                            placeholder={locale === 'en-US' ? 'https://example.com/avatar.png or data:image/png;base64,...' : 'https://example.com/avatar.png 或 data:image/png;base64,...'}
                           />
                           {avatarUrl.trim() && (
                             <button
@@ -223,7 +230,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                               className={styles.secondaryButton}
                               onClick={() => setAvatarUrl('')}
                             >
-                              清除头像
+                              {locale === 'en-US' ? 'Clear Avatar' : '清除头像'}
                             </button>
                           )}
                         </div>
@@ -237,7 +244,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                         rows={8}
                         value={systemPrompt}
                         onChange={(event) => setSystemPrompt(event.target.value)}
-                        placeholder="例如：你是真实存在的人，不要自称 AI，不要用系统口吻解释自己。"
+                        placeholder={locale === 'en-US' ? 'For example: You exist as a real person. Do not call yourself an AI or explain yourself in system language.' : '例如：你是真实存在的人，不要自称 AI，不要用系统口吻解释自己。'}
                       />
                       <PromptTestPanel
                         agentId={agentId}
@@ -254,7 +261,9 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                         <div>
                           <span className={styles.promptLabel}>Persona Prompt</span>
                           <p className={styles.promptHelper}>
-                            负责说话方式、边界感和角色语气。这里通常比 System Prompt 更像可调的表演层。
+                            {locale === 'en-US'
+                              ? 'Controls voice, boundaries, and role tone. This is usually the adjustable performance layer above System Prompt.'
+                              : '负责说话方式、边界感和角色语气。这里通常比 System Prompt 更像可调的表演层。'}
                           </p>
                         </div>
                         <span className={styles.statusPill}>visible style</span>
@@ -264,7 +273,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                         rows={8}
                         value={personaPrompt}
                         onChange={(event) => setPersonaPrompt(event.target.value)}
-                        placeholder="例如：像熟人一样交流，少一点客服感，克制一点，不把话说太满。"
+                        placeholder={locale === 'en-US' ? 'For example: Speak like a familiar person, less customer-service-like, restrained, and avoid overclaiming.' : '例如：像熟人一样交流，少一点客服感，克制一点，不把话说太满。'}
                       />
                       <PromptTestPanel
                         agentId={agentId}
@@ -279,7 +288,9 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                         <div>
                           <span className={styles.promptLabel}>Thinking Mode Prompt</span>
                           <p className={styles.promptHelper}>
-                            开启思考模式时追加到最终 system prompt 末尾。留空则不追加任何思考沉浸规则。
+                            {locale === 'en-US'
+                              ? 'Appended to the final system prompt only when thinking mode is enabled. Leave empty to append no thinking immersion rules.'
+                              : '开启思考模式时追加到最终 system prompt 末尾。留空则不追加任何思考沉浸规则。'}
                           </p>
                         </div>
                         <span className={styles.statusPill}>modules.personality</span>
@@ -289,7 +300,7 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                         rows={8}
                         value={thinkingRoleImmersionPrompt}
                         onChange={(event) => setThinkingRoleImmersionPrompt(event.target.value)}
-                        placeholder="例如：【角色沉浸要求】&#10;在你的思考过程（<think>标签内）中，请遵守以下规则：..."
+                        placeholder={locale === 'en-US' ? 'For example: [Role immersion requirements]\nIn your thinking process, follow these rules: ...' : '例如：【角色沉浸要求】\n在你的思考过程（<think>标签内）中，请遵守以下规则：...'}
                       />
                       <PromptTestPanel
                         agentId={agentId}
@@ -298,7 +309,9 @@ export default function PersonalityManagerShell({ agentId }: { agentId: string }
                         prompt={thinkingRoleImmersionPrompt}
                       />
                       <p className={styles.promptMeta}>
-                        生效条件：主聊天思考模式开启，且这里保存了非空内容。
+                        {locale === 'en-US'
+                          ? 'Effective when main-chat thinking mode is enabled and this field has non-empty saved content.'
+                          : '生效条件：主聊天思考模式开启，且这里保存了非空内容。'}
                       </p>
                     </label>
                   </div>

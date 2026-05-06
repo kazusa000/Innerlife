@@ -1,6 +1,8 @@
 import { isSqliteMemoryConfig } from '@mas/systems'
 import type { AgentToolConfig, AgentToolsConfig, BuiltInToolName, Tool } from './types'
 
+type AppLocale = 'zh-CN' | 'en-US'
+
 export interface ResolvedToolCatalogItem {
   name: string
   defaultEnabled: boolean
@@ -21,6 +23,7 @@ export interface ResolveAgentToolsInput {
   tools: Tool[]
   modules?: Record<string, unknown> | null
   config?: Record<string, unknown> | null
+  locale?: AppLocale
 }
 
 export interface ResolvedAgentTools {
@@ -65,6 +68,19 @@ export function normalizeAgentToolsConfig(config: Record<string, unknown> | null
       entry.description = rawEntry.description.trim()
     }
 
+    if (isRecord(rawEntry.descriptionByLocale)) {
+      const descriptionByLocale: NonNullable<AgentToolConfig['descriptionByLocale']> = {}
+      for (const locale of ['zh-CN', 'en-US'] as const) {
+        const value = rawEntry.descriptionByLocale[locale]
+        if (typeof value === 'string' && value.trim()) {
+          descriptionByLocale[locale] = value.trim()
+        }
+      }
+      if (Object.keys(descriptionByLocale).length > 0) {
+        entry.descriptionByLocale = descriptionByLocale
+      }
+    }
+
     if (isRecord(rawEntry.episodicActivation)) {
       const episodicActivation: NonNullable<AgentToolConfig['episodicActivation']> = {}
       if (typeof rawEntry.episodicActivation.enabled === 'boolean') {
@@ -81,7 +97,12 @@ export function normalizeAgentToolsConfig(config: Record<string, unknown> | null
       }
     }
 
-    if (entry.enabled !== undefined || entry.description !== undefined || entry.episodicActivation !== undefined) {
+    if (
+      entry.enabled !== undefined
+      || entry.description !== undefined
+      || entry.descriptionByLocale !== undefined
+      || entry.episodicActivation !== undefined
+    ) {
       normalized[toolName] = entry
     }
   }
@@ -104,6 +125,33 @@ function resolveToolAvailability(
   return null
 }
 
+function getDefaultToolDescription(tool: Tool, locale: AppLocale): string {
+  if (locale === 'en-US') {
+    switch (tool.name) {
+      case 'search_long_term_memory':
+        return [
+          'Search long-term episodic memory only when the current context, short-term memory, and fixed memory are not enough.',
+          'Use it for prior facts, preferences, relationships, events, places, scenes, or images the user clearly asks about.',
+          'The query must be one short complete retrieval sentence, not a keyword list.',
+        ].join(' ')
+      case 'web_fetch':
+        return 'Fetch a web page and return cleaned body text. Use only when external web information is actually needed.'
+      default:
+        return tool.description
+    }
+  }
+
+  return tool.description
+}
+
+function resolveLocalizedOverride(override: AgentToolConfig | undefined, locale: AppLocale) {
+  const localized = override?.descriptionByLocale?.[locale]
+  if (localized?.trim()) {
+    return localized.trim()
+  }
+  return locale === 'zh-CN' ? override?.description ?? null : null
+}
+
 function cloneToolWithDescription(tool: Tool, description: string): Tool {
   return {
     ...tool,
@@ -111,11 +159,20 @@ function cloneToolWithDescription(tool: Tool, description: string): Tool {
   }
 }
 
-function buildToolSystemPrompt(catalog: ResolvedToolCatalogItem[]): string {
+function buildToolSystemPrompt(catalog: ResolvedToolCatalogItem[], locale: AppLocale): string {
   const effectiveTools = catalog.filter((tool) => tool.effectiveEnabled)
 
   if (effectiveTools.length === 0) {
-    return '当前这轮没有可用工具，直接基于已有上下文回答。'
+    return locale === 'en-US'
+      ? 'No tools are available this turn. Answer directly from the existing context.'
+      : '当前这轮没有可用工具，直接基于已有上下文回答。'
+  }
+
+  if (locale === 'en-US') {
+    return [
+      'The following tools are available this turn. Call them only when actually needed; after receiving a tool result, continue and finish the reply.',
+      ...effectiveTools.map((tool) => `- ${tool.name}: ${tool.effectiveDescription}`),
+    ].join('\n')
   }
 
   return [
@@ -126,13 +183,15 @@ function buildToolSystemPrompt(catalog: ResolvedToolCatalogItem[]): string {
 
 export function resolveAgentTools(input: ResolveAgentToolsInput): ResolvedAgentTools {
   const config = normalizeAgentToolsConfig(input.config)
+  const locale = input.locale ?? 'zh-CN'
   const catalog = input.tools.map((tool) => {
     const builtInName = tool.name as BuiltInToolName
     const defaultEnabled = defaultEnabledByTool[builtInName] ?? false
     const override = config?.[builtInName]
     const configuredEnabled = override?.enabled ?? defaultEnabled
-    const overrideDescription = override?.description ?? null
-    const effectiveDescription = overrideDescription ?? tool.description
+    const defaultDescription = getDefaultToolDescription(tool, locale)
+    const overrideDescription = resolveLocalizedOverride(override, locale)
+    const effectiveDescription = overrideDescription ?? defaultDescription
     const unavailableReason = resolveToolAvailability(tool, input.modules)
     const effectiveEnabled = configuredEnabled && unavailableReason === null
     const episodicActivation = builtInName === 'search_long_term_memory'
@@ -148,7 +207,7 @@ export function resolveAgentTools(input: ResolveAgentToolsInput): ResolvedAgentT
       defaultEnabled,
       configuredEnabled,
       effectiveEnabled,
-      defaultDescription: tool.description,
+      defaultDescription,
       overrideDescription,
       effectiveDescription,
       unavailableReason,
@@ -167,6 +226,6 @@ export function resolveAgentTools(input: ResolveAgentToolsInput): ResolvedAgentT
   return {
     catalog,
     effectiveTools,
-    systemPrompt: buildToolSystemPrompt(catalog),
+    systemPrompt: buildToolSystemPrompt(catalog, locale),
   }
 }

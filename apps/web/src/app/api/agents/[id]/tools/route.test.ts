@@ -110,9 +110,15 @@ test('tools route persists enabled state and description override', async () => 
       web_fetch: {
         enabled: true,
         description: '抓取网页正文，忽略无关导航和广告。',
+        descriptionByLocale: {
+          'zh-CN': '抓取网页正文，忽略无关导航和广告。',
+        },
       },
       search_long_term_memory: {
         description: '只有在确实需要追溯旧互动时才查长期记忆。',
+        descriptionByLocale: {
+          'zh-CN': '只有在确实需要追溯旧互动时才查长期记忆。',
+        },
       },
     })
   } finally {

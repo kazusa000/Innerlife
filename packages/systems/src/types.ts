@@ -226,6 +226,7 @@ export interface TurnContext {
   agentId: string
   sessionId: string
   userId: string
+  locale?: 'zh-CN' | 'en-US'
   input: {
     raw: string
     text: string
@@ -273,5 +274,5 @@ export interface AgentSystem {
 }
 
 export type AgentModules = Record<string, unknown> | null | undefined
-export type SystemFactory = (config?: unknown) => AgentSystem
+export type SystemFactory = (config?: unknown, locale?: 'zh-CN' | 'en-US') => AgentSystem
 export type SystemRegistry = Record<string, Record<string, SystemFactory>>

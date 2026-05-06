@@ -15,8 +15,6 @@ import {
   resetMemoryDb,
   sessionContextStateRepo,
   sessionRepo,
-  turingEventRepo,
-  turingRunRepo,
 } from '@mas/db'
 import { deleteAgentCascade } from './[id]/handler'
 import { getAgentDetail, updateAgentDetail } from './[id]/agent-handler'
@@ -28,7 +26,7 @@ function bootstrap(dbPath: string, memoryDbPath: string) {
   bootstrapAppDatabases({ dbPath, memoryDbPath })
 }
 
-test('deleteAgentCascade removes agent data across session, turing, daemon memory and state tables', async () => {
+test('deleteAgentCascade removes agent data across session, daemon memory and state tables', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-agent-delete-'))
   const dbPath = join(dir, 'data.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -79,17 +77,6 @@ test('deleteAgentCascade removes agent data across session, turing, daemon memor
       lastSleepAt: new Date('2026-04-22T00:00:00.000Z'),
     })
 
-    const run = turingRunRepo.createRun({
-      sourceAgentId: agent.id,
-      judgeProvider: 'openrouter',
-      judgeModel: 'qwen/qwen3.5-flash-02-23',
-    })
-    turingEventRepo.appendEvent({
-      runId: run.id,
-      kind: 'run_created',
-      message: 'created',
-    })
-
     getMemoryRawSqlite()
       .prepare(`
         INSERT INTO memories (
@@ -132,7 +119,6 @@ test('deleteAgentCascade removes agent data across session, turing, daemon memor
     assert.equal(emotionStateRepo.getLatestEmotionStateByAgent(agent.id), undefined)
     assert.equal(relationshipRepo.getRelationship(agent.id, 'default-user'), undefined)
     assert.equal(agentMemorySleepStateRepo.getAgentMemorySleepState(agent.id), undefined)
-    assert.equal(turingRunRepo.listRunsBySourceAgent(agent.id).length, 0)
 
     const memoryRows = getMemoryRawSqlite()
       .prepare('SELECT COUNT(*) as count FROM memories WHERE agent_id = ?')

@@ -1,13 +1,16 @@
 'use client'
 
 import React, { useState } from 'react'
+import { useAppLocale } from '../use-app-locale'
 import type { LiveCall } from './observer-types'
 import { formatDurationLabel } from '../../lib/format-duration'
-import { OBSERVER_UI_COPY } from '../../lib/ui-copy'
+import { getObserverUiCopy } from '../../lib/ui-copy'
 import { formatJson, formatMetric, getMetadata, getEmotionVector, readString } from './observer-utils'
 import { CALL_ACCENTS, CodeBlock, CollapsibleSection, DetailList, Pill } from './observer-ui'
 
 export function EmotionCallCardDimensional({ call }: { call: LiveCall }) {
+  const locale = useAppLocale()
+  const copy = getObserverUiCopy(locale)
   const metadata = getMetadata(call)
   const duration = formatDurationLabel(call.startedAt, call.finishedAt)
   const before = getEmotionVector(metadata?.before)
@@ -43,12 +46,12 @@ export function EmotionCallCardDimensional({ call }: { call: LiveCall }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <strong style={{ color: 'var(--fg)', fontSize: 14 }}>情绪.变化量</strong>
-          <Pill label={OBSERVER_UI_COPY.model} value={call.model} />
-          {duration ? <Pill label={OBSERVER_UI_COPY.duration} value={duration} /> : null}
-          <Pill label={OBSERVER_UI_COPY.stop} value={call.stopReason ?? (call.finished ? 'end_turn' : OBSERVER_UI_COPY.pending)} accent={CALL_ACCENTS.emotion.color} />
+          <strong style={{ color: 'var(--fg)', fontSize: 14 }}>{copy.emotionDeltaTitle}</strong>
+          <Pill label={copy.model} value={call.model} />
+          {duration ? <Pill label={copy.duration} value={duration} /> : null}
+          <Pill label={copy.stop} value={call.stopReason ?? (call.finished ? 'end_turn' : copy.pending)} accent={CALL_ACCENTS.emotion.color} />
         </div>
-        <span style={{ color: 'var(--fg-subtle)', fontSize: 12, flexShrink: 0 }}>{open ? '收起' : '展开'}</span>
+        <span style={{ color: 'var(--fg-subtle)', fontSize: 12, flexShrink: 0 }}>{open ? copy.collapse : copy.expand}</span>
       </button>
 
       {open && (
@@ -60,41 +63,41 @@ export function EmotionCallCardDimensional({ call }: { call: LiveCall }) {
             gap: 12,
           }}
         >
-          <CollapsibleSection title={OBSERVER_UI_COPY.before} accent={CALL_ACCENTS.emotion.color} defaultOpen>
+          <CollapsibleSection title={copy.before} accent={CALL_ACCENTS.emotion.color} defaultOpen>
             <DetailList
               rows={[
-                { label: 'mood', value: before ? formatMetric(before.mood) : '无' },
-                { label: 'energy', value: before ? formatMetric(before.energy) : '无' },
-                { label: 'stress', value: before ? formatMetric(before.stress) : '无' },
+                { label: 'mood', value: before ? formatMetric(before.mood) : copy.none },
+                { label: 'energy', value: before ? formatMetric(before.energy) : copy.none },
+                { label: 'stress', value: before ? formatMetric(before.stress) : copy.none },
               ]}
             />
           </CollapsibleSection>
 
-          <CollapsibleSection title={OBSERVER_UI_COPY.after} accent={CALL_ACCENTS.emotion.color} defaultOpen>
+          <CollapsibleSection title={copy.after} accent={CALL_ACCENTS.emotion.color} defaultOpen>
             <DetailList
               rows={[
-                { label: 'mood', value: after ? formatMetric(after.mood) : '无' },
-                { label: 'energy', value: after ? formatMetric(after.energy) : '无' },
-                { label: 'stress', value: after ? formatMetric(after.stress) : '无' },
+                { label: 'mood', value: after ? formatMetric(after.mood) : copy.none },
+                { label: 'energy', value: after ? formatMetric(after.energy) : copy.none },
+                { label: 'stress', value: after ? formatMetric(after.stress) : copy.none },
               ]}
             />
           </CollapsibleSection>
 
-          <CollapsibleSection title={OBSERVER_UI_COPY.delta} accent={CALL_ACCENTS.emotion.color} defaultOpen>
+          <CollapsibleSection title={copy.delta} accent={CALL_ACCENTS.emotion.color} defaultOpen>
             <DetailList
               rows={[
-                { label: 'mood', value: delta ? formatMetric(delta.mood) : '无' },
-                { label: 'energy', value: delta ? formatMetric(delta.energy) : '无' },
-                { label: 'stress', value: delta ? formatMetric(delta.stress) : '无' },
-                { label: OBSERVER_UI_COPY.trigger, value: trigger ?? '无' },
+                { label: 'mood', value: delta ? formatMetric(delta.mood) : copy.none },
+                { label: 'energy', value: delta ? formatMetric(delta.energy) : copy.none },
+                { label: 'stress', value: delta ? formatMetric(delta.stress) : copy.none },
+                { label: copy.trigger, value: trigger ?? copy.none },
               ]}
             />
           </CollapsibleSection>
 
-          <CollapsibleSection title="原 prompt" accent={CALL_ACCENTS.emotion.color}>
-            <CodeBlock value={call.systemPrompt || '（空）'} />
+          <CollapsibleSection title={copy.originalPrompt} accent={CALL_ACCENTS.emotion.color}>
+            <CodeBlock value={call.systemPrompt || copy.empty} />
           </CollapsibleSection>
-          <CollapsibleSection title="原 response" accent={CALL_ACCENTS.emotion.color}>
+          <CollapsibleSection title={copy.originalResponse} accent={CALL_ACCENTS.emotion.color}>
             <CodeBlock value={formatJson(call.response ?? null)} />
           </CollapsibleSection>
         </div>

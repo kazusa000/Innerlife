@@ -9,11 +9,12 @@ import {
   type LLMReasoningConfig,
   type Message,
 } from '@mas/core'
-import { agentRepo, messageRepo, sessionContextStateRepo, sessionRepo } from '@mas/db'
+import { agentRepo, appSettingsRepo, messageRepo, sessionContextStateRepo, sessionRepo } from '@mas/db'
 import { createDbObserver, createNoopObserver, type ObserverEvent } from '@mas/observer'
 import { createSystems, isSqliteMemoryConfig } from '@mas/systems'
 
 const INTERRUPTED_SUFFIX = ' —（中断）'
+type AppLocale = appSettingsRepo.AppLocale
 type DbMessageRecord = ReturnType<typeof messageRepo.getSessionMessages>[number]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -51,25 +52,41 @@ function selectActiveDbMessages(
   return startIndex >= 0 ? dbMessages.slice(startIndex) : dbMessages
 }
 
-export function readPersonalityPrompts(modules: Record<string, unknown> | null | undefined) {
+function readLocalizedPrompt(
+  record: Record<string, unknown> | null,
+  key: string,
+  locale: AppLocale,
+) {
+  const localized = record?.[`${key}ByLocale`]
+  if (isRecord(localized)) {
+    const value = localized[locale]
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim()
+    }
+  }
+
+  if (locale === 'zh-CN') {
+    const value = record?.[key]
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim()
+    }
+  }
+
+  return ''
+}
+
+export function readPersonalityPrompts(
+  modules: Record<string, unknown> | null | undefined,
+  locale: AppLocale = 'zh-CN',
+) {
   const personality = isRecord(modules?.personality)
     ? modules?.personality as Record<string, unknown>
     : null
 
   return {
-    systemPrompt:
-      typeof personality?.systemPrompt === 'string' && personality.systemPrompt.trim().length > 0
-        ? personality.systemPrompt.trim()
-        : '',
-    personaPrompt:
-      typeof personality?.personaPrompt === 'string' && personality.personaPrompt.trim().length > 0
-        ? personality.personaPrompt.trim()
-        : '',
-    thinkingRoleImmersionPrompt:
-      typeof personality?.thinkingRoleImmersionPrompt === 'string'
-      && personality.thinkingRoleImmersionPrompt.trim().length > 0
-        ? personality.thinkingRoleImmersionPrompt.trim()
-        : '',
+    systemPrompt: readLocalizedPrompt(personality, 'systemPrompt', locale),
+    personaPrompt: readLocalizedPrompt(personality, 'personaPrompt', locale),
+    thinkingRoleImmersionPrompt: readLocalizedPrompt(personality, 'thinkingRoleImmersionPrompt', locale),
   }
 }
 
@@ -78,14 +95,15 @@ export function buildAgentSystemPrompt(agent: {
   description: string | null
   tools?: Record<string, unknown> | null
   modules?: Record<string, unknown> | null
-}, toolPromptOverride?: string) {
+}, toolPromptOverride?: string, locale: AppLocale = 'zh-CN') {
   const toolPrompt = toolPromptOverride
     ?? resolveAgentTools({
       tools: getDefaultTools(),
       modules: agent.modules,
       config: agent.tools ?? null,
+      locale,
     }).systemPrompt
-  const persona = readPersonalityPrompts(agent.modules)
+  const persona = readPersonalityPrompts(agent.modules, locale)
   const basePrompt = persona.systemPrompt
     || (agent.description
       ? `You are ${agent.name}. ${agent.description}.`
@@ -94,7 +112,11 @@ export function buildAgentSystemPrompt(agent: {
 
   return [
     basePrompt,
-    rolePrompt ? `角色额外约束：${rolePrompt}` : null,
+    rolePrompt
+      ? locale === 'en-US'
+        ? `Additional role constraints: ${rolePrompt}`
+        : `角色额外约束：${rolePrompt}`
+      : null,
     toolPrompt,
   ].filter(Boolean).join('\n\n')
 }
@@ -144,19 +166,22 @@ export async function executeChatTurn(input: {
   }))
 
   const provider = createProvider(agent.provider)
+  const locale = appSettingsRepo.getAppLocale()
   const toolRuntime = resolveAgentTools({
     tools: getDefaultTools(),
     modules: agent.modules,
     config: agent.tools ?? null,
+    locale,
   })
   const tools = toolRuntime.effectiveTools
-  const systems = createSystems(agent.modules ?? null)
-  const personality = readPersonalityPrompts(agent.modules)
+  const systems = createSystems(agent.modules ?? null, locale)
+  const personality = readPersonalityPrompts(agent.modules, locale)
   const config: AgentConfig = {
     id: agent.id,
     model: agent.model,
-    systemPrompt: buildAgentSystemPrompt(agent, toolRuntime.systemPrompt),
+    systemPrompt: buildAgentSystemPrompt(agent, toolRuntime.systemPrompt, locale),
     tools,
+    locale,
     maxTurns: 10,
     sessionId: input.sessionId,
     userId: 'default-user',

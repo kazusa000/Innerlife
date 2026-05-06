@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useAppLocale } from '@/app/use-app-locale'
 import { ChatArea } from './ChatArea'
 import { Sidebar } from './Sidebar'
 import { getPersonalityAvatarUrl } from '../persona-modules'
@@ -47,6 +48,7 @@ export default function ChatPage() {
 function ChatPageInner() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const locale = useAppLocale()
   const agentId = searchParams.get('agent')
 
   const [agent, setAgent] = useState<Agent | null>(null)
@@ -134,8 +136,9 @@ function ChatPageInner() {
         setResetNotice(buildContextResetNotice({
           mode,
           memoryScheme,
+          locale,
           responseOk: false,
-          responseError: readErrorMessage(body, '清除上下文失败，请稍后再试。'),
+          responseError: readErrorMessage(body, locale === 'en-US' ? 'Failed to clear context. Please try again later.' : '清除上下文失败，请稍后再试。'),
         }))
         return
       }
@@ -145,6 +148,7 @@ function ChatPageInner() {
       setResetNotice(buildContextResetNotice({
         mode,
         memoryScheme,
+        locale,
         responseOk: true,
         contextFlush: sessionData.contextFlush,
       }))
@@ -152,8 +156,9 @@ function ChatPageInner() {
       setResetNotice(buildContextResetNotice({
         mode,
         memoryScheme,
+        locale,
         responseOk: false,
-        responseError: '清除上下文失败，请稍后再试。',
+        responseError: locale === 'en-US' ? 'Failed to clear context. Please try again later.' : '清除上下文失败，请稍后再试。',
       }))
     } finally {
       setIsResettingContext(false)
