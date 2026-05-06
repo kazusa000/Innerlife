@@ -279,7 +279,9 @@ export default function ToolsManager({ agentId, initialTools }: ToolsManagerProp
                             updateEpisodicActivation(tool.name, { enabled: event.target.checked })}
                         />
                         <span style={{ color: 'var(--text-primary)', lineHeight: 1.6 }}>
-                          {locale === 'en-US' ? 'Episodic memories recalled by the tool can surface naturally in the pre-chat prompt for a short period.' : 'tool 召回的情景记忆会在一段时间内自然浮现到聊天前 prompt。'}
+                          {locale === 'en-US'
+                            ? 'Episodic memories recalled by the tool are temporarily eligible for pre-chat short-term retrieval.'
+                            : 'tool 召回的情景记忆会临时参与聊天前短期记忆检索。'}
                         </span>
                       </div>
                     </label>

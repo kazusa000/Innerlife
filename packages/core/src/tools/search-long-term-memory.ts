@@ -113,7 +113,7 @@ function extractMessageText(message: Message) {
     .join('\n')
 }
 
-function formatRecentContext(messages: Message[] | undefined, currentQuery: string) {
+function formatRecentContext(messages: Message[] | undefined, currentQuery: string, assistantLabel = '我') {
   const recent = (messages ?? [])
     .filter((message) => message.role === 'user' || message.role === 'assistant')
     .map((message) => ({
@@ -128,7 +128,7 @@ function formatRecentContext(messages: Message[] | undefined, currentQuery: stri
   }
 
   const recentText = recent
-    .map((message) => `${message.role === 'user' ? '用户' : '我'}：${message.text}`)
+    .map((message) => `${message.role === 'user' ? '用户' : assistantLabel}：${message.text}`)
     .join('\n')
 
   return [
@@ -300,10 +300,11 @@ export const SearchLongTermMemoryTool: Tool = {
     const graphQuery = [toolQuery, semanticQuery]
       .filter(Boolean)
       .join('\n')
-    const mentionQuery = formatRecentContext(options?.recentMessages, graphQuery)
+    const assistantLabel = agent.name.trim() || (locale === 'en-US' ? 'assistant' : '我')
+    const analyzerInput = formatRecentContext(options?.recentMessages, graphQuery, assistantLabel)
     const graphProvider = options.provider ?? createProvider(agent.provider)
     const textQuery = await extractEpisodicTextQuery({
-      text: graphQuery,
+      text: analyzerInput,
       fallbackQuery: semanticQuery || toolQuery,
       model: memoryConfig.summarizeModel ?? agent.model,
       provider: graphProvider,
@@ -313,7 +314,7 @@ export const SearchLongTermMemoryTool: Tool = {
     }).catch(() => semanticQuery || toolQuery)
     const mentions = episodicMemoryGraphRepo.hasEntitiesForAgent(agentId)
       ? await extractEntityMentions({
-        text: mentionQuery,
+        text: analyzerInput,
         model: memoryConfig.summarizeModel ?? agent.model,
         provider: graphProvider,
         promptOverride: memoryConfig.entityMentionPrompt,

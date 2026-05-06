@@ -182,12 +182,14 @@ export interface MemoryPipelineSettings {
 
 export interface MemoryActorLabels {
   selfLabel: string
+  recallSelfLabel: string
   counterpartLabel: string
   currentMessageHeader: string
 }
 
 const FALLBACK_MEMORY_ACTOR_LABELS: MemoryActorLabels = {
   selfLabel: '我',
+  recallSelfLabel: '我',
   counterpartLabel: '用户',
   currentMessageHeader: '当前用户消息：',
 }
@@ -315,28 +317,37 @@ export function resolveMemoryActorLabels(input: {
   agentModules?: unknown
 }): MemoryActorLabels {
   try {
-    const agentModules = input.agentModules ?? agentRepo.getAgent(input.agentId)?.modules
+    const agent = agentRepo.getAgent(input.agentId)
+    const agentName = typeof agent?.name === 'string' && agent.name.trim()
+      ? agent.name.trim()
+      : null
+    const fallbackLabels = {
+      ...FALLBACK_MEMORY_ACTOR_LABELS,
+      recallSelfLabel: agentName ?? FALLBACK_MEMORY_ACTOR_LABELS.recallSelfLabel,
+    }
+    const agentModules = input.agentModules ?? agent?.modules
     if (readRelationshipScheme(agentModules) !== 'named-multi-dim') {
-      return FALLBACK_MEMORY_ACTOR_LABELS
+      return fallbackLabels
     }
 
     const binding = sessionRelationshipBindingRepo.getSessionRelationshipBinding(input.sessionId)
     if (!binding) {
-      return FALLBACK_MEMORY_ACTOR_LABELS
+      return fallbackLabels
     }
 
     const counterpart = relationshipCounterpartRepo.getRelationshipCounterpart(binding.counterpartId)
     if (!counterpart || counterpart.agentId !== input.agentId) {
-      return FALLBACK_MEMORY_ACTOR_LABELS
+      return fallbackLabels
     }
 
     const counterpartName = counterpart.name.trim()
     if (!counterpartName) {
-      return FALLBACK_MEMORY_ACTOR_LABELS
+      return fallbackLabels
     }
 
     return {
       selfLabel: '我',
+      recallSelfLabel: agentName ?? FALLBACK_MEMORY_ACTOR_LABELS.recallSelfLabel,
       counterpartLabel: counterpartName,
       currentMessageHeader: `当前消息（来自${counterpartName}）：`,
     }
@@ -781,30 +792,6 @@ export function renderLayeredMemoryFragment(input: {
   ])
 }
 
-function renderEpisodicMemoryFragment(memories: Array<{
-  summary: string
-  observedStartAt: Date | null
-  observedEndAt: Date | null
-}>, locale: AppLocale = 'zh-CN'): string {
-  if (memories.length === 0) {
-    return ''
-  }
-
-  return [
-    locale === 'en-US'
-      ? 'The following episodic memories naturally surface right now:'
-      : '以下是此刻自然浮现的情景记忆：',
-    ...memories.slice(0, 5).map((memory) => {
-      const timePrefix = memory.observedStartAt
-        ? locale === 'en-US'
-          ? `[Occurred at ${formatLocalMemoryPromptTime(memory.observedStartAt)}] `
-          : `[发生于 ${formatLocalMemoryPromptTime(memory.observedStartAt)}] `
-        : ''
-      return `- ${timePrefix}${memory.summary}`
-    }),
-  ].join('\n')
-}
-
 function extractResponseText(ctx: TurnContext): string {
   if (!ctx.response) {
     return ''
@@ -888,12 +875,13 @@ function extractSemanticHistoryMessageText(message: ConversationMessage): string
 function getConversationSpeakerLabel(
   role: ConversationMessage['role'],
   labels: MemoryActorLabels,
+  options: { useRecallSelfLabel?: boolean } = {},
 ) {
   if (role === 'user') {
     return labels.counterpartLabel
   }
   if (role === 'assistant') {
-    return labels.selfLabel
+    return options.useRecallSelfLabel ? (labels.recallSelfLabel || labels.selfLabel) : labels.selfLabel
   }
   return '系统'
 }
@@ -922,7 +910,7 @@ function buildSemanticAnalyzerHistoryWindow(
       continue
     }
 
-    history.unshift(`${getConversationSpeakerLabel(message.role, labels)}：${text}`)
+    history.unshift(`${getConversationSpeakerLabel(message.role, labels, { useRecallSelfLabel: true })}：${text}`)
     if (history.length >= maxMessages) {
       break
     }
@@ -1207,6 +1195,113 @@ function normalizeSemanticAnalyzerResult(
   }
 }
 
+function cosineSimilarity(left: number[], right: number[]): number {
+  if (left.length === 0 || right.length === 0 || left.length !== right.length) {
+    return 0
+  }
+
+  let dot = 0
+  let leftNorm = 0
+  let rightNorm = 0
+  for (let index = 0; index < left.length; index += 1) {
+    const leftValue = left[index] ?? 0
+    const rightValue = right[index] ?? 0
+    dot += leftValue * rightValue
+    leftNorm += leftValue * leftValue
+    rightNorm += rightValue * rightValue
+  }
+
+  if (leftNorm === 0 || rightNorm === 0) {
+    return 0
+  }
+
+  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm))
+}
+
+function overlapsTimeRange(
+  memory: Pick<MemoryRecord, 'observedStartAt' | 'observedEndAt' | 'createdAt'>,
+  timeRange: MemoryTimeAnalysisResult['timeRange'],
+) {
+  if (!timeRange) {
+    return true
+  }
+
+  const start = memory.observedStartAt ?? memory.createdAt
+  const end = memory.observedEndAt ?? memory.observedStartAt ?? memory.createdAt
+  return start.getTime() <= timeRange.end.getTime() && end.getTime() >= timeRange.start.getTime()
+}
+
+function episodicMemoryToTemporaryShortTerm(
+  memory: ReturnType<typeof episodicMemoryGraphRepo.listActiveEpisodicMemories>[number]['memory'],
+): MemoryRecord {
+  const text = memory.detail?.trim() || memory.summary
+  return {
+    id: memory.id,
+    agentId: memory.agentId,
+    sessionId: memory.sessionId,
+    layer: 'short_term',
+    sourceText: memory.sourceText,
+    detail: text,
+    retrievalText: text,
+    retrievalEmbedding: memory.retrievalEmbedding,
+    retrievalModel: memory.retrievalModel,
+    tags: ['activated_episodic'],
+    importance: memory.importance,
+    observedStartAt: memory.observedStartAt,
+    observedEndAt: memory.observedEndAt,
+    createdAt: memory.createdAt,
+  }
+}
+
+function retrieveActiveEpisodicAsShortTerm(input: {
+  agentId: string
+  queryEmbeddings: number[][]
+  topK: number
+  minSimilarity: number
+  timeRange: MemoryTimeAnalysisResult['timeRange']
+}) {
+  const queries = input.queryEmbeddings
+    .map((embedding) => embedding.filter((value) => typeof value === 'number' && Number.isFinite(value)))
+    .filter((embedding) => embedding.length > 0)
+
+  if (queries.length === 0 && !input.timeRange) {
+    return []
+  }
+
+  return episodicMemoryGraphRepo
+    .listActiveEpisodicMemories({
+      agentId: input.agentId,
+      limit: Math.max(1, Math.min(20, Math.floor(input.topK))),
+    })
+    .map((item) => {
+      const memory = item.memory
+      const similarity = queries.length > 0
+        ? Math.max(...queries.map((query) => cosineSimilarity(query, memory.retrievalEmbedding)))
+        : 1
+      return { memory, similarity, activationScore: item.score, activatedAt: item.activatedAt }
+    })
+    .filter((hit) => overlapsTimeRange({
+      observedStartAt: hit.activatedAt,
+      observedEndAt: hit.activatedAt,
+      createdAt: hit.activatedAt,
+    }, input.timeRange))
+    .filter((hit) => queries.length === 0 || hit.similarity >= input.minSimilarity)
+    .sort((left, right) => {
+      if (right.similarity !== left.similarity) {
+        return right.similarity - left.similarity
+      }
+      if (right.activationScore !== left.activationScore) {
+        return right.activationScore - left.activationScore
+      }
+      if (right.memory.importance !== left.memory.importance) {
+        return right.memory.importance - left.memory.importance
+      }
+      return right.memory.createdAt.getTime() - left.memory.createdAt.getTime()
+    })
+    .slice(0, Math.max(1, Math.floor(input.topK)))
+    .map((hit) => episodicMemoryToTemporaryShortTerm(hit.memory))
+}
+
 export class MemorySqliteSystem implements AgentSystem {
   name = 'memory:sqlite'
   type = 'memory'
@@ -1281,14 +1376,8 @@ export class MemorySqliteSystem implements AgentSystem {
       ?? DEFAULT_EPISODIC_ACTIVATION_MAX_ACTIVE
     try {
       episodicMemoryGraphRepo.pruneExpiredEpisodicMemoryActivations({ agentId: ctx.agentId })
-      ctx.state.episodicMemories = episodicMemoryGraphRepo
-        .listActiveEpisodicMemories({
-          agentId: ctx.agentId,
-          limit: Math.max(1, Math.min(20, Math.floor(activeEpisodicLimit))),
-        })
-        .map((item) => item.memory)
     } catch {
-      ctx.state.episodicMemories = []
+      // Expired activation cleanup should not block the normal memory query.
     }
 
     const actorLabels = resolveMemoryActorLabels({
@@ -1366,7 +1455,15 @@ export class MemorySqliteSystem implements AgentSystem {
           })),
         ])
 
-        return { shortTerm, fixed }
+        const activeEpisodicShortTerm = retrieveActiveEpisodicAsShortTerm({
+          agentId: ctx.agentId,
+          queryEmbeddings,
+          topK: activeEpisodicLimit,
+          minSimilarity: this.shortTermMinSimilarity,
+          timeRange: query.timeRange,
+        })
+
+        return { shortTerm: [...shortTerm, ...activeEpisodicShortTerm], fixed }
       },
     }
 
@@ -1376,24 +1473,14 @@ export class MemorySqliteSystem implements AgentSystem {
   async beforeLLM(ctx: TurnContext): Promise<void> {
     const shortTermMemories = Array.isArray(ctx.state.shortTermMemories) ? ctx.state.shortTermMemories : []
     const fixedMemories = Array.isArray(ctx.state.fixedMemories) ? ctx.state.fixedMemories : []
-    const episodicMemories = Array.isArray(ctx.state.episodicMemories)
-      ? ctx.state.episodicMemories as Array<{
-        summary: string
-        observedStartAt: Date | null
-        observedEndAt: Date | null
-      }>
-      : []
-    const content = joinPromptLines([
-      renderLayeredMemoryFragment({
-        shortTermMemories,
-        fixedMemories,
-        shortTermPrompt: this.shortTermFragmentPrompt ?? this.fragmentPrompt,
-        fixedPrompt: this.fixedFragmentPrompt ?? this.fragmentPrompt,
-        showNoHitMemoryFragments: this.showNoHitMemoryFragments,
-        locale: this.locale,
-      }),
-      renderEpisodicMemoryFragment(episodicMemories, this.locale),
-    ])
+    const content = renderLayeredMemoryFragment({
+      shortTermMemories,
+      fixedMemories,
+      shortTermPrompt: this.shortTermFragmentPrompt ?? this.fragmentPrompt,
+      fixedPrompt: this.fixedFragmentPrompt ?? this.fragmentPrompt,
+      showNoHitMemoryFragments: this.showNoHitMemoryFragments,
+      locale: this.locale,
+    })
 
     if (content) {
       ctx.promptFragments.push({

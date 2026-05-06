@@ -572,14 +572,11 @@ test('search_long_term_memory gives recent context to entity mention extraction 
     }) as typeof fetch
 
     let mentionInput = ''
+    let textAnalyzerInput = ''
     const provider = {
       async sendMessage(input: any) {
         if (input.systemPrompt.includes('实体 mention')) {
           mentionInput = input.messages[0]?.content[0]?.text ?? ''
-          assert.match(mentionInput, /最近对话/)
-          assert.match(mentionInput, /我最近又开始玩星际2了/)
-          assert.match(mentionInput, /当前检索问题/)
-          assert.match(mentionInput, /那个游戏我之前怎么说的/)
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               mentions: [
@@ -595,6 +592,7 @@ test('search_long_term_memory gives recent context to entity mention extraction 
             usage: { inputTokens: 1, outputTokens: 1 },
           }
         }
+        textAnalyzerInput = input.messages[0]?.content[0]?.text ?? ''
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({
             retrieval_query: '星际2是喜欢的游戏',
@@ -619,6 +617,14 @@ test('search_long_term_memory gives recent context to entity mention extraction 
       },
     )
 
+    assert.match(textAnalyzerInput, /Hazel：你之前也提到过这个游戏。/)
+    assert.doesNotMatch(textAnalyzerInput, /我：你之前也提到过这个游戏。/)
+    assert.match(mentionInput, /最近对话/)
+    assert.match(mentionInput, /我最近又开始玩星际2了/)
+    assert.match(mentionInput, /Hazel：你之前也提到过这个游戏。/)
+    assert.doesNotMatch(mentionInput, /我：你之前也提到过这个游戏。/)
+    assert.match(mentionInput, /当前检索问题/)
+    assert.match(mentionInput, /那个游戏我之前怎么说的/)
     assert.match(mentionInput, /星际2/)
     assert.equal(result.metadata?.noResults, false)
     assert.match(result.output, /完整情景：WJJ 说星际2是自己喜欢的游戏/)

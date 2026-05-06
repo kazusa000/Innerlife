@@ -217,7 +217,7 @@ test('memory sqlite system keeps no-hit short-term and fixed fragments non-empty
   }
 })
 
-test('memory sqlite injects recalled episodic memories as natural surfaced memories', async () => {
+test('memory sqlite does not directly inject active episodic memories into prompt', async () => {
   const system = new MemorySqliteSystem({ scheme: 'sqlite' })
   const ctx = createContext('那家旧书店后来怎么样了？')
   ;(ctx.state as Record<string, unknown>).episodicMemories = [
@@ -238,8 +238,8 @@ test('memory sqlite injects recalled episodic memories as natural surfaced memor
   await system.beforeLLM(ctx)
 
   const content = ctx.promptFragments.map((fragment) => fragment.content).join('\n')
-  assert.match(content, /此刻自然浮现的情景记忆/)
-  assert.match(content, /WJJ 在安特卫普旧书店提到过海盐焦糖/)
+  assert.doesNotMatch(content, /此刻自然浮现的情景记忆/)
+  assert.doesNotMatch(content, /WJJ 在安特卫普旧书店提到过海盐焦糖/)
 })
 
 test('memory sqlite retrieval skips semantic embeddings for pure time recall and keeps newest hits first in range', { concurrency: false }, async () => {
@@ -507,9 +507,9 @@ test('memory sqlite semantic analyzer uses named counterpart labels when the ses
       [
         '最近对话（仅供补全当前问题）：',
         '张三：我上周收养了一只猫。',
-        '我：记住了，你上周收养了一只猫。',
+        'Agent One：记住了，你上周收养了一只猫。',
         '张三：它是橘白相间的。',
-        '我：收到，它是橘白相间的。',
+        'Agent One：收到，它是橘白相间的。',
         '',
         '当前消息（来自张三）：',
         '它叫什么来着',
@@ -668,7 +668,7 @@ test('memory sqlite can suppress no-hit short-term and fixed fragments', async (
   assert.equal(ctx.promptFragments.length, 0)
 })
 
-test('memory sqlite injects agent-level active episodic memories before llm', async () => {
+test('memory sqlite retrieves active episodic memories as temporary short-term candidates', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-system-'))
   const dbPath = join(dir, 'data.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -684,15 +684,18 @@ test('memory sqlite injects agent-level active episodic memories before llm', as
       aliases: [],
       now,
     })
+    const originalObservedAt = new Date(now.getTime() - 7 * 24 * 60 * 60_000)
     const memory = episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
       summary: '王家骏和 Amadeus 讨论 Pippa 的长期记忆设计。',
       sourceText: 'source',
       detail: '王家骏和 Amadeus 讨论 Pippa 的长期记忆设计细节。',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
       importance: 0.9,
-      observedStartAt: now,
-      observedEndAt: now,
+      observedStartAt: originalObservedAt,
+      observedEndAt: originalObservedAt,
       entityLinks: [{ entityId: entity.id, weight: 1 }],
       now,
     })
@@ -706,15 +709,36 @@ test('memory sqlite injects agent-level active episodic memories before llm', as
 
     const system = new MemorySqliteSystem({
       retrieveTopK: 5,
-      embedder: createEmbedder({}),
+      embeddingModel: 'qwen/qwen3-embedding-0.6b',
+      embedder: createEmbedder({
+        继续说刚刚那个设计: [1, 0],
+        Pippa长期记忆设计: [1, 0],
+      }),
     })
     const ctx = createContext('继续说刚刚那个设计')
 
     await system.beforeTurn?.(ctx)
+    const retrieved = await ctx.pendingMemoryQuery?.retrieve({
+      retrievalQuery: 'Pippa长期记忆设计',
+      timeRange: {
+        start: new Date(now.getTime() - 60_000),
+        end: new Date(now.getTime() + 60_000),
+      },
+    })
+
+    assert.deepEqual(retrieved?.shortTerm.map((item) => item.id), [memory.id])
+    assert.equal(retrieved?.shortTerm[0]?.layer, 'short_term')
+    assert.equal(retrieved?.shortTerm[0]?.retrievalText, '王家骏和 Amadeus 讨论 Pippa 的长期记忆设计细节。')
+    assert.deepEqual(retrieved?.fixed, [])
+
+    ctx.state.shortTermMemories = retrieved?.shortTerm ?? []
+    ctx.state.fixedMemories = retrieved?.fixed ?? []
     await system.beforeLLM?.(ctx)
 
-    assert.match(ctx.promptFragments[0]?.content ?? '', /此刻自然浮现的情景记忆/)
-    assert.match(ctx.promptFragments[0]?.content ?? '', /Pippa 的长期记忆设计/)
+    const content = ctx.promptFragments[0]?.content ?? ''
+    assert.match(content, /短期最相关记忆：/)
+    assert.match(content, /王家骏和 Amadeus 讨论 Pippa 的长期记忆设计细节。/)
+    assert.doesNotMatch(content, /此刻自然浮现的情景记忆/)
   } finally {
     resetDb()
     resetMemoryDb()

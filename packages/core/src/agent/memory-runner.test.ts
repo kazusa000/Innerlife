@@ -176,30 +176,13 @@ test('runAgent uses bound named counterpart labels in the memory semantic analyz
       INSERT INTO session_relationship_bindings (session_id, counterpart_id) VALUES ('session-1', 'cp-zhangsan');
     `)
 
-    let sawSemanticCall = false
+    let semanticInput = ''
     const provider = new FakeProvider(async function* (params) {
       if (isMemorySemanticPrompt(params.systemPrompt)) {
-        sawSemanticCall = true
-        assert.deepEqual(params.messages, [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: [
-                  '最近对话（仅供补全当前问题）：',
-                  '张三：我上周收养了一只猫。',
-                  '我：记住了，你上周收养了一只猫。',
-                  '张三：我给它起名叫橘子。',
-                  '我：好的，我记住那只猫叫橘子。',
-                  '',
-                  '当前消息（来自张三）：',
-                  '我猫叫什么',
-                ].join('\n'),
-              },
-            ],
-          },
-        ])
+        const content = params.messages[0] && Array.isArray(params.messages[0].content)
+          ? params.messages[0].content[0]
+          : null
+        semanticInput = content?.type === 'text' ? content.text : ''
         yield {
           type: 'message_complete',
           response: {
@@ -247,7 +230,16 @@ test('runAgent uses bound named counterpart labels in the memory semantic analyz
       events.push(event.type)
     }
 
-    assert.equal(sawSemanticCall, true)
+    assert.equal(semanticInput, [
+      '最近对话（仅供补全当前问题）：',
+      '张三：我上周收养了一只猫。',
+      'Agent One：记住了，你上周收养了一只猫。',
+      '张三：我给它起名叫橘子。',
+      'Agent One：好的，我记住那只猫叫橘子。',
+      '',
+      '当前消息（来自张三）：',
+      '我猫叫什么',
+    ].join('\n'))
     assert.ok(events.includes('complete'))
   } finally {
     resetDb()
@@ -316,9 +308,9 @@ test('runAgent records embedding retrieval metadata without writing a short-term
                 text: [
                   '最近对话（仅供补全当前问题）：',
                   '用户：我上周收养了一只猫。',
-                  '我：记住了，你上周收养了一只猫。',
+                  'Agent One：记住了，你上周收养了一只猫。',
                   '用户：我给它起名叫橘子。',
-                  '我：好的，我记住那只猫叫橘子。',
+                  'Agent One：好的，我记住那只猫叫橘子。',
                   '',
                   '当前用户消息：',
                   '我猫叫什么',
@@ -463,9 +455,9 @@ test('runAgent records embedding retrieval metadata without writing a short-term
         inputPreview: [
           '最近对话（仅供补全当前问题）：',
           '用户：我上周收养了一只猫。',
-          '我：记住了，你上周收养了一只猫。',
+          'Agent One：记住了，你上周收养了一只猫。',
           '用户：我给它起名叫橘子。',
-          '我：好的，我记住那只猫叫橘子。',
+          'Agent One：好的，我记住那只猫叫橘子。',
           '',
           '当前用户消息：',
           '我猫叫什么',
