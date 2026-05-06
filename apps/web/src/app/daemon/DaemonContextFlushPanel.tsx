@@ -31,7 +31,7 @@ export function DaemonContextFlushPanel({
     <section className={styles.panel}>
       <div className={styles.panelHead}>
         <div>
-          <p className={styles.panelLabel}>记忆 Flush</p>
+          <p className={styles.panelLabel}>{locale === 'en-US' ? 'Memory Flush' : '记忆 Flush'}</p>
           <h3 className={styles.panelTitle}>Context → STM</h3>
           <p className={styles.panelCopy}>
             {locale === 'en-US' ? 'Inspect active-session context candidates and safely trigger a manual flush when needed.' : '检查当前活跃 session 的 context 候选，并在需要时安全触发一次手动 flush。'}

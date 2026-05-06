@@ -25,7 +25,7 @@ export function DaemonOverviewPanel({ daemon, tickIntervalMs, recentEventCounts,
       <div className={styles.panelHead}>
         <div>
           <p className={styles.panelLabel}>{locale === 'en-US' ? 'Overview' : '概览'}</p>
-          <h3 className={styles.panelTitle}>{getDaemonHeadline(daemon)}</h3>
+          <h3 className={styles.panelTitle}>{getDaemonHeadline(daemon, locale)}</h3>
           <p className={styles.panelCopy}>
             {locale === 'en-US'
               ? 'This summarizes daemon heartbeat, errors, and recent background events.'
@@ -68,10 +68,6 @@ export function DaemonOverviewPanel({ daemon, tickIntervalMs, recentEventCounts,
         <div>
           <dt>Daemon</dt>
           <dd>{recentEventCounts.daemon}</dd>
-        </div>
-        <div>
-          <dt>{locale === 'en-US' ? 'Turing Tests' : '图灵测试'}</dt>
-          <dd>{recentEventCounts.turing}</dd>
         </div>
         <div>
           <dt>{locale === 'en-US' ? 'Memory Flush' : '记忆 Flush'}</dt>

@@ -9,13 +9,11 @@ import { DaemonOverviewPanel } from './DaemonOverviewPanel'
 import { DaemonSectionNav } from './DaemonSectionNav'
 import { getDaemonSections, type DaemonSectionId } from './daemon-sections'
 import { DaemonSleepPanel } from './DaemonSleepPanel'
-import { DaemonTuringPanel } from './DaemonTuringPanel'
 import type {
   DaemonContextFlushItem,
   DaemonEventView,
   DaemonOverviewData,
   DaemonSleepItem,
-  DaemonTuringRunView,
 } from './types'
 
 const DEFAULT_OVERVIEW: DaemonOverviewData = {
@@ -24,7 +22,6 @@ const DEFAULT_OVERVIEW: DaemonOverviewData = {
   recentEventCounts: {
     total: 0,
     daemon: 0,
-    turing: 0,
     memoryFlush: 0,
     memorySleep: 0,
   },
@@ -49,7 +46,6 @@ function readErrorMessage(value: unknown, fallback: string) {
 export default function DaemonWorkbench() {
   const locale = useAppLocale()
   const [overview, setOverview] = useState<DaemonOverviewData>(DEFAULT_OVERVIEW)
-  const [runs, setRuns] = useState<DaemonTuringRunView[]>([])
   const [flushSessions, setFlushSessions] = useState<DaemonContextFlushItem[]>([])
   const [sleepAgents, setSleepAgents] = useState<DaemonSleepItem[]>([])
   const [events, setEvents] = useState<DaemonEventView[]>([])
@@ -62,7 +58,6 @@ export default function DaemonWorkbench() {
   const [pending, startTransition] = useTransition()
   const sectionRefs = useRef<Record<DaemonSectionId, HTMLElement | null>>({
     overview: null,
-    turing: null,
     flush: null,
     sleep: null,
     events: null,
@@ -72,30 +67,26 @@ export default function DaemonWorkbench() {
     setError(null)
 
     try {
-      const [overviewResponse, runResponse, flushResponse, sleepResponse, eventResponse] = await Promise.all([
+      const [overviewResponse, flushResponse, sleepResponse, eventResponse] = await Promise.all([
         fetch('/api/daemon', { cache: 'no-store' }),
-        fetch('/api/daemon/turing-runs', { cache: 'no-store' }),
         fetch('/api/daemon/context-flush', { cache: 'no-store' }),
         fetch('/api/daemon/sleep', { cache: 'no-store' }),
         fetch('/api/daemon/events', { cache: 'no-store' }),
       ])
 
-      const [overviewPayload, runPayload, flushPayload, sleepPayload, eventPayload] = await Promise.all([
+      const [overviewPayload, flushPayload, sleepPayload, eventPayload] = await Promise.all([
         overviewResponse.json() as Promise<unknown>,
-        runResponse.json() as Promise<unknown>,
         flushResponse.json() as Promise<unknown>,
         sleepResponse.json() as Promise<unknown>,
         eventResponse.json() as Promise<unknown>,
       ])
 
       if (!overviewResponse.ok) throw new Error(readErrorMessage(overviewPayload, locale === 'en-US' ? 'Failed to load daemon overview' : '加载 daemon 概览失败'))
-      if (!runResponse.ok) throw new Error(readErrorMessage(runPayload, locale === 'en-US' ? 'Failed to load Turing test runs' : '加载图灵测试列表失败'))
       if (!flushResponse.ok) throw new Error(readErrorMessage(flushPayload, locale === 'en-US' ? 'Failed to load flush list' : '加载 flush 列表失败'))
       if (!sleepResponse.ok) throw new Error(readErrorMessage(sleepPayload, locale === 'en-US' ? 'Failed to load sleep list' : '加载睡眠列表失败'))
       if (!eventResponse.ok) throw new Error(readErrorMessage(eventPayload, locale === 'en-US' ? 'Failed to load event stream' : '加载事件流失败'))
 
       const overviewData = overviewPayload as { daemon: DaemonOverviewData['daemon']; tickIntervalMs: number; recentEventCounts: DaemonOverviewData['recentEventCounts'] }
-      const runData = runPayload as { runs: DaemonTuringRunView[] }
       const flushData = flushPayload as { sessions: DaemonContextFlushItem[] }
       const sleepData = sleepPayload as { agents: DaemonSleepItem[] }
       const eventData = eventPayload as { events: DaemonEventView[] }
@@ -105,7 +96,6 @@ export default function DaemonWorkbench() {
         tickIntervalMs: overviewData.tickIntervalMs ?? 5000,
         recentEventCounts: overviewData.recentEventCounts ?? DEFAULT_OVERVIEW.recentEventCounts,
       })
-      setRuns(Array.isArray(runData.runs) ? runData.runs : [])
       setFlushSessions(Array.isArray(flushData.sessions) ? flushData.sessions : [])
       setSleepAgents(Array.isArray(sleepData.agents) ? sleepData.agents : [])
       setEvents(Array.isArray(eventData.events) ? eventData.events : [])
@@ -250,8 +240,8 @@ export default function DaemonWorkbench() {
           <h1 className={styles.title}>Daemon Workbench</h1>
           <p className={styles.copy}>
             {locale === 'en-US'
-              ? 'Observe the daemon, Turing test jobs, context flushes, sleep consolidation, and background event stream from one global view.'
-              : '从全局视角观察 daemon、图灵测试任务、context flush、睡眠沉淀和后台事件流。'}
+              ? 'Observe the daemon, context flushes, sleep consolidation, and background event stream from one global view.'
+              : '从全局视角观察 daemon、context flush、睡眠沉淀和后台事件流。'}
           </p>
         </div>
         <div className={styles.heroActions}>
@@ -288,15 +278,6 @@ export default function DaemonWorkbench() {
             className={styles.sectionPanel}
           >
             <DaemonEventsPanel events={events} locale={locale} />
-          </div>
-
-          <div
-            id="daemon-section-turing"
-            data-section-id="turing"
-            ref={registerSection('turing')}
-            className={styles.sectionPanel}
-          >
-            <DaemonTuringPanel runs={runs} locale={locale} />
           </div>
 
           <div

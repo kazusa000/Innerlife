@@ -17,7 +17,6 @@ export interface DaemonOverviewData {
   recentEventCounts: {
     total: number
     daemon: number
-    turing: number
     memoryFlush: number
     memorySleep: number
   }
@@ -26,30 +25,10 @@ export interface DaemonOverviewData {
 export interface DaemonEventView {
   id: string
   kind: string
-  scope: 'daemon' | 'turing' | 'memory_flush' | 'memory_sleep'
+  scope: 'daemon' | 'memory_flush' | 'memory_sleep'
   message: string
   payload: Record<string, unknown> | null
   createdAt: string
-}
-
-export interface DaemonTuringRunView {
-  id: string
-  sourceAgentId: string
-  sourceAgentName: string | null
-  tempAgentId: string | null
-  tempAgentName: string | null
-  tempSessionId: string | null
-  status: string
-  currentStage: string | null
-  abortReason: string | null
-  judgeProvider: string | null
-  judgeModel: string | null
-  error: string | null
-  createdAt: string
-  updatedAt: string
-  startedAt: string | null
-  finishedAt: string | null
-  cleanedAt: string | null
 }
 
 export interface DaemonContextFlushItem {

@@ -13,7 +13,6 @@ const MANAGER_TILE_COPY: Record<AppLocale, Record<AgentManagerTile['section'], P
     relationships: { title: '关系', subtitle: '连结、信任、历史' },
     memory: { title: '记忆', subtitle: '归档、搜索、整理' },
     tools: { title: '工具', subtitle: '开关、提示、可用性' },
-    turing: { title: '图灵测试', subtitle: '自动评测、报告、回放' },
   },
   'en-US': {
     personality: { title: 'Persona', subtitle: 'system prompt, persona prompt' },
@@ -21,7 +20,6 @@ const MANAGER_TILE_COPY: Record<AppLocale, Record<AgentManagerTile['section'], P
     relationships: { title: 'Relationships', subtitle: 'connection, trust, history' },
     memory: { title: 'Memory', subtitle: 'archive, search, consolidation' },
     tools: { title: 'Tools', subtitle: 'toggles, prompts, availability' },
-    turing: { title: 'Turing Tests', subtitle: 'evaluation, reports, replay' },
   },
 }
 

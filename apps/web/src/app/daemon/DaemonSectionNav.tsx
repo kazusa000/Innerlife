@@ -18,8 +18,8 @@ export function DaemonSectionNav({ activeSection, locale }: DaemonSectionNavProp
         <h2 className={styles.sideNavTitle}>Daemon Workbench</h2>
         <p className={styles.sideNavCopy}>
           {locale === 'en-US'
-            ? 'Inspect the daemon, Turing test runs, memory flushes, sleep consolidation, and recent background events.'
-            : '查看 daemon 本体、图灵测试 run、记忆 flush、睡眠沉淀和最近后台事件。'}
+            ? 'Inspect the daemon, memory flushes, sleep consolidation, and recent background events.'
+            : '查看 daemon 本体、记忆 flush、睡眠沉淀和最近后台事件。'}
         </p>
       </div>
 

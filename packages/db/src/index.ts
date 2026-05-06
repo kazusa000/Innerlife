@@ -17,5 +17,3 @@ export * as sessionRelationshipBindingRepo from './repository/session-relationsh
 export * as daemonStateRepo from './repository/daemon-state'
 export * as daemonEventRepo from './repository/daemon-events'
 export * as agentMemorySleepStateRepo from './repository/agent-memory-sleep-state'
-export * as turingRunRepo from './repository/turing-runs'
-export * as turingEventRepo from './repository/turing-events'

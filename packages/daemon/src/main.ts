@@ -3,7 +3,6 @@ import { once } from 'node:events'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { bootstrapAppDatabases } from '@mas/db'
-import { processNextQueuedTuringRun } from '@mas/turing'
 import { processMemoryJobs } from './memory-jobs'
 import { DaemonRunner } from './runner'
 
@@ -99,7 +98,6 @@ export async function main() {
     logger: console,
     tick: async ({ signal }) => {
       await processMemoryJobs(signal)
-      await processNextQueuedTuringRun(signal)
     },
   })
 

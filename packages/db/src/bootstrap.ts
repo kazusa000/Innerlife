@@ -160,39 +160,13 @@ export function bootstrapAppDatabases(input: {
       last_sleep_at INTEGER,
       updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
     );
-    CREATE TABLE IF NOT EXISTS turing_test_runs (
-      id TEXT PRIMARY KEY,
-      source_agent_id TEXT NOT NULL REFERENCES agents(id),
-      temp_agent_id TEXT REFERENCES agents(id),
-      temp_session_id TEXT REFERENCES sessions(id),
-      status TEXT NOT NULL DEFAULT 'queued',
-      current_stage TEXT,
-      abort_reason TEXT,
-      judge_provider TEXT,
-      judge_model TEXT,
-      report_json TEXT,
-      transcript_json TEXT,
-      error TEXT,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
-      started_at INTEGER,
-      finished_at INTEGER,
-      cleaned_at INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_turing_test_runs_status_created_at
-      ON turing_test_runs(status, created_at);
-    CREATE INDEX IF NOT EXISTS idx_turing_test_runs_source_agent_id
-      ON turing_test_runs(source_agent_id, created_at);
-    CREATE TABLE IF NOT EXISTS turing_test_events (
-      id TEXT PRIMARY KEY,
-      run_id TEXT NOT NULL REFERENCES turing_test_runs(id),
-      kind TEXT NOT NULL,
-      message TEXT NOT NULL,
-      payload_json TEXT,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
-    );
-    CREATE INDEX IF NOT EXISTS idx_turing_test_events_run_created_at
-      ON turing_test_events(run_id, created_at);
+  `)
+  sqlite.exec(`
+    DROP INDEX IF EXISTS idx_turing_test_events_run_created_at;
+    DROP INDEX IF EXISTS idx_turing_test_runs_source_agent_id;
+    DROP INDEX IF EXISTS idx_turing_test_runs_status_created_at;
+    DROP TABLE IF EXISTS turing_test_events;
+    DROP TABLE IF EXISTS turing_test_runs;
   `)
   sqlite.exec(`
     DROP INDEX IF EXISTS idx_memories_agent_created_at;

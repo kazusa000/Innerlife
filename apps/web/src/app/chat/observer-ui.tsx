@@ -1,7 +1,8 @@
 'use client'
 
 import React, { useState, type ReactNode } from 'react'
-import { COMMON_UI_COPY, OBSERVER_UI_COPY, translateRole } from '../../lib/ui-copy'
+import { useAppLocale } from '../use-app-locale'
+import { getCommonUiCopy, getObserverUiCopy, translateRole } from '../../lib/ui-copy'
 import type { LiveCall } from './observer-types'
 import {
   blockText,
@@ -122,8 +123,10 @@ export function TagPills({
   values: string[]
   accent: string
 }) {
+  const locale = useAppLocale()
+  const copy = getObserverUiCopy(locale)
   if (values.length === 0) {
-    return <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>无</span>
+    return <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{copy.none}</span>
   }
 
   return (
@@ -191,6 +194,8 @@ export function CollapsibleSection({
   children: ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  const locale = useAppLocale()
+  const commonCopy = getCommonUiCopy(locale)
 
   return (
     <div
@@ -244,7 +249,7 @@ export function CollapsibleSection({
             </span>
           )}
         </span>
-        <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{open ? COMMON_UI_COPY.collapse : COMMON_UI_COPY.expand}</span>
+        <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{open ? commonCopy.collapse : commonCopy.expand}</span>
       </button>
       {open && <div style={{ padding: '0 14px 14px' }}>{children}</div>}
     </div>
@@ -252,6 +257,8 @@ export function CollapsibleSection({
 }
 
 function RenderBlock({ block }: { block: ConversationBlock }) {
+  const locale = useAppLocale()
+  const copy = getObserverUiCopy(locale)
   if (block.type === 'text') {
     return <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{block.text}</div>
   }
@@ -270,8 +277,8 @@ function RenderBlock({ block }: { block: ConversationBlock }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ color: 'var(--orange)', fontSize: 11, textTransform: 'uppercase' }}>{OBSERVER_UI_COPY.toolUse}</span>
-          <strong style={{ color: 'var(--fg)' }}>{block.name ?? OBSERVER_UI_COPY.tools}</strong>
+          <span style={{ color: 'var(--orange)', fontSize: 11, textTransform: 'uppercase' }}>{copy.toolUse}</span>
+          <strong style={{ color: 'var(--fg)' }}>{block.name ?? copy.tools}</strong>
           <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{summarizeInput(block.input)}</span>
         </div>
         <CodeBlock value={formatJson(block.input ?? {})} />
@@ -296,8 +303,8 @@ function RenderBlock({ block }: { block: ConversationBlock }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ color: accent, fontSize: 11, textTransform: 'uppercase' }}>{OBSERVER_UI_COPY.toolResult}</span>
-          <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{preview || '（空）'}</span>
+          <span style={{ color: accent, fontSize: 11, textTransform: 'uppercase' }}>{copy.toolResult}</span>
+          <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>{preview || copy.empty}</span>
         </div>
         <CodeBlock value={blockText(block.content)} />
         <MemoryToolGraphTrace metadata={block.metadata} />
@@ -309,6 +316,8 @@ function RenderBlock({ block }: { block: ConversationBlock }) {
 }
 
 function MemoryToolGraphTrace({ metadata }: { metadata?: Record<string, unknown> }) {
+  const locale = useAppLocale()
+  const copy = getObserverUiCopy(locale)
   if (metadata?.mode !== 'episodic_hybrid') {
     return null
   }
@@ -379,31 +388,31 @@ function MemoryToolGraphTrace({ metadata }: { metadata?: Record<string, unknown>
         gap: 10,
       }}
     >
-      <div style={{ color: '#93c5fd', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>Graph Trace</div>
-      <TraceRow label="Text Query" value={readString(metadata.textQuery) ?? '无'} />
+      <div style={{ color: '#93c5fd', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>{copy.graphTrace}</div>
+      <TraceRow label={copy.textQuery} value={readString(metadata.textQuery) ?? copy.none} />
       <TraceRow
-        label="Mentions"
-        value={mentions.length ? mentions.map((mention) => `${mention.surface}${mention.type ? `/${mention.type}` : ''}`).join(', ') : '无'}
+        label={copy.mentions}
+        value={mentions.length ? mentions.map((mention) => `${mention.surface}${mention.type ? `/${mention.type}` : ''}`).join(', ') : copy.none}
       />
       <TraceRow
-        label="Mention Candidates"
+        label={copy.mentionCandidates}
         value={candidates.length ? candidates.map((candidate) =>
           `${candidate.surface} -> ${candidate.canonicalName}${candidate.type ? `/${candidate.type}` : ''}${candidate.matchKind ? ` (${candidate.matchKind})` : ''}`,
-        ).join('\n') : '无'}
+        ).join('\n') : copy.none}
       />
       <TraceRow
-        label="Activated Entities"
+        label={copy.activatedEntities}
         value={activatedEntities.length ? activatedEntities.map((entity) =>
           `${entity.canonicalName}${entity.type ? `/${entity.type}` : ''}${entity.activation !== null ? ` ${entity.activation.toFixed(2)}` : ''}`,
-        ).join(', ') : '无'}
+        ).join(', ') : copy.none}
       />
       {hits.length > 0 && (
         <TraceRow
-          label="Hit Entity Links"
+          label={copy.hitEntityLinks}
           value={hits.map((hit) => {
             const entities = hit.entities.length
               ? hit.entities.map((entity) => `${entity.canonicalName}${entity.weight !== null ? ` ${entity.weight.toFixed(2)}` : ''}`).join(', ')
-              : '无'
+              : copy.none
             return `${hit.summary}\n${entities}`
           }).join('\n\n')}
         />
@@ -430,6 +439,8 @@ function MessageCard({
   role: string
   content: string | ConversationBlock[]
 }) {
+  const locale = useAppLocale()
+  const copy = getObserverUiCopy(locale)
   const roleTone: Record<string, AccentTone> = {
     user: { color: 'var(--indigo)', soft: 'rgba(129, 140, 248, 0.12)' },
     assistant: { color: '#a78bfa', soft: 'rgba(167, 139, 250, 0.12)' },
@@ -465,7 +476,7 @@ function MessageCard({
             fontWeight: 700,
           }}
         >
-          {title ?? translateRole(role)}
+          {title ?? translateRole(role, locale)}
         </span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 14 }}>
@@ -478,6 +489,8 @@ function MessageCard({
 }
 
 function CompactionInlineCard({ call }: { call: LiveCall }) {
+  const locale = useAppLocale()
+  const copy = getObserverUiCopy(locale)
   const metadata = call.metadata ?? {}
   const beforeMessageCount =
     typeof metadata.beforeMessageCount === 'number'
@@ -523,10 +536,10 @@ function CompactionInlineCard({ call }: { call: LiveCall }) {
             fontWeight: 700,
           }}
         >
-          {OBSERVER_UI_COPY.summaryCompaction}
+          {copy.summaryCompaction}
         </span>
         <span style={{ color: 'var(--fg)', fontSize: 13 }}>
-          本轮压缩：{compactedCount ?? beforeMessageCount ?? '?'} 条 → 1 条摘要
+          {copy.turnCompactionLine(compactedCount ?? beforeMessageCount ?? '?')}
         </span>
       </div>
       {summary && <CodeBlock value={summary} />}
@@ -541,6 +554,8 @@ export function MessagesTimeline({
   call: LiveCall
   inlineCompactionCall: LiveCall | null
 }) {
+  const locale = useAppLocale()
+  const copy = getObserverUiCopy(locale)
   const messages = toMessages(call.messages)
   const responseBlocks = toBlocks(call.response)
 
@@ -552,7 +567,7 @@ export function MessagesTimeline({
       ))}
       {(responseBlocks.length > 0 || call.error) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <MessageCard role="assistant" title={OBSERVER_UI_COPY.response} content={responseBlocks} />
+          <MessageCard role="assistant" title={copy.response} content={responseBlocks} />
           {call.error && (
             <div
               style={{
@@ -570,7 +585,7 @@ export function MessagesTimeline({
         </div>
       )}
       {messages.length === 0 && responseBlocks.length === 0 && !call.error && (
-        <div style={{ color: 'var(--fg-subtle)', fontSize: 13 }}>{OBSERVER_UI_COPY.waitingMessageSnapshot}</div>
+        <div style={{ color: 'var(--fg-subtle)', fontSize: 13 }}>{copy.waitingMessageSnapshot}</div>
       )}
     </div>
   )

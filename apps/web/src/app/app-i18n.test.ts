@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { getObserverUiCopy } from '../lib/ui-copy'
 import { getHomeCopy, getManagerTiles } from './app-i18n'
 
 test('home copy renders English labels for en-US locale', () => {
@@ -22,4 +23,15 @@ test('manager tile labels are localized without changing their routes', () => {
     enTiles.map((tile) => tile.section),
     zhTiles.map((tile) => tile.section),
   )
+})
+
+test('observer copy exposes English labels for deep observer cards', () => {
+  const copy = getObserverUiCopy('en-US')
+
+  assert.equal(copy.none, 'None')
+  assert.equal(copy.empty, '(empty)')
+  assert.equal(copy.originalPrompt, 'Raw Prompt')
+  assert.equal(copy.originalResponse, 'Raw Response')
+  assert.equal(copy.emotionDeltaTitle, 'Emotion Delta')
+  assert.equal(copy.relationshipDeltaTitle, 'Relationship Delta')
 })

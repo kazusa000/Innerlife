@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { getDb } from '../client'
 import { daemonEvents } from '../schema'
 
-export type DaemonEventScope = 'daemon' | 'turing' | 'memory_flush' | 'memory_sleep'
+export type DaemonEventScope = 'daemon' | 'memory_flush' | 'memory_sleep'
 
 export interface DaemonEventRecord {
   id: string

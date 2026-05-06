@@ -1,8 +1,9 @@
 'use client'
 
 import React, { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useAppLocale } from '../use-app-locale'
 import { formatDurationLabel } from '../../lib/format-duration'
-import { OBSERVER_UI_COPY, translateMemoryPhase } from '../../lib/ui-copy'
+import { getObserverUiCopy, translateMemoryPhase, type UiLocale } from '../../lib/ui-copy'
 import { EmotionCallCardDimensional } from './EmotionCallCard.dimensional'
 import { MemoryCallCardSqlite } from './MemoryCallCard.sqlite'
 import { RelationshipCallCardMultiDim } from './RelationshipCallCard.multi-dim'
@@ -18,14 +19,15 @@ interface Props {
   setActiveTab: (tab: ObserverTab) => void
 }
 
-function callSubtabLabel(call: LiveCall): string {
+function callSubtabLabel(call: LiveCall, locale: UiLocale): string {
+  const copy = getObserverUiCopy(locale)
   if (call.kind === 'turn') return `#${call.turnIndex}`
   if (call.kind === 'memory') {
     const phase = typeof call.metadata?.phase === 'string' ? call.metadata.phase : 'call'
-    return translateMemoryPhase(phase)
+    return translateMemoryPhase(phase, locale)
   }
-  if (call.kind === 'emotion') return OBSERVER_UI_COPY.delta
-  if (call.kind === 'relationship') return OBSERVER_UI_COPY.delta
+  if (call.kind === 'emotion') return copy.delta
+  if (call.kind === 'relationship') return copy.delta
   return call.callId
 }
 
@@ -40,6 +42,7 @@ function CallSubtabs({
   onSelect: (id: string) => void
   accent: string
 }) {
+  const locale = useAppLocale()
   if (calls.length <= 1) return null
 
   return (
@@ -85,7 +88,7 @@ function CallSubtabs({
               gap: 6,
             }}
           >
-            <span>{callSubtabLabel(call)}</span>
+            <span>{callSubtabLabel(call, locale)}</span>
             <span
               style={{
                 color: call.finished ? 'var(--fg-subtle)' : 'var(--orange)',
@@ -101,7 +104,14 @@ function CallSubtabs({
   )
 }
 
-function formatTurnStatus(status: ObserverTurnState['status']): string {
+function formatTurnStatus(status: ObserverTurnState['status'], locale: UiLocale): string {
+  if (locale === 'en-US') {
+    if (status === 'loading') return 'Loading the latest turn...'
+    if (status === 'running') return 'Current turn is running'
+    if (status === 'error') return 'Current turn ended with an error'
+    if (status === 'complete') return 'Showing current turn'
+    return 'Waiting for the next turn'
+  }
   if (status === 'loading') return '正在加载最近一轮…'
   if (status === 'running') return '当前轮对话进行中'
   if (status === 'error') return '当前轮对话结束于错误'
@@ -134,6 +144,8 @@ function MainTurnCallCard({
   call: LiveCall
   inlineCompactionCall: LiveCall | null
 }) {
+  const locale = useAppLocale()
+  const copy = getObserverUiCopy(locale)
   const toolsCount = Array.isArray(call.tools) ? call.tools.length : 0
   const fragmentsCount = getPromptFragments(call).length
   const duration = formatDurationLabel(call.startedAt, call.finishedAt)
@@ -146,10 +158,10 @@ function MainTurnCallCard({
       : ''
 
   const fragmentSections = [
-    { key: 'personality', label: '性格', accent: CALL_ACCENTS.personality },
-    { key: 'emotion', label: '情绪', accent: CALL_ACCENTS.emotion },
-    { key: 'memory', label: '记忆', accent: CALL_ACCENTS.memory },
-    { key: 'relationship', label: '关系', accent: CALL_ACCENTS.relationship },
+    { key: 'personality', label: copy.personality, accent: CALL_ACCENTS.personality },
+    { key: 'emotion', label: copy.emotion, accent: CALL_ACCENTS.emotion },
+    { key: 'memory', label: copy.memory, accent: CALL_ACCENTS.memory },
+    { key: 'relationship', label: locale === 'en-US' ? 'Relationship' : '关系', accent: CALL_ACCENTS.relationship },
   ].flatMap(({ key, label, accent }) => {
     const fragment = getPromptFragment(call, key)
     if (!fragment) {
@@ -169,18 +181,18 @@ function MainTurnCallCard({
 
   const anchors = [
     ...fragmentSections.map((section) => ({ id: section.id, label: section.label, visible: true })),
-    { id: 'thinking', label: '思考', visible: thinkingText.length > 0 },
+    { id: 'thinking', label: copy.thinking, visible: thinkingText.length > 0 },
     {
       id: 'messages',
-      label: OBSERVER_UI_COPY.messages,
+      label: copy.messages,
       visible:
         Array.isArray(call.messages) && call.messages.length > 0
           || call.response !== undefined
           || !!call.error
           || inlineCompactionCall !== null,
     },
-    { id: 'tools', label: OBSERVER_UI_COPY.toolsSchema, visible: toolsCount > 0 },
-    { id: 'final-prompt', label: OBSERVER_UI_COPY.finalSystemPrompt, visible: Boolean(call.systemPrompt) },
+    { id: 'tools', label: copy.toolsSchema, visible: toolsCount > 0 },
+    { id: 'final-prompt', label: copy.finalSystemPrompt, visible: Boolean(call.systemPrompt) },
   ].filter((item) => item.visible)
 
   const scrollToSection = (id: string) => {
@@ -222,21 +234,21 @@ function MainTurnCallCard({
               textTransform: 'uppercase',
             }}
           >
-            主对话
+            {copy.mainTurn}
           </span>
           <span style={{ color: 'var(--fg-subtle)', fontSize: 12 }}>#{call.turnIndex}</span>
           <span style={{ color: call.finished ? 'var(--fg-muted)' : 'var(--orange)', fontSize: 12 }}>
-            {call.finished ? OBSERVER_UI_COPY.finished : OBSERVER_UI_COPY.running}
+            {call.finished ? copy.finished : copy.running}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Pill label={OBSERVER_UI_COPY.model} value={call.model} />
-          {duration ? <Pill label={OBSERVER_UI_COPY.duration} value={duration} /> : null}
-          <Pill label={OBSERVER_UI_COPY.tools} value={String(toolsCount)} />
-          <Pill label={OBSERVER_UI_COPY.fragments} value={String(fragmentsCount)} />
-          <Pill label={OBSERVER_UI_COPY.stop} value={call.stopReason ?? (call.finished ? 'end_turn' : OBSERVER_UI_COPY.pending)} accent={CALL_ACCENTS.turn.color} />
-          <Pill label={OBSERVER_UI_COPY.inputTokens} value={String(call.usage?.inputTokens ?? '?')} />
-          <Pill label={OBSERVER_UI_COPY.outputTokens} value={String(call.usage?.outputTokens ?? '?')} />
+          <Pill label={copy.model} value={call.model} />
+          {duration ? <Pill label={copy.duration} value={duration} /> : null}
+          <Pill label={copy.tools} value={String(toolsCount)} />
+          <Pill label={copy.fragments} value={String(fragmentsCount)} />
+          <Pill label={copy.stop} value={call.stopReason ?? (call.finished ? 'end_turn' : copy.pending)} accent={CALL_ACCENTS.turn.color} />
+          <Pill label={copy.inputTokens} value={String(call.usage?.inputTokens ?? '?')} />
+          <Pill label={copy.outputTokens} value={String(call.usage?.outputTokens ?? '?')} />
         </div>
       </div>
 
@@ -298,7 +310,7 @@ function MainTurnCallCard({
               }}
               style={{ scrollMarginTop: 12 }}
             >
-              <DimensionPanel title="思考内容" accent={CALL_ACCENTS.turn} defaultOpen>
+              <DimensionPanel title={locale === 'en-US' ? 'Thinking Content' : '思考内容'} accent={CALL_ACCENTS.turn} defaultOpen>
                 <CodeBlock value={thinkingText} />
               </DimensionPanel>
             </div>
@@ -310,7 +322,7 @@ function MainTurnCallCard({
             }}
             style={{ scrollMarginTop: 12 }}
           >
-            <DimensionPanel title={OBSERVER_UI_COPY.messages} accent={CALL_ACCENTS.turn} defaultOpen>
+            <DimensionPanel title={copy.messages} accent={CALL_ACCENTS.turn} defaultOpen>
               <MessagesTimeline call={call} inlineCompactionCall={inlineCompactionCall} />
             </DimensionPanel>
           </div>
@@ -322,7 +334,7 @@ function MainTurnCallCard({
               }}
               style={{ scrollMarginTop: 12 }}
             >
-              <CollapsibleSection title={OBSERVER_UI_COPY.toolsSchema} accent={CALL_ACCENTS.turn.color} badge={String(toolsCount)}>
+              <CollapsibleSection title={copy.toolsSchema} accent={CALL_ACCENTS.turn.color} badge={String(toolsCount)}>
                 <CodeBlock value={JSON.stringify(call.tools ?? null, null, 2)} />
               </CollapsibleSection>
             </div>
@@ -335,7 +347,7 @@ function MainTurnCallCard({
               }}
               style={{ scrollMarginTop: 12 }}
             >
-              <CollapsibleSection title={OBSERVER_UI_COPY.finalSystemPrompt} accent={CALL_ACCENTS.turn.color}>
+              <CollapsibleSection title={copy.finalSystemPrompt} accent={CALL_ACCENTS.turn.color}>
                 <CodeBlock value={call.systemPrompt} />
               </CollapsibleSection>
             </div>
@@ -352,10 +364,13 @@ function UnknownSchemeCard({
   title: string
   scheme: string | null
 }) {
+  const locale = useAppLocale()
   return (
     <EmptyState
       title={title}
-      body={scheme ? `当前方案 "${scheme}" 暂未实现该标签页组件。` : '当前虚拟人没有可识别的方案配置。'}
+      body={scheme
+        ? (locale === 'en-US' ? `Current scheme "${scheme}" does not have an implemented tab component yet.` : `当前方案 "${scheme}" 暂未实现该标签页组件。`)
+        : (locale === 'en-US' ? 'This persona does not have a recognizable scheme configuration.' : '当前虚拟人没有可识别的方案配置。')}
     />
   )
 }
@@ -372,6 +387,8 @@ export function ObserverDrawer({
   activeTab,
   setActiveTab,
 }: Props) {
+  const locale = useAppLocale()
+  const copy = getObserverUiCopy(locale)
   const mainCalls = useMemo(() => turn.calls.filter((call) => call.kind === 'turn'), [turn.calls])
   const memoryCalls = useMemo(() => turn.calls.filter((call) => call.kind === 'memory'), [turn.calls])
   const emotionCalls = useMemo(() => turn.calls.filter((call) => call.kind === 'emotion'), [turn.calls])
@@ -408,8 +425,10 @@ export function ObserverDrawer({
     if (mainCalls.length === 0) {
       return (
         <EmptyState
-          title="本轮未触发主对话调用"
-          body={turn.status === 'running' ? '正在等待主对话调用开始。' : '当前轮对话没有可展示的主对话调用。'}
+          title={locale === 'en-US' ? 'No Main-Turn Call This Turn' : '本轮未触发主对话调用'}
+          body={turn.status === 'running'
+            ? (locale === 'en-US' ? 'Waiting for the main-turn call to start.' : '正在等待主对话调用开始。')
+            : (locale === 'en-US' ? 'This turn has no main-turn call to display.' : '当前轮对话没有可展示的主对话调用。')}
         />
       )
     }
@@ -432,11 +451,11 @@ export function ObserverDrawer({
 
   const renderMemoryTab = () => {
     if (memoryCalls.length === 0) {
-      return <EmptyState title="本轮未触发记忆调用" body="当前轮对话没有记忆检索、总结或整理调用。" />
+      return <EmptyState title={locale === 'en-US' ? 'No Memory Call This Turn' : '本轮未触发记忆调用'} body={locale === 'en-US' ? 'This turn has no memory retrieval, summary, or consolidation call.' : '当前轮对话没有记忆检索、总结或整理调用。'} />
     }
 
     if (memoryScheme !== 'sqlite') {
-      return <UnknownSchemeCard title="记忆组件未命中" scheme={memoryScheme} />
+      return <UnknownSchemeCard title={locale === 'en-US' ? 'Memory Component Not Matched' : '记忆组件未命中'} scheme={memoryScheme} />
     }
 
     const activeCall = memoryCalls.find((call) => call.callId === activeMemoryCallId) ?? memoryCalls[memoryCalls.length - 1]
@@ -451,11 +470,11 @@ export function ObserverDrawer({
 
   const renderEmotionTab = () => {
     if (emotionCalls.length === 0) {
-      return <EmptyState title="本轮未触发情绪调用" body="当前轮对话没有情绪变化分析调用。" />
+      return <EmptyState title={locale === 'en-US' ? 'No Emotion Call This Turn' : '本轮未触发情绪调用'} body={locale === 'en-US' ? 'This turn has no emotion delta analysis call.' : '当前轮对话没有情绪变化分析调用。'} />
     }
 
     if (emotionScheme !== 'dimensional') {
-      return <UnknownSchemeCard title="情绪组件未命中" scheme={emotionScheme} />
+      return <UnknownSchemeCard title={locale === 'en-US' ? 'Emotion Component Not Matched' : '情绪组件未命中'} scheme={emotionScheme} />
     }
 
     const activeCall = emotionCalls.find((call) => call.callId === activeEmotionCallId) ?? emotionCalls[emotionCalls.length - 1]
@@ -470,11 +489,11 @@ export function ObserverDrawer({
 
   const renderRelationshipTab = () => {
     if (relationshipCalls.length === 0) {
-      return <EmptyState title="本轮未触发关系调用" body="当前轮对话没有关系变化分析调用。" />
+      return <EmptyState title={locale === 'en-US' ? 'No Relationship Call This Turn' : '本轮未触发关系调用'} body={locale === 'en-US' ? 'This turn has no relationship delta analysis call.' : '当前轮对话没有关系变化分析调用。'} />
     }
 
     if (relationshipScheme !== 'multi-dim' && relationshipScheme !== 'named-multi-dim') {
-      return <UnknownSchemeCard title="关系组件未命中" scheme={relationshipScheme} />
+      return <UnknownSchemeCard title={locale === 'en-US' ? 'Relationship Component Not Matched' : '关系组件未命中'} scheme={relationshipScheme} />
     }
 
     const activeCall = relationshipCalls.find((call) => call.callId === activeRelationshipCallId)
@@ -519,8 +538,8 @@ export function ObserverDrawer({
           flexShrink: 0,
         }}
       >
-        <strong style={{ color: 'var(--fg)', fontSize: 14 }}>{OBSERVER_UI_COPY.title}</strong>
-        <span style={{ color: 'var(--fg-muted)', fontSize: 12 }}>{formatTurnStatus(turn.status)}</span>
+        <strong style={{ color: 'var(--fg)', fontSize: 14 }}>{copy.title}</strong>
+        <span style={{ color: 'var(--fg-muted)', fontSize: 12 }}>{formatTurnStatus(turn.status, locale)}</span>
       </div>
 
       <div
@@ -536,10 +555,10 @@ export function ObserverDrawer({
         }}
       >
         {[
-          { id: 'main', label: '主对话', count: mainCalls.length },
-          { id: 'memory', label: '记忆', count: memoryCalls.length },
-          { id: 'emotion', label: '情绪', count: emotionCalls.length },
-          { id: 'relationship', label: '关系', count: relationshipCalls.length },
+          { id: 'main', label: copy.mainTurn, count: mainCalls.length },
+          { id: 'memory', label: copy.memory, count: memoryCalls.length },
+          { id: 'emotion', label: copy.emotion, count: emotionCalls.length },
+          { id: 'relationship', label: locale === 'en-US' ? 'Relationship' : '关系', count: relationshipCalls.length },
         ].map((tab) => (
           <button
             key={tab.id}

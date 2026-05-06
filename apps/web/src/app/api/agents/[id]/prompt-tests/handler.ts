@@ -38,7 +38,7 @@ import {
   type MemoryRecord,
   type RelationshipDimensions,
 } from '@mas/systems'
-import { readPersonalityPrompts } from '@mas/turing'
+import { readPersonalityPrompts } from '@/lib/chat-executor'
 
 type ProviderLike = Pick<LLMProvider, 'sendMessage'>
 type AgentRecord = NonNullable<ReturnType<typeof agentRepo.getAgent>>

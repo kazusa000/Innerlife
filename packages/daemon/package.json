@@ -16,8 +16,7 @@
   "dependencies": {
     "@mas/core": "*",
     "@mas/db": "*",
-    "@mas/systems": "*",
-    "@mas/turing": "*"
+    "@mas/systems": "*"
   },
   "devDependencies": {
     "tsx": "^4.21.0"

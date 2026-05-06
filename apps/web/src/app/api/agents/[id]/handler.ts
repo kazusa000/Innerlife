@@ -10,19 +10,12 @@ import {
   sessionRelationshipBindingRepo,
   sessionContextStateRepo,
   sessionRepo,
-  turingEventRepo,
-  turingRunRepo,
 } from '@mas/db'
 
 export function deleteAgentCascade(agentId: string) {
   const agent = agentRepo.getAgent(agentId)
   if (!agent) {
     return Response.json({ error: 'Not found' }, { status: 404 })
-  }
-
-  for (const run of turingRunRepo.listRunsBySourceAgent(agentId)) {
-    turingEventRepo.deleteEvents(run.id)
-    turingRunRepo.deleteRun(run.id)
   }
 
   emotionStateRepo.deleteEmotionStatesByAgent(agentId)

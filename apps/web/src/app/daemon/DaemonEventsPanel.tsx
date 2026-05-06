@@ -30,7 +30,7 @@ export function DaemonEventsPanel({ events, locale }: DaemonEventsPanelProps) {
         <pre className={localStyles.console}>
           {events.map((event) => (
             <span key={event.id} className={localStyles.consoleLine}>
-              {formatDaemonEventLine(event)}
+              {formatDaemonEventLine(event, locale)}
             </span>
           ))}
         </pre>

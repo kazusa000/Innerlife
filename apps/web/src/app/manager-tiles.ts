@@ -4,7 +4,6 @@ export type AgentManagerSection =
   | 'relationships'
   | 'memory'
   | 'tools'
-  | 'turing'
 
 export interface AgentManagerTile {
   index: string
@@ -43,11 +42,5 @@ export const AGENT_MANAGER_TILES: AgentManagerTile[] = [
     title: '工具',
     subtitle: '开关、提示、可用性',
     section: 'tools',
-  },
-  {
-    index: '06',
-    title: '图灵测试',
-    subtitle: '自动评测、报告、回放',
-    section: 'turing',
   },
 ]

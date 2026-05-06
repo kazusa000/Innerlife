@@ -8,12 +8,10 @@ import {
   messageRepo,
   sessionContextStateRepo,
   sessionRepo,
-  turingRunRepo,
 } from '@mas/db'
 import { isSqliteMemoryConfig, resolveMemoryPipelineSettings } from '@mas/systems'
 import {
   serializeDaemonEventList,
-  serializeDaemonRunSummary,
   serializeDaemonState,
 } from './shared'
 
@@ -103,7 +101,6 @@ export async function getDaemonOverview() {
   const counts = {
     total: events.length,
     daemon: events.filter((event) => event.scope === 'daemon').length,
-    turing: events.filter((event) => event.scope === 'turing').length,
     memoryFlush: events.filter((event) => event.scope === 'memory_flush').length,
     memorySleep: events.filter((event) => event.scope === 'memory_sleep').length,
   }
@@ -119,13 +116,6 @@ export async function getDaemonEventsFeed() {
   const events = daemonEventRepo.listEvents({ limit: 40 })
   return Response.json({
     events: serializeDaemonEventList(events),
-  })
-}
-
-export async function getDaemonTuringRunSummaries() {
-  const runs = turingRunRepo.listRecentRuns(10)
-  return Response.json({
-    runs: runs.map((run) => serializeDaemonRunSummary(run)),
   })
 }
 
