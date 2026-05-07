@@ -1,4 +1,4 @@
-export { getDb, getRawSqlite, resetDb } from './client'
+export { getDb, getRawSqlite, migrateLegacyAppDb, resetDb, resolveDefaultAppDbPath } from './client'
 export { getMemoryDb, getMemoryRawSqlite, resetMemoryDb } from './memory-client'
 export { bootstrapAppDatabases } from './bootstrap'
 export * as schema from './schema'

@@ -1,13 +1,19 @@
 import path from 'node:path'
-import { agentRepo, bootstrapAppDatabases } from '@mas/db'
+import { agentRepo, bootstrapAppDatabases, migrateLegacyAppDb } from '@mas/db'
 
-const DB_PATH = path.resolve(process.cwd(), '..', '..', 'data.db')
-const MEMORY_DB_PATH = path.resolve(process.cwd(), '..', '..', 'storage', 'memory', 'memory.db')
+const REPO_ROOT = path.resolve(process.cwd(), '..', '..')
+const DB_PATH = path.resolve(REPO_ROOT, 'storage', 'app', 'data.db')
+const LEGACY_DB_PATH = path.resolve(REPO_ROOT, 'data.db')
+const MEMORY_DB_PATH = path.resolve(REPO_ROOT, 'storage', 'memory', 'memory.db')
 
 let initialized = false
 
 export function initDb() {
   if (initialized) return
+  migrateLegacyAppDb({
+    legacyPath: LEGACY_DB_PATH,
+    targetPath: DB_PATH,
+  })
   bootstrapAppDatabases({
     dbPath: DB_PATH,
     memoryDbPath: MEMORY_DB_PATH,

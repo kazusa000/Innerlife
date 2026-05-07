@@ -2,7 +2,7 @@ import path from 'node:path'
 import { once } from 'node:events'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { bootstrapAppDatabases } from '@mas/db'
+import { bootstrapAppDatabases, migrateLegacyAppDb } from '@mas/db'
 import { processMemoryJobs } from './memory-jobs'
 import { DaemonRunner } from './runner'
 
@@ -76,12 +76,19 @@ export async function main() {
 
   const dbPath = resolveEnvPath(
     process.env.MAS_DAEMON_DB_PATH,
-    path.resolve(REPO_ROOT, 'data.db'),
+    path.resolve(REPO_ROOT, 'storage', 'app', 'data.db'),
   )
   const memoryDbPath = resolveEnvPath(
     process.env.MAS_MEMORY_DB_PATH,
     path.resolve(REPO_ROOT, 'storage', 'memory', 'memory.db'),
   )
+
+  if (!process.env.MAS_DAEMON_DB_PATH) {
+    migrateLegacyAppDb({
+      legacyPath: path.resolve(REPO_ROOT, 'data.db'),
+      targetPath: dbPath,
+    })
+  }
 
   bootstrapAppDatabases({
     dbPath,

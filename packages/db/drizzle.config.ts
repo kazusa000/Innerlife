@@ -6,6 +6,6 @@ export default defineConfig({
   dialect: 'sqlite',
   dbCredentials: {
     // Resolved relative to packages/db cwd → project root.
-    url: '../../data.db',
+    url: '../../storage/app/data.db',
   },
 })
