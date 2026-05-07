@@ -191,3 +191,33 @@ test('agent GET/PATCH expose top-level systemPrompt and personaPrompt', async ()
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('agent PATCH accepts openai-compatible provider', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-agent-provider-route-'))
+  const dbPath = join(dir, 'data.db')
+  const memoryDbPath = join(dir, 'memory.db')
+
+  try {
+    bootstrap(dbPath, memoryDbPath)
+
+    const agent = agentRepo.createAgent({
+      name: 'Provider Route',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+    })!
+
+    const patchResponse = updateAgentDetail(agent.id, {
+      provider: 'openai-compatible',
+      model: 'gpt-4.1-mini',
+    })
+
+    assert.equal(patchResponse.status, 200)
+    const updated = agentRepo.getAgent(agent.id)
+    assert.equal(updated?.provider, 'openai-compatible')
+    assert.equal(updated?.model, 'gpt-4.1-mini')
+  } finally {
+    resetDb()
+    resetMemoryDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

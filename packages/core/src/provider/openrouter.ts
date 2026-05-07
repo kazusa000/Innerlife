@@ -19,7 +19,7 @@ interface OpenRouterToolCall {
   }
 }
 
-interface OpenRouterChatMessage {
+export interface OpenRouterChatMessage {
   role: OpenRouterRole
   content?: string | null
   tool_calls?: OpenRouterToolCall[]
@@ -59,7 +59,7 @@ type OpenRouterReasoningDetail =
   | { type?: 'reasoning.text'; text?: string | null }
   | { type?: string; [key: string]: unknown }
 
-interface OpenRouterUsage {
+export interface OpenRouterUsage {
   prompt_tokens?: number
   completion_tokens?: number
 }
@@ -70,7 +70,7 @@ interface OpenRouterResponse {
   error?: { message?: string }
 }
 
-interface StreamingToolState {
+export interface StreamingToolState {
   id: string
   name: string
   input: string
@@ -95,7 +95,7 @@ function parseJsonObject(text: string): Record<string, unknown> {
   }
 }
 
-function buildOpenRouterMessages(systemPrompt: string, messages: Message[]): OpenRouterChatMessage[] {
+export function buildOpenRouterMessages(systemPrompt: string, messages: Message[]): OpenRouterChatMessage[] {
   const result: OpenRouterChatMessage[] = []
 
   if (systemPrompt.trim()) {
@@ -155,7 +155,7 @@ function buildOpenRouterMessages(systemPrompt: string, messages: Message[]): Ope
   return result
 }
 
-function mapTools(tools?: ToolDefinition[]) {
+export function mapTools(tools?: ToolDefinition[]) {
   return tools?.map((tool) => ({
     type: 'function',
     function: {
@@ -166,7 +166,7 @@ function mapTools(tools?: ToolDefinition[]) {
   }))
 }
 
-function mapResponseFormat(responseFormat?: LLMResponseFormat) {
+export function mapResponseFormat(responseFormat?: LLMResponseFormat) {
   if (!responseFormat) {
     return undefined
   }
@@ -238,7 +238,7 @@ function mapFinishReason(reason?: string | null): LLMResponse['stopReason'] {
   }
 }
 
-function buildResponse(
+export function buildResponse(
   text: string,
   toolCalls: StreamingToolState[],
   finishReason?: string | null,

@@ -25,12 +25,14 @@ interface Agent {
   id: string
   name: string
   description: string | null
-  provider: 'anthropic' | 'openrouter'
+  provider: AgentProvider
   model: string
   modules: Record<string, unknown> | null
   status: string
   createdAt: string
 }
+
+type AgentProvider = 'anthropic' | 'openrouter' | 'openai-compatible'
 
 const MODEL_LABELS: Record<string, string> = {
   'claude-sonnet-4-6': 'Sonnet 4.6',
@@ -138,7 +140,7 @@ export default function HomePageClient({ initialLocale }: { initialLocale: AppLo
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [provider, setProvider] = useState<'anthropic' | 'openrouter'>('anthropic')
+  const [provider, setProvider] = useState<AgentProvider>('anthropic')
   const [model, setModel] = useState<string>(DEFAULT_MODEL_BY_PROVIDER.anthropic)
   const [baseModules, setBaseModules] = useState<Record<string, unknown> | null>({})
   const [emotionScheme, setEmotionScheme] = useState<EmotionScheme>('noop')
@@ -379,12 +381,13 @@ export default function HomePageClient({ initialLocale }: { initialLocale: AppLo
                   className="input"
                   value={provider}
                   onChange={(event) => {
-                    const nextProvider = event.target.value as 'anthropic' | 'openrouter'
+                    const nextProvider = event.target.value as AgentProvider
                     setProvider(nextProvider)
                     if (
                       !model.trim()
                       || model === DEFAULT_MODEL_BY_PROVIDER.anthropic
                       || model === DEFAULT_MODEL_BY_PROVIDER.openrouter
+                      || model === DEFAULT_MODEL_BY_PROVIDER['openai-compatible']
                     ) {
                       setModel(DEFAULT_MODEL_BY_PROVIDER[nextProvider])
                     }
@@ -392,6 +395,7 @@ export default function HomePageClient({ initialLocale }: { initialLocale: AppLo
                 >
                   <option value="anthropic">Anthropic</option>
                   <option value="openrouter">OpenRouter</option>
+                  <option value="openai-compatible">OpenAI Compatible</option>
                 </select>
               </label>
 
@@ -404,6 +408,8 @@ export default function HomePageClient({ initialLocale }: { initialLocale: AppLo
                   placeholder={
                     provider === 'openrouter'
                       ? copy.modelOpenRouterPlaceholder
+                      : provider === 'openai-compatible'
+                        ? 'gpt-4.1-mini'
                       : copy.modelAnthropicPlaceholder
                   }
                   list="model-suggestions"
@@ -413,6 +419,8 @@ export default function HomePageClient({ initialLocale }: { initialLocale: AppLo
                   <option value="claude-haiku-4-5-20251001" />
                   <option value="claude-opus-4-6" />
                   <option value="anthropic/claude-sonnet-4.6" />
+                  <option value="gpt-4.1-mini" />
+                  <option value="gpt-4o-mini" />
                   <option value="openai/gpt-5.2" />
                   <option value="google/gemini-2.5-flash" />
                   <option value="deepseek/deepseek-chat-v3-0324" />

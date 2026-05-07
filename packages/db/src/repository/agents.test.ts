@@ -215,6 +215,55 @@ test('createAgent and updateAgent round-trip top-level tools config', () => {
   }
 })
 
+test('createAgent and updateAgent preserve openai-compatible provider', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mas-agents-provider-'))
+  const dbPath = join(dir, 'test.db')
+
+  try {
+    resetDb()
+    getDb(dbPath)
+    getRawSqlite().exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        personality TEXT,
+        skills TEXT,
+        modules TEXT,
+        status TEXT NOT NULL DEFAULT 'idle',
+        model TEXT NOT NULL,
+        config TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+      );
+    `)
+
+    const created = createAgent({
+      name: 'Provider Test',
+      provider: 'openai-compatible',
+      model: 'gpt-4.1-mini',
+    })
+
+    assert.equal(created.provider, 'openai-compatible')
+
+    const switched = updateAgent(created.id, {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4.6',
+    })
+    assert.equal(switched?.provider, 'openrouter')
+
+    const restored = updateAgent(created.id, {
+      provider: 'openai-compatible',
+      model: 'gpt-4.1-mini',
+    })
+    assert.equal(restored?.provider, 'openai-compatible')
+    assert.equal(getAgent(created.id)?.provider, 'openai-compatible')
+  } finally {
+    resetDb()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('getAgent migrates config prompts into modules.personality and ignores legacy personality.prompt fallback', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-agents-'))
   const dbPath = join(dir, 'test.db')

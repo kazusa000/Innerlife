@@ -35,6 +35,7 @@ export type MemoryFormState = {
 export const DEFAULT_MODEL_BY_PROVIDER = {
   anthropic: 'claude-sonnet-4-6',
   openrouter: 'anthropic/claude-sonnet-4.6',
+  'openai-compatible': 'gpt-4.1-mini',
 } as const
 
 export const DEFAULT_EMOTION_BASELINE: EmotionBaseline = {

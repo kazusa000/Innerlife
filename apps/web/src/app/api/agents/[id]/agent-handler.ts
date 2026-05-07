@@ -33,7 +33,7 @@ export function updateAgentDetail(id: string, body: AgentPatchBody) {
   const updates: {
     name?: string
     description?: string
-    provider?: 'anthropic' | 'openrouter'
+    provider?: 'anthropic' | 'openrouter' | 'openai-compatible'
     model?: string
     systemPrompt?: string
     personaPrompt?: string
@@ -57,8 +57,8 @@ export function updateAgentDetail(id: string, body: AgentPatchBody) {
   }
 
   if (body.provider !== undefined) {
-    if (body.provider !== 'anthropic' && body.provider !== 'openrouter') {
-      return Response.json({ error: 'provider must be anthropic or openrouter' }, { status: 400 })
+    if (body.provider !== 'anthropic' && body.provider !== 'openrouter' && body.provider !== 'openai-compatible') {
+      return Response.json({ error: 'provider must be anthropic, openrouter, or openai-compatible' }, { status: 400 })
     }
     updates.provider = body.provider
   }

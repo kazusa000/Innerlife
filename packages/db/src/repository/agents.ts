@@ -4,7 +4,7 @@ import { agents } from '../schema'
 import { randomUUID } from 'node:crypto'
 
 export type AgentModules = Record<string, unknown> | null
-export type AgentProvider = 'anthropic' | 'openrouter'
+export type AgentProvider = 'anthropic' | 'openrouter' | 'openai-compatible'
 export type AgentToolsConfig = Record<string, {
   enabled?: boolean
   description?: string
@@ -137,6 +137,13 @@ function serializeConfig(config: AgentConfig | undefined) {
   return JSON.stringify(config)
 }
 
+function normalizeProvider(value: unknown): AgentProvider {
+  if (value === 'openrouter' || value === 'openai-compatible') {
+    return value
+  }
+  return 'anthropic'
+}
+
 function readModulesPersonality(modules: AgentModules | undefined): PersonalitySettings {
   const personality = isRecord(modules?.personality)
     ? modules?.personality as Record<string, unknown>
@@ -228,7 +235,7 @@ function mapAgent(row: typeof agents.$inferSelect) {
 
   return {
     ...row,
-    provider: config.provider === 'openrouter' ? 'openrouter' : 'anthropic',
+    provider: normalizeProvider(config.provider),
     systemPrompt: personalitySettings.systemPrompt ?? '',
     personaPrompt: personalitySettings.personaPrompt ?? '',
     avatarUrl: personalitySettings.avatarUrl ?? '',

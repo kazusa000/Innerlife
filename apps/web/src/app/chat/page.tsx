@@ -18,7 +18,7 @@ import {
 interface Agent {
   id: string
   name: string
-  provider: 'anthropic' | 'openrouter'
+  provider: 'anthropic' | 'openrouter' | 'openai-compatible'
   model: string
   modules: AgentModules | null
 }

@@ -33,6 +33,7 @@ export {
 } from './tools'
 export type { AgentToolConfig, AgentToolsConfig, BuiltInToolName } from './tools'
 export { AnthropicProvider } from './provider/anthropic'
+export { OpenAICompatibleProvider } from './provider/openai-compatible'
 export { OpenRouterProvider } from './provider/openrouter'
 export { createProvider, resolveProviderName } from './provider/factory'
 export { createAbortError, isAbortError, throwIfAborted } from './utils/abort'

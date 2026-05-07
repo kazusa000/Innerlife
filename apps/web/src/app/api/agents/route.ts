@@ -23,8 +23,8 @@ export async function POST(request: Request) {
     return Response.json({ error: 'name is required' }, { status: 400 })
   }
 
-  if (provider !== undefined && provider !== 'anthropic' && provider !== 'openrouter') {
-    return Response.json({ error: 'provider must be anthropic or openrouter' }, { status: 400 })
+  if (provider !== undefined && provider !== 'anthropic' && provider !== 'openrouter' && provider !== 'openai-compatible') {
+    return Response.json({ error: 'provider must be anthropic, openrouter, or openai-compatible' }, { status: 400 })
   }
 
   const agent = agentRepo.createAgent({
