@@ -32,9 +32,9 @@
 ## 4. 环境配置
 
 - [ ] 检查 `.env.example` 是否真实可用。
-- [ ] 说明必需 API key 和可选 provider 配置。
-- [ ] 说明 Anthropic-compatible endpoint 怎么配置。
-- [ ] 说明 OpenRouter 怎么配置。
+- [x] 说明必需 API key 和可选 provider 配置。
+- [x] 说明 Anthropic-compatible endpoint 怎么配置。
+- [x] 说明 OpenRouter 怎么配置。
 - [ ] 说明 app database 和 memory database 默认会生成在哪里。
 - [ ] 确认 fresh clone 不依赖你本机隐藏状态。
 
@@ -120,8 +120,8 @@ npm run daemon:start
 - [ ] 用干净本地数据库启动 web。
 - [ ] 用干净本地数据库启动 daemon。
 - [ ] 确认中英文切换可用。
-- [ ] 确认 Turing 路由已经不存在。
-- [ ] 确认 `.gitignore` 能挡住所有本地运行文件。
+- [x] 确认 Turing 路由已经不存在。
+- [x] 确认 `.gitignore` 能挡住所有本地运行文件。
 - [ ] 最终 review 后创建公开 release 分支或 tag。
 
 ## 14. 推荐开场描述
