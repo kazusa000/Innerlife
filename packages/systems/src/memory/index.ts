@@ -24,9 +24,11 @@ export {
 } from './sqlite'
 export { analyzeMemoryTimeText, analyzeMemoryTimeText as parseMemoryTimeText } from './time-parser'
 export {
+  createMemoryEmbedder,
   createOpenRouterMemoryEmbedder,
+  DEFAULT_MEMORY_EMBEDDING_PROVIDER,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
 } from './embeddings'
-export type { MemoryEmbedder } from './embeddings'
+export type { MemoryEmbedder, MemoryEmbeddingProvider } from './embeddings'
 export type { MemoryActorLabels } from './sqlite'
 export * from './entity-graph'

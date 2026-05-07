@@ -1,6 +1,6 @@
 import { agentRepo, episodicMemoryGraphRepo, memoryRepo, sessionRepo } from '@mas/db'
 import {
-  createOpenRouterMemoryEmbedder,
+  createMemoryEmbedder,
   isSqliteMemoryConfig,
   resolveMemorySqliteConfig,
   type MemoryEmbedder,
@@ -223,7 +223,7 @@ export async function editSqliteMemoryGraph(agentId: string, input: unknown, dep
 
   const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory)
   const embeddingModel = memoryConfig.embeddingModel
-  const embedder = deps.embedder ?? createOpenRouterMemoryEmbedder()
+  const embedder = deps.embedder ?? createMemoryEmbedder(memoryConfig.embeddingProvider)
 
   try {
     if (action === 'sqliteMemory.update') {

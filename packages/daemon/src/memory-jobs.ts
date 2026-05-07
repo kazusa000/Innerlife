@@ -17,7 +17,8 @@ import {
   buildShortTermToLongTermSourceText,
   type ConversationMessage,
   type MemoryEmbedder,
-  createOpenRouterMemoryEmbedder,
+  type MemoryEmbeddingProvider,
+  createMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   buildEntityResolutionPrompt,
   buildEpisodicExtractionPrompt,
@@ -305,6 +306,7 @@ async function persistMemories(input: {
   layer: 'short_term' | 'long_term'
   sourceText: string
   memoryWrites: ReturnType<typeof parseMemoryBatchWriteResponse>
+  embeddingProvider: MemoryEmbeddingProvider
   embeddingModel: string
   embedder?: MemoryEmbedder
   observedStartAt?: Date | null
@@ -314,7 +316,7 @@ async function persistMemories(input: {
     return []
   }
 
-  const embedder = input.embedder ?? createOpenRouterMemoryEmbedder()
+  const embedder = input.embedder ?? createMemoryEmbedder(input.embeddingProvider)
   const embeddings = await embedder.embed(
     input.memoryWrites.map((memory) => memory.retrievalText),
     {
@@ -378,6 +380,7 @@ async function persistLongTermMemoriesFromShortTerm(input: {
   fallbackSessionId: string
   memoryWrites: ShortTermToLongTermMemoryWriteResult[]
   shortTermMemoriesById: Map<string, MemoryRecord>
+  embeddingProvider: MemoryEmbeddingProvider
   embeddingModel: string
   embedder?: MemoryEmbedder
 }) {
@@ -385,7 +388,7 @@ async function persistLongTermMemoriesFromShortTerm(input: {
     return []
   }
 
-  const embedder = input.embedder ?? createOpenRouterMemoryEmbedder()
+  const embedder = input.embedder ?? createMemoryEmbedder(input.embeddingProvider)
   const embeddings = await embedder.embed(
     input.memoryWrites.map((memory) => memory.retrievalText),
     {
@@ -606,6 +609,7 @@ export async function runContextFlushForSession(input: {
     layer: 'short_term',
     sourceText,
     memoryWrites,
+    embeddingProvider: memoryConfig.embeddingProvider,
     embeddingModel: memoryConfig.embeddingModel,
     embedder: input.embedder,
     observedStartAt,
@@ -769,6 +773,7 @@ export async function runSleepForAgent(input: {
     fallbackSessionId: shortTermMemories[0]!.sessionId,
     memoryWrites,
     shortTermMemoriesById,
+    embeddingProvider: memoryConfig.embeddingProvider,
     embeddingModel: memoryConfig.embeddingModel,
     embedder: input.embedder,
   })
@@ -821,7 +826,7 @@ export async function runEpisodicConsolidationForAgent(input: {
   const locale = appSettingsRepo.getAppLocale()
   const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory, locale)
   const provider = input.provider ?? createProvider(agent.provider)
-  const embedder = input.embedder ?? createOpenRouterMemoryEmbedder()
+  const embedder = input.embedder ?? createMemoryEmbedder(memoryConfig.embeddingProvider)
   const retrievalModel = memoryConfig.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL
   let createdEntityCount = 0
   let createdEpisodicCount = 0

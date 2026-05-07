@@ -150,9 +150,9 @@ export function getSqliteMemoryCopy(locale: AppLocale) {
         lastSleep: 'Latest Sleep',
         modelLabel: 'Model Settings',
         modelPill: 'Retrieval / tool / consolidation',
-        modelCopy: 'Memory model settings live here. Empty values inherit the persona main model; the embedding model falls back to the system default.',
+        modelCopy: 'Memory model settings live here. Empty values inherit the persona main model; embedding provider is explicit and the embedding model falls back to the system default.',
         memoryModelPlaceholder: 'e.g. qwen/qwen-2.5-7b-instruct',
-        embeddingModelPlaceholder: 'e.g. openai/text-embedding-3-small',
+        embeddingModelPlaceholder: 'e.g. qwen/qwen3-embedding-8b',
       },
       graph: {
         label: 'Entity Graph',
@@ -350,9 +350,9 @@ export function getSqliteMemoryCopy(locale: AppLocale) {
       lastSleep: '最近一次睡眠',
       modelLabel: '模型设置',
       modelPill: '前置检索 · 深搜工具 · 沉淀整理',
-      modelCopy: '记忆相关的模型设置统一收在这里。留空会继承虚拟人的主模型；embedding 模型则回退到系统默认值。',
+      modelCopy: '记忆相关的模型设置统一收在这里。留空会继承虚拟人的主模型；embedding provider 显式展示，embedding 模型则回退到系统默认值。',
       memoryModelPlaceholder: '例如 qwen/qwen-2.5-7b-instruct',
-      embeddingModelPlaceholder: '例如 openai/text-embedding-3-small',
+      embeddingModelPlaceholder: '例如 qwen/qwen3-embedding-8b',
     },
     graph: {
       label: '实体图',

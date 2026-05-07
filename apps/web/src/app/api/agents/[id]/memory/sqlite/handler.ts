@@ -308,6 +308,7 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     pageSize: rowsResult.pageSize,
     total: rowsResult.total,
     summarizeModel: memoryConfig.summarizeModel,
+    embeddingProvider: memoryConfig.embeddingProvider,
     embeddingModel: memoryConfig.embeddingModel,
     shortTermRetrieveTopK: memoryConfig.shortTermRetrieveTopK,
     fixedRetrieveTopK: memoryConfig.fixedRetrieveTopK,
@@ -412,6 +413,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
   const locale = appSettingsRepo.getAppLocale()
   const stringOrNullFields = [
     'summarizeModel',
+    'embeddingProvider',
     'embeddingModel',
     'semanticAnalyzerPrompt',
     'contextToShortTermPrompt',
@@ -433,6 +435,15 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
       )
     }
   }
+  if (
+    body.embeddingProvider !== undefined
+    && body.embeddingProvider !== null
+    && typeof body.embeddingProvider === 'string'
+    && body.embeddingProvider.trim()
+    && body.embeddingProvider.trim() !== 'openrouter'
+  ) {
+    return Response.json({ error: 'embeddingProvider must be openrouter' }, { status: 400 })
+  }
 
   const nextModules = isRecord(agent.modules) ? { ...agent.modules } : {}
   const nextMemory: Record<string, unknown> = isRecord(nextModules.memory)
@@ -440,6 +451,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     : { scheme: 'sqlite' }
   const nextValues: Record<string, unknown> = {
     summarizeModel: hasOwn(body, 'summarizeModel') ? readOptionalText(body.summarizeModel) : undefined,
+    embeddingProvider: hasOwn(body, 'embeddingProvider') ? readOptionalText(body.embeddingProvider) : undefined,
     embeddingModel: hasOwn(body, 'embeddingModel') ? readOptionalText(body.embeddingModel) : undefined,
     shortTermRetrieveTopK: hasOwn(body, 'shortTermRetrieveTopK') ? readOptionalInt(body.shortTermRetrieveTopK) : undefined,
     fixedRetrieveTopK: hasOwn(body, 'fixedRetrieveTopK') ? readOptionalInt(body.fixedRetrieveTopK) : undefined,
@@ -489,6 +501,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     agentId,
     scheme: 'sqlite',
     summarizeModel: resolvedMemory.summarizeModel,
+    embeddingProvider: resolvedMemory.embeddingProvider,
     embeddingModel: resolvedMemory.embeddingModel,
     shortTermRetrieveTopK: resolvedMemory.shortTermRetrieveTopK,
     fixedRetrieveTopK: resolvedMemory.fixedRetrieveTopK,

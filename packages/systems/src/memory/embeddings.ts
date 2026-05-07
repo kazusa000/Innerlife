@@ -1,6 +1,8 @@
 export const DEFAULT_MEMORY_EMBEDDING_MODEL = 'qwen/qwen3-embedding-8b'
+export const DEFAULT_MEMORY_EMBEDDING_PROVIDER = 'openrouter'
 const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
+export type MemoryEmbeddingProvider = 'openrouter'
 export type MemoryEmbeddingInputType = 'search_query' | 'search_document'
 
 export interface MemoryEmbedder {
@@ -105,5 +107,17 @@ export function createOpenRouterMemoryEmbedder(options: {
 
       return embeddings
     },
+  }
+}
+
+export function createMemoryEmbedder(
+  provider: MemoryEmbeddingProvider = DEFAULT_MEMORY_EMBEDDING_PROVIDER,
+  options: Parameters<typeof createOpenRouterMemoryEmbedder>[0] = {},
+): MemoryEmbedder {
+  switch (provider) {
+    case 'openrouter':
+      return createOpenRouterMemoryEmbedder(options)
+    default:
+      throw new Error(`Unsupported memory embedding provider: ${provider}`)
   }
 }

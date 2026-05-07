@@ -938,6 +938,8 @@ test('context-to-short-term prompt writes detail for stage A and retrieval_text 
 test('memory sqlite config resolves per-layer retrieval settings and ignores legacy summarize/consolidate prompts', () => {
   const resolved = resolveMemorySqliteConfig({
     retrieveTopK: 7,
+    embeddingProvider: 'openrouter',
+    embeddingModel: 'memory-embed',
     summarizePrompt: '旧的 summarize prompt',
     consolidatePrompt: '旧的 consolidate prompt',
     semanticAnalyzerHistoryMessages: 9,
@@ -947,6 +949,8 @@ test('memory sqlite config resolves per-layer retrieval settings and ignores leg
 
   assert.equal(resolved.shortTermRetrieveTopK, 7)
   assert.equal(resolved.fixedRetrieveTopK, 7)
+  assert.equal(resolved.embeddingProvider, 'openrouter')
+  assert.equal(resolved.embeddingModel, 'memory-embed')
   assert.equal(resolved.shortTermMinSimilarity, 0.6)
   assert.equal(resolved.fixedMinSimilarity, 0.6)
   assert.equal(resolved.semanticAnalyzerHistoryMessages, 9)

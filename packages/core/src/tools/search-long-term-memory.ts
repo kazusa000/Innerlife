@@ -3,7 +3,7 @@ import {
   buildEntityMentionPrompt,
   buildLongTermSearchToolPrompt,
   buildSemanticAnalyzerPrompt,
-  createOpenRouterMemoryEmbedder,
+  createMemoryEmbedder,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   isSqliteMemoryConfig,
   parseEntityMentionResponse,
@@ -31,7 +31,7 @@ const DEFAULT_EPISODIC_ACTIVATION_MAX_ACTIVE = 5
 async function ensureEpisodicSummaryEmbeddings(input: {
   agentId: string
   model: string
-  embedder: ReturnType<typeof createOpenRouterMemoryEmbedder>
+  embedder: ReturnType<typeof createMemoryEmbedder>
 }) {
   while (true) {
     const memories = episodicMemoryGraphRepo.listEpisodicMemoriesNeedingSummaryEmbedding({
@@ -240,7 +240,7 @@ export const SearchLongTermMemoryTool: Tool = {
 
     const memoryConfig = resolveMemorySqliteConfig(agent.modules?.memory, locale)
     const agentId = options.agentId
-    const embedder = createOpenRouterMemoryEmbedder()
+    const embedder = createMemoryEmbedder(memoryConfig.embeddingProvider)
     const semanticQuery = readQueryText(options?.memoryRetrievalQuery)
     const toolQuery = readQueryText(input.query)
     const topK = typeof input.top_k === 'number' && Number.isFinite(input.top_k)

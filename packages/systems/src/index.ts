@@ -55,7 +55,9 @@ export {
   buildShortTermFragmentPrompt,
   buildShortTermToLongTermPrompt,
   buildShortTermToLongTermSourceText,
+  createMemoryEmbedder,
   createOpenRouterMemoryEmbedder,
+  DEFAULT_MEMORY_EMBEDDING_PROVIDER,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   buildEntityMentionPrompt,
   buildEntityResolutionPrompt,
@@ -83,6 +85,7 @@ export type {
   EpisodicMemoryDraft,
   MemoryActorLabels,
   MemoryEmbedder,
+  MemoryEmbeddingProvider,
   MemoryEntityType,
 } from './memory'
 export { NoopSystem, HelloWorldSystem } from './noop'

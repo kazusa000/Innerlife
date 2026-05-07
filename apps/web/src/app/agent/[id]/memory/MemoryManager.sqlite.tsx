@@ -93,6 +93,7 @@ interface EntityGraphSummary {
 
 interface MemorySettings {
   summarizeModel: string
+  embeddingProvider: 'openrouter'
   embeddingModel: string
   shortTermRetrieveTopK: number
   fixedRetrieveTopK: number
@@ -160,6 +161,7 @@ interface MemoryListResponse {
   pageSize: number
   total: number
   summarizeModel: string | null
+  embeddingProvider: 'openrouter' | null
   embeddingModel: string | null
   shortTermRetrieveTopK: number
   fixedRetrieveTopK: number
@@ -252,6 +254,7 @@ function formatSqliteMemoryTime(memory: MemoryRow, locale: AppLocale, copy: Retu
 function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySettings>): MemorySettings {
   return {
     summarizeModel: typeof data.summarizeModel === 'string' ? data.summarizeModel : '',
+    embeddingProvider: 'openrouter',
     embeddingModel: typeof data.embeddingModel === 'string' ? data.embeddingModel : '',
     shortTermRetrieveTopK: typeof data.shortTermRetrieveTopK === 'number' ? data.shortTermRetrieveTopK : 5,
     fixedRetrieveTopK: typeof data.fixedRetrieveTopK === 'number' ? data.fixedRetrieveTopK : 5,
@@ -814,6 +817,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           summarizeModel: draftSettings.summarizeModel,
+          embeddingProvider: draftSettings.embeddingProvider,
           embeddingModel: draftSettings.embeddingModel,
           shortTermRetrieveTopK: draftSettings.shortTermRetrieveTopK,
           fixedRetrieveTopK: draftSettings.fixedRetrieveTopK,
@@ -1201,6 +1205,16 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 onChange={(event) => updateSetting('summarizeModel', event.target.value)}
                 placeholder={copy.settings.memoryModelPlaceholder}
               />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Embedding Provider</span>
+              <select
+                className={styles.input}
+                value={draftSettings.embeddingProvider}
+                onChange={() => updateSetting('embeddingProvider', 'openrouter')}
+              >
+                <option value="openrouter">OpenRouter</option>
+              </select>
             </label>
             <label className={styles.field}>
               <span className={styles.fieldLabel}>Embedding Model</span>

@@ -22,9 +22,11 @@ import type {
   TurnContext,
 } from '../types'
 import {
-  createOpenRouterMemoryEmbedder,
+  createMemoryEmbedder,
+  DEFAULT_MEMORY_EMBEDDING_PROVIDER,
   DEFAULT_MEMORY_EMBEDDING_MODEL,
   type MemoryEmbedder,
+  type MemoryEmbeddingProvider,
 } from './embeddings'
 import { analyzeMemoryTimeText } from './time-parser'
 
@@ -140,6 +142,7 @@ export const SHORT_TERM_TO_LONG_TERM_RESPONSE_FORMAT: MemoryResponseFormat = {
 
 interface MemoryModuleConfig {
   summarizeModel: string | null
+  embeddingProvider: MemoryEmbeddingProvider
   embeddingModel: string
   retrieveTopK: number
   shortTermRetrieveTopK: number
@@ -297,6 +300,10 @@ function readSleepTime(value: unknown) {
   return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : DEFAULT_SLEEP_TIME_LOCAL
 }
 
+function readEmbeddingProvider(value: unknown): MemoryEmbeddingProvider {
+  return value === 'openrouter' ? value : DEFAULT_MEMORY_EMBEDDING_PROVIDER
+}
+
 function readRelationshipScheme(modules: unknown) {
   if (!modules || typeof modules !== 'object' || Array.isArray(modules)) {
     return null
@@ -357,11 +364,11 @@ export function resolveMemoryActorLabels(input: {
 }
 
 function readConfig(config: unknown, locale: AppLocale = 'zh-CN'): MemoryModuleConfig {
-  const embedder = createOpenRouterMemoryEmbedder()
-
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    const embeddingProvider = DEFAULT_MEMORY_EMBEDDING_PROVIDER
     return {
       summarizeModel: null,
+      embeddingProvider,
       embeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
       retrieveTopK: DEFAULT_RETRIEVE_TOP_K,
       shortTermRetrieveTopK: DEFAULT_RETRIEVE_TOP_K,
@@ -378,7 +385,7 @@ function readConfig(config: unknown, locale: AppLocale = 'zh-CN'): MemoryModuleC
       sleepEnabled: true,
       sleepTimeLocal: DEFAULT_SLEEP_TIME_LOCAL,
       sleepIntervalDays: DEFAULT_SLEEP_INTERVAL_DAYS,
-      embedder,
+      embedder: createMemoryEmbedder(embeddingProvider),
       timeParser: analyzeMemoryTimeText,
       retrievePrompt: null,
       semanticAnalyzerPrompt: null,
@@ -394,6 +401,7 @@ function readConfig(config: unknown, locale: AppLocale = 'zh-CN'): MemoryModuleC
   }
 
   const record = config as Record<string, unknown>
+  const embeddingProvider = readEmbeddingProvider(record.embeddingProvider)
   const legacyRetrieveTopK = typeof record.retrieveTopK === 'number' && record.retrieveTopK > 0
     ? Math.floor(record.retrieveTopK)
     : DEFAULT_RETRIEVE_TOP_K
@@ -402,6 +410,7 @@ function readConfig(config: unknown, locale: AppLocale = 'zh-CN'): MemoryModuleC
     summarizeModel: typeof record.summarizeModel === 'string'
       ? record.summarizeModel.trim() || null
       : null,
+    embeddingProvider,
     embeddingModel: typeof record.embeddingModel === 'string'
       ? record.embeddingModel.trim() || DEFAULT_MEMORY_EMBEDDING_MODEL
       : DEFAULT_MEMORY_EMBEDDING_MODEL,
@@ -427,7 +436,7 @@ function readConfig(config: unknown, locale: AppLocale = 'zh-CN'): MemoryModuleC
     embedder:
       record.embedder && typeof record.embedder === 'object' && 'embed' in record.embedder
         ? record.embedder as MemoryEmbedder
-        : embedder,
+        : createMemoryEmbedder(embeddingProvider),
     timeParser:
       typeof record.timeParser === 'function'
         ? record.timeParser as (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
@@ -449,6 +458,7 @@ export function resolveMemorySqliteConfig(config: unknown, locale: AppLocale = '
   const resolved = readConfig(config, locale)
   return {
     summarizeModel: resolved.summarizeModel,
+    embeddingProvider: resolved.embeddingProvider,
     embeddingModel: resolved.embeddingModel,
     retrieveTopK: resolved.retrieveTopK,
     shortTermRetrieveTopK: resolved.shortTermRetrieveTopK,

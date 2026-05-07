@@ -555,6 +555,7 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
 
     const response = updateSqliteMemorySettings('agent-1', {
       summarizeModel: '  qwen/qwen-2.5-7b-instruct  ',
+      embeddingProvider: 'openrouter',
       embeddingModel: '  qwen/qwen3-embedding-8b  ',
       semanticAnalyzerPrompt: '  生成检索锚点  ',
       contextWindowMessages: 60,
@@ -586,6 +587,7 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal(data.agentId, 'agent-1')
     assert.equal(data.scheme, 'sqlite')
     assert.equal(data.summarizeModel, 'qwen/qwen-2.5-7b-instruct')
+    assert.equal(data.embeddingProvider, 'openrouter')
     assert.equal(data.embeddingModel, 'qwen/qwen3-embedding-8b')
     assert.equal(data.contextWindowMessages, 60)
     assert.equal(data.contextOverflowBatchSize, 18)
@@ -638,6 +640,7 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
       memory: {
         scheme: 'sqlite',
         summarizeModel: 'qwen/qwen-2.5-7b-instruct',
+        embeddingProvider: 'openrouter',
         embeddingModel: 'qwen/qwen3-embedding-8b',
         retrieveTopK: 7,
         contextWindowMessages: 60,
