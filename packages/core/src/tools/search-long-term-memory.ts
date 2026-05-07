@@ -1,4 +1,4 @@
-import { agentRepo, episodicMemoryGraphRepo, memoryRepo } from '@mas/db'
+import { agentRepo, episodicMemoryGraphRepo } from '@mas/db'
 import {
   buildEntityMentionPrompt,
   buildLongTermSearchToolPrompt,
@@ -27,25 +27,6 @@ const EPISODIC_IMPORTANCE_WEIGHT = 0.1
 const EPISODIC_SUMMARY_EMBEDDING_BACKFILL_BATCH_SIZE = 100
 const DEFAULT_EPISODIC_ACTIVATION_TTL_MINUTES = 20
 const DEFAULT_EPISODIC_ACTIVATION_MAX_ACTIVE = 5
-
-function formatOffset(minutesEastOfUtc: number): string {
-  const sign = minutesEastOfUtc >= 0 ? '+' : '-'
-  const absoluteMinutes = Math.abs(minutesEastOfUtc)
-  const hours = String(Math.floor(absoluteMinutes / 60)).padStart(2, '0')
-  const minutes = String(absoluteMinutes % 60).padStart(2, '0')
-  return `${sign}${hours}:${minutes}`
-}
-
-function formatLocalMemoryPromptTime(date: Date): string {
-  const localMinutes = date.getTimezoneOffset() * -1
-  const localDate = new Date(date.getTime() + date.getTimezoneOffset() * 60_000 * -1)
-  const year = localDate.getUTCFullYear()
-  const month = String(localDate.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(localDate.getUTCDate()).padStart(2, '0')
-  const hours = String(localDate.getUTCHours()).padStart(2, '0')
-  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes} ${formatOffset(localMinutes)}`
-}
 
 async function ensureEpisodicSummaryEmbeddings(input: {
   agentId: string
@@ -78,14 +59,6 @@ async function ensureEpisodicSummaryEmbeddings(input: {
       })
     }
   }
-}
-
-function parseDate(value: unknown) {
-  if (typeof value !== 'string' || !value.trim()) {
-    return null
-  }
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
 function readQueryText(value: unknown) {
@@ -270,8 +243,6 @@ export const SearchLongTermMemoryTool: Tool = {
     const embedder = createOpenRouterMemoryEmbedder()
     const semanticQuery = readQueryText(options?.memoryRetrievalQuery)
     const toolQuery = readQueryText(input.query)
-    const start = parseDate(input.time_start)
-    const end = parseDate(input.time_end)
     const topK = typeof input.top_k === 'number' && Number.isFinite(input.top_k)
       ? Math.max(1, Math.min(5, Math.floor(input.top_k)))
       : Math.max(1, Math.min(5, memoryConfig.longTermSearchDefaultTopK ?? 3))
@@ -496,49 +467,10 @@ export const SearchLongTermMemoryTool: Tool = {
       }
     }
 
-    const queryEmbeddings = await embedder.embed(
-      effectiveQueries.map((entry) => entry.query),
-      {
-        model: memoryConfig.embeddingModel || DEFAULT_MEMORY_EMBEDDING_MODEL,
-        inputType: 'search_query',
-      },
-    )
-
-    const hits = memoryRepo.findRelevantMemories({
-      agentId,
-      queryEmbeddings,
-      queryWeights: effectiveQueries.map((entry) => entry.weight),
-      topK,
-      layers: ['long_term'],
-      timeRange: start && end ? { start, end } : null,
-    })
-
-    if (hits.length === 0) {
-      return {
-        output: noLongTermResults,
-        isError: false,
-        metadata: { noResults: true, hits: [], effectiveQueries },
-      }
-    }
-
     return {
-      output: [
-        locale === 'en-US' ? 'Long-term memory search results:' : '长期记忆检索结果：',
-        ...hits.map((memory) => `${locale === 'en-US' ? '[Long-term memory]' : '[长期记忆]'}[${formatLocalMemoryPromptTime(memory.createdAt)}] ${memory.retrievalText}`),
-      ].join('\n'),
-      metadata: {
-        noResults: false,
-        effectiveQueries,
-        hits: hits.map((memory) => ({
-          id: memory.id,
-          sessionId: memory.sessionId,
-          layer: memory.layer,
-          detail: memory.detail,
-          retrievalText: memory.retrievalText,
-          createdAt: memory.createdAt.toISOString(),
-          importance: memory.importance,
-        })),
-      },
+      output: noLongTermResults,
+      isError: false,
+      metadata: { noResults: true, mode: 'episodic_hybrid', hits: [], effectiveQueries, textQuery },
     }
   },
 }

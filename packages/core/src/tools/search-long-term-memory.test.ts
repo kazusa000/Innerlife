@@ -22,7 +22,7 @@ function bootstrap(dbPath: string, memoryDbPath: string) {
   bootstrapAppDatabases({ dbPath, memoryDbPath })
 }
 
-test('search_long_term_memory prefers semantic analyzer sentence and weighted matching over keyword bag query', async () => {
+test('search_long_term_memory does not fall back to legacy long_term rows', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-search-ltm-tool-'))
   const dbPath = join(dir, 'data.db')
   const memoryDbPath = join(dir, 'memory.db')
@@ -58,19 +58,6 @@ test('search_long_term_memory prefers semantic analyzer sentence and weighted ma
       tags: ['猫'],
       importance: 0.7,
     })
-    memoryRepo.addMemory({
-      agentId: agent.id,
-      sessionId: session.id,
-      layer: 'long_term',
-      sourceText: '用户修复过登录 bug。',
-      detail: '用户修复过登录 bug。',
-      retrievalText: '用户修复过登录 bug。',
-      retrievalEmbedding: [0, 1],
-      retrievalModel: 'qwen/qwen3-embedding-8b',
-      tags: ['bug'],
-      importance: 0.9,
-    })
-
     globalThis.fetch = (async (_input, init) => {
       const body = init?.body ? JSON.parse(String(init.body)) as { input?: string[] } : {}
       const embeddings = (body.input ?? []).map((text) => {
@@ -96,8 +83,9 @@ test('search_long_term_memory prefers semantic analyzer sentence and weighted ma
       },
     )
 
-    assert.equal(result.metadata?.noResults, false)
-    assert.match(result.output, /南瓜/)
+    assert.equal(result.metadata?.noResults, true)
+    assert.equal(result.metadata?.mode, 'episodic_hybrid')
+    assert.doesNotMatch(result.output, /南瓜/)
     assert.deepEqual(result.metadata?.effectiveQueries, [
       { source: 'semantic_analyzer', query: '我们养的那只猫叫什么名字', weight: 0.8 },
       { source: 'tool_input', query: '猫 宠物 名字', weight: 0.2 },
@@ -664,17 +652,19 @@ test('search_long_term_memory uses persona default top_k when the tool input omi
     const session = sessionRepo.createSession(agent.id, 'seed')
 
     for (let index = 0; index < 5; index += 1) {
-      memoryRepo.addMemory({
+      episodicMemoryGraphRepo.createEpisodicMemory({
         agentId: agent.id,
         sessionId: session.id,
-        layer: 'long_term',
-        sourceText: `用户养过第 ${index + 1} 只猫。`,
+        summary: `用户养过第 ${index + 1} 只猫。`,
+        sourceText: '',
         detail: `用户养过第 ${index + 1} 只猫。`,
-        retrievalText: `用户养过第 ${index + 1} 只猫。`,
         retrievalEmbedding: [1, 0],
         retrievalModel: 'qwen/qwen3-embedding-8b',
-        tags: ['猫'],
         importance: 1 - index * 0.1,
+        observedStartAt: null,
+        observedEndAt: null,
+        entityLinks: [],
+        now: new Date(2026, 3, 30, 9, index),
       })
     }
 
