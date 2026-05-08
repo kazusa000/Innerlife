@@ -18,6 +18,7 @@ packages/systems/storage/
 .env
 .env.local
 docs/superpowers/
+project-docs/
 .superpowers/
 playwright-report/
 test-results/
