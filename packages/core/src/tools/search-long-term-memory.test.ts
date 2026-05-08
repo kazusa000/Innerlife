@@ -123,7 +123,7 @@ test('search_long_term_memory does not graph recall without extracted entity men
     const wjj = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
       type: 'person',
-      canonicalName: 'WJJ',
+      canonicalName: 'Lin',
       confidence: 0.95,
       aliases: [],
       now,
@@ -131,7 +131,7 @@ test('search_long_term_memory does not graph recall without extracted entity men
     const bookstore = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
       type: 'place',
-      canonicalName: '安特卫普旧书店',
+      canonicalName: '雾港旧书店',
       confidence: 0.9,
       aliases: [{ alias: '旧书店', confidence: 0.8 }],
       now,
@@ -139,7 +139,7 @@ test('search_long_term_memory does not graph recall without extracted entity men
     const caramel = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
       type: 'object',
-      canonicalName: '海盐焦糖',
+      canonicalName: '蓝莓松饼',
       confidence: 0.9,
       aliases: [],
       now,
@@ -147,9 +147,9 @@ test('search_long_term_memory does not graph recall without extracted entity men
     episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: agent.id,
       sessionId: session.id,
-      summary: 'WJJ 在安特卫普旧书店提到过海盐焦糖。',
-      sourceText: 'WJJ：旧书店那次我买了海盐焦糖。',
-      detail: '旧书店那次我买了海盐焦糖',
+      summary: 'Lin 在雾港旧书店提到过蓝莓松饼。',
+      sourceText: 'Lin：旧书店那次我买了蓝莓松饼。',
+      detail: '旧书店那次我买了蓝莓松饼',
       importance: 0.72,
       observedStartAt: now,
       observedEndAt: now,
@@ -169,7 +169,7 @@ test('search_long_term_memory does not graph recall without extracted entity men
     assert.equal(result.isError, false)
     assert.equal(result.metadata?.noResults, true)
     assert.doesNotMatch(result.output, /情景记忆/)
-    assert.doesNotMatch(result.output, /WJJ 在安特卫普旧书店提到过海盐焦糖/)
+    assert.doesNotMatch(result.output, /Lin 在雾港旧书店提到过蓝莓松饼/)
   } finally {
     globalThis.fetch = originalFetch
     process.env.OPENROUTER_API_KEY = originalApiKey
@@ -197,7 +197,7 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
     const bookstore = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
       type: 'place',
-      canonicalName: '安特卫普旧书店',
+      canonicalName: '雾港旧书店',
       confidence: 0.9,
       aliases: [],
       now,
@@ -213,7 +213,7 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
     episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: agent.id,
       sessionId: session.id,
-      summary: 'WJJ 在安特卫普旧书店边喝焦糖咖啡边复盘 memory v2。',
+      summary: 'Lin 在雾港旧书店边喝焦糖咖啡边复盘 memory v2。',
       sourceText: '',
       detail: null,
       importance: 0.8,
@@ -233,7 +233,7 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({
             mentions: [
-              { surface: '安特卫普旧书店', type: 'place', context_hint: '旧书店地点', confidence: 0.9 },
+              { surface: '雾港旧书店', type: 'place', context_hint: '旧书店地点', confidence: 0.9 },
               { surface: '焦糖咖啡', type: 'object', context_hint: '饮品', confidence: 0.9 },
             ],
           }) }],
@@ -259,7 +259,7 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
         matchKind: candidate.matchKind,
       })),
       [
-        { mention: '安特卫普旧书店', entityId: bookstore.id, canonicalName: '安特卫普旧书店', matchKind: 'exact' },
+        { mention: '雾港旧书店', entityId: bookstore.id, canonicalName: '雾港旧书店', matchKind: 'exact' },
         { mention: '焦糖咖啡', entityId: coffee.id, canonicalName: '焦糖咖啡', matchKind: 'exact' },
       ],
     )
@@ -271,7 +271,7 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
         activation: entity.activation,
       })),
       [
-        { id: bookstore.id, canonicalName: '安特卫普旧书店', type: 'place', activation: 0.7 },
+        { id: bookstore.id, canonicalName: '雾港旧书店', type: 'place', activation: 0.7 },
         { id: coffee.id, canonicalName: '焦糖咖啡', type: 'object', activation: 0.7 },
       ],
     )
@@ -282,7 +282,7 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
         weight: entity.weight,
       })),
       [
-        { id: bookstore.id, canonicalName: '安特卫普旧书店', weight: 1 },
+        { id: bookstore.id, canonicalName: '雾港旧书店', weight: 1 },
         { id: coffee.id, canonicalName: '焦糖咖啡', weight: 0.8 },
       ],
     )
@@ -292,10 +292,10 @@ test('search_long_term_memory extracts entity mentions before graph recall', asy
       limit: 5,
     })
     assert.equal(activeMemories.length, 1)
-    assert.equal(activeMemories[0]?.memory.summary, 'WJJ 在安特卫普旧书店边喝焦糖咖啡边复盘 memory v2。')
+    assert.equal(activeMemories[0]?.memory.summary, 'Lin 在雾港旧书店边喝焦糖咖啡边复盘 memory v2。')
     assert.equal(activeMemories[0]?.sourceToolName, 'search_long_term_memory')
     assert.ok(activeMemories[0]!.expiresAt.getTime() - activeMemories[0]!.activatedAt.getTime() >= 19 * 60 * 1000)
-    assert.match(result.output, /WJJ 在安特卫普旧书店边喝焦糖咖啡边复盘 memory v2/)
+    assert.match(result.output, /Lin 在雾港旧书店边喝焦糖咖啡边复盘 memory v2/)
   } finally {
     resetDb()
     resetMemoryDb()
@@ -337,15 +337,15 @@ test('search_long_term_memory fuses entity graph and episodic text embedding rec
     const sc2 = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
       type: 'object',
-      canonicalName: '星际争霸2',
+      canonicalName: '星河战术2',
       confidence: 0.9,
-      aliases: [{ alias: 'SC2', confidence: 0.9 }],
+      aliases: [{ alias: 'SV2', confidence: 0.9 }],
       now,
     })
     episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: agent.id,
       sessionId: session.id,
-      summary: 'WJJ 说游戏这个类别不能和喜欢的游戏混成一个实体。',
+      summary: 'Lin 说游戏这个类别不能和喜欢的游戏混成一个实体。',
       sourceText: '',
       detail: '游戏和喜欢的游戏不是同一个实体',
       retrievalEmbedding: [0, 1],
@@ -359,9 +359,9 @@ test('search_long_term_memory fuses entity graph and episodic text embedding rec
     episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: agent.id,
       sessionId: session.id,
-      summary: 'WJJ 后来说现在最喜欢的游戏是星际争霸2。',
+      summary: 'Lin 后来说现在最喜欢的游戏是星河战术2。',
       sourceText: '',
-      detail: '现在最喜欢的游戏是星际争霸2',
+      detail: '现在最喜欢的游戏是星河战术2',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'qwen/qwen3-embedding-8b',
       importance: 0.9,
@@ -375,7 +375,7 @@ test('search_long_term_memory fuses entity graph and episodic text embedding rec
       const body = init?.body ? JSON.parse(String(init.body)) as { input?: string[] } : {}
       const data = (body.input ?? []).map((text, index) => ({
         index,
-        embedding: text.includes('星际争霸2') ? [1, 0] : [0, 1],
+        embedding: text.includes('星河战术2') ? [1, 0] : [0, 1],
       }))
       return Response.json({ data })
     }) as typeof fetch
@@ -396,7 +396,7 @@ test('search_long_term_memory fuses entity graph and episodic text embedding rec
         assert.match(input.systemPrompt, /retrieval_query/)
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({
-            retrieval_query: 'WJJ 现在最喜欢的游戏是星际争霸2',
+            retrieval_query: 'Lin 现在最喜欢的游戏是星河战术2',
           }) }],
           stopReason: 'end_turn' as const,
           usage: { inputTokens: 1, outputTokens: 1 },
@@ -411,8 +411,8 @@ test('search_long_term_memory fuses entity graph and episodic text embedding rec
 
     assert.equal(result.metadata?.noResults, false)
     assert.equal(result.metadata?.mode, 'episodic_hybrid')
-    assert.equal(result.metadata?.textQuery, 'WJJ 现在最喜欢的游戏是星际争霸2')
-    assert.match(result.output, /现在最喜欢的游戏是星际争霸2/)
+    assert.equal(result.metadata?.textQuery, 'Lin 现在最喜欢的游戏是星河战术2')
+    assert.match(result.output, /现在最喜欢的游戏是星河战术2/)
     assert.doesNotMatch(result.output, /类别不能和喜欢的游戏/)
     assert.equal(
       getMemoryRawSqlite().prepare(`
@@ -451,9 +451,9 @@ test('search_long_term_memory backfills missing episodic embeddings from summari
     episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: agent.id,
       sessionId: session.id,
-      summary: 'WJJ 现在最喜欢的游戏是星际2。',
+      summary: 'Lin 现在最喜欢的游戏是星河2。',
       sourceText: '',
-      detail: '完整情景：WJJ 说现在最喜欢的游戏是星际2，也就是星际争霸2。',
+      detail: '完整情景：Lin 说现在最喜欢的游戏是星河2，也就是星河战术2。',
       retrievalEmbedding: [],
       retrievalModel: '',
       importance: 0.9,
@@ -476,7 +476,7 @@ test('search_long_term_memory backfills missing episodic embeddings from summari
       async sendMessage() {
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({
-            retrieval_query: 'WJJ 现在最喜欢的游戏是星际2',
+            retrieval_query: 'Lin 现在最喜欢的游戏是星河2',
           }) }],
           stopReason: 'end_turn' as const,
           usage: { inputTokens: 1, outputTokens: 1 },
@@ -489,9 +489,9 @@ test('search_long_term_memory backfills missing episodic embeddings from summari
       { agentId: agent.id, sessionId: session.id, provider },
     )
 
-    assert.deepEqual(embeddingBatches[0], ['WJJ 现在最喜欢的游戏是星际2。'])
+    assert.deepEqual(embeddingBatches[0], ['Lin 现在最喜欢的游戏是星河2。'])
     assert.equal(result.metadata?.noResults, false)
-    assert.match(result.output, /完整情景：WJJ 说现在最喜欢的游戏是星际2/)
+    assert.match(result.output, /完整情景：Lin 说现在最喜欢的游戏是星河2/)
     assert.deepEqual(
       getMemoryRawSqlite().prepare(`
         SELECT retrieval_embedding, retrieval_model
@@ -532,17 +532,17 @@ test('search_long_term_memory gives recent context to entity mention extraction 
     const sc2 = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
       type: 'object',
-      canonicalName: '星际争霸2',
+      canonicalName: '星河战术2',
       confidence: 0.9,
-      aliases: [{ alias: '星际2', confidence: 0.9 }],
+      aliases: [{ alias: '星河2', confidence: 0.9 }],
       now,
     })
     episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: agent.id,
       sessionId: session.id,
-      summary: 'WJJ 说星际2是自己喜欢的游戏。',
+      summary: 'Lin 说星河2是自己喜欢的游戏。',
       sourceText: '',
-      detail: '完整情景：WJJ 说星际2是自己喜欢的游戏，并说明星际2就是星际争霸2。',
+      detail: '完整情景：Lin 说星河2是自己喜欢的游戏，并说明星河2就是星河战术2。',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'qwen/qwen3-embedding-8b',
       importance: 0.9,
@@ -569,9 +569,9 @@ test('search_long_term_memory gives recent context to entity mention extraction 
             content: [{ type: 'text' as const, text: JSON.stringify({
               mentions: [
                 {
-                  surface: '星际2',
+                  surface: '星河2',
                   type: 'object',
-                  context_hint: '当前问题里的“那个游戏”指最近对话中的星际2',
+                  context_hint: '当前问题里的“那个游戏”指最近对话中的星河2',
                   confidence: 0.92,
                 },
               ],
@@ -583,7 +583,7 @@ test('search_long_term_memory gives recent context to entity mention extraction 
         textAnalyzerInput = input.messages[0]?.content[0]?.text ?? ''
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({
-            retrieval_query: '星际2是喜欢的游戏',
+            retrieval_query: '星河2是喜欢的游戏',
           }) }],
           stopReason: 'end_turn' as const,
           usage: { inputTokens: 1, outputTokens: 1 },
@@ -598,7 +598,7 @@ test('search_long_term_memory gives recent context to entity mention extraction 
         sessionId: session.id,
         provider,
         recentMessages: [
-          { role: 'user', content: [{ type: 'text', text: '我最近又开始玩星际2了。' }] },
+          { role: 'user', content: [{ type: 'text', text: '我最近又开始玩星河2了。' }] },
           { role: 'assistant', content: [{ type: 'text', text: '你之前也提到过这个游戏。' }] },
           { role: 'user', content: [{ type: 'text', text: '那个游戏我之前怎么说的？' }] },
         ],
@@ -608,15 +608,15 @@ test('search_long_term_memory gives recent context to entity mention extraction 
     assert.match(textAnalyzerInput, /Hazel：你之前也提到过这个游戏。/)
     assert.doesNotMatch(textAnalyzerInput, /我：你之前也提到过这个游戏。/)
     assert.match(mentionInput, /最近对话/)
-    assert.match(mentionInput, /我最近又开始玩星际2了/)
+    assert.match(mentionInput, /我最近又开始玩星河2了/)
     assert.match(mentionInput, /Hazel：你之前也提到过这个游戏。/)
     assert.doesNotMatch(mentionInput, /我：你之前也提到过这个游戏。/)
     assert.match(mentionInput, /当前检索问题/)
     assert.match(mentionInput, /那个游戏我之前怎么说的/)
-    assert.match(mentionInput, /星际2/)
+    assert.match(mentionInput, /星河2/)
     assert.equal(result.metadata?.noResults, false)
-    assert.match(result.output, /完整情景：WJJ 说星际2是自己喜欢的游戏/)
-    assert.doesNotMatch(result.output, /WJJ 喜欢 星际2 星际争霸2/)
+    assert.match(result.output, /完整情景：Lin 说星河2是自己喜欢的游戏/)
+    assert.doesNotMatch(result.output, /Lin 喜欢 星河2 星河战术2/)
   } finally {
     globalThis.fetch = originalFetch
     process.env.OPENROUTER_API_KEY = originalApiKey

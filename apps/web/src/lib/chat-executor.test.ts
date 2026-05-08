@@ -4,14 +4,14 @@ import { buildAgentSystemPrompt, readPersonalityPrompts } from './chat-executor'
 
 test('buildAgentSystemPrompt reads localized personality prompts from the chat executor module', () => {
   const prompt = buildAgentSystemPrompt({
-    name: 'Amadeus',
+    name: 'Aster',
     description: null,
     modules: {
       personality: {
         systemPrompt: '中文系统人格。',
         personaPrompt: '中文角色约束。',
         systemPromptByLocale: {
-          'en-US': 'You are Amadeus.',
+          'en-US': 'You are Aster.',
         },
         personaPromptByLocale: {
           'en-US': 'Speak like a close friend.',
@@ -20,7 +20,7 @@ test('buildAgentSystemPrompt reads localized personality prompts from the chat e
     },
   }, 'No tools are available.', 'en-US')
 
-  assert.match(prompt, /^You are Amadeus\./)
+  assert.match(prompt, /^You are Aster\./)
   assert.match(prompt, /Additional role constraints: Speak like a close friend\./)
   assert.doesNotMatch(prompt, /角色额外约束/)
   assert.doesNotMatch(prompt, /中文系统人格|中文角色约束/)

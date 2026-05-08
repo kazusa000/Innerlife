@@ -78,7 +78,7 @@ Only after every box is checked may you report the task as complete. "Code is wr
 - **Commit identity**: use the project owner's name/email inline — do **not** touch global `git config`. Prefix every commit with:
 
   ```bash
-  git -c user.name="wjj" -c user.email="1211334842wjj@gmail.com" commit -m "..."
+  git -c user.name="Your Name" -c user.email="you@example.com" commit -m "..."
   ```
 
   Same for `git -c ... merge` if you ever need it (you shouldn't — merging is the Coordinator's job).

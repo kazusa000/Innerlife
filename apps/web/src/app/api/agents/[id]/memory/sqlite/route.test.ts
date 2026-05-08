@@ -174,7 +174,7 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     const older = addMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: '用户希望被称为 WJJ',
+      summary: '用户希望被称为 Lin',
       tags: ['name'],
       createdAt: '2026-04-17T09:00:00.000Z',
       observedStartAt: '2026-04-17T08:55:00.000Z',
@@ -197,7 +197,7 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
 
     const listResponse = listSqliteMemories('agent-1', undefined, { page: 1, pageSize: 2 })
     const secondPageResponse = listSqliteMemories('agent-1', undefined, { page: 2, pageSize: 2 })
-    const summaryResponse = listSqliteMemories('agent-1', 'WJJ')
+    const summaryResponse = listSqliteMemories('agent-1', 'Lin')
     const legacyRetrievalResponse = listSqliteMemories('agent-1', 'night coding')
     const explicitLegacyResponse = listSqliteMemories('agent-1', 'night coding', {
       layer: 'long_term',
@@ -257,8 +257,8 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.equal(listData.total, 2)
     assert.deepEqual(listData.memories.map((memory: { id: string }) => memory.id), [older.id, oldest.id])
     assert.equal('summary' in listData.memories[0], false)
-    assert.equal(listData.memories[0]?.detail, '用户希望被称为 WJJ')
-    assert.equal(listData.memories[0]?.retrievalText, '用户希望被称为 WJJ')
+    assert.equal(listData.memories[0]?.detail, '用户希望被称为 Lin')
+    assert.equal(listData.memories[0]?.retrievalText, '用户希望被称为 Lin')
     assert.equal(listData.memories[0]?.layer, 'short_term')
     assert.equal(listData.memories[0]?.observedStartAt, '2026-04-17T08:55:00.000Z')
     assert.equal(listData.memories[0]?.observedEndAt, '2026-04-17T09:05:00.000Z')
@@ -379,7 +379,7 @@ test('listSqliteMemories returns unified memory rows and paginated graph query r
     const shortTerm = addMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: 'WJJ 提到短期蓝色雨伞',
+      summary: 'Lin 提到短期蓝色雨伞',
       retrievalText: '短期 蓝色雨伞',
       tags: ['雨伞'],
       createdAt: '2026-04-24T10:00:00.000Z',
@@ -388,7 +388,7 @@ test('listSqliteMemories returns unified memory rows and paginated graph query r
     const fixed = addMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: 'WJJ 固化偏好旧书店',
+      summary: 'Lin 固化偏好旧书店',
       retrievalText: '固化 旧书店',
       tags: ['旧书店'],
       createdAt: '2026-04-24T10:01:00.000Z',
@@ -397,7 +397,7 @@ test('listSqliteMemories returns unified memory rows and paginated graph query r
     const bookstore = episodicMemoryGraphRepo.createEntity({
       agentId: 'agent-1',
       type: 'place',
-      canonicalName: '安特卫普旧书店',
+      canonicalName: '雾港旧书店',
       description: '和蓝色雨伞相关的旧书店',
       confidence: 0.9,
       aliases: [{ alias: '旧书店', confidence: 0.8 }],
@@ -438,8 +438,8 @@ test('listSqliteMemories returns unified memory rows and paginated graph query r
     const episodic = episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: 'agent-1',
       sessionId: 'session-2',
-      summary: 'WJJ 在安特卫普旧书店带着蓝色雨伞。',
-      sourceText: 'WJJ 在安特卫普旧书店带着蓝色雨伞。',
+      summary: 'Lin 在雾港旧书店带着蓝色雨伞。',
+      sourceText: 'Lin 在雾港旧书店带着蓝色雨伞。',
       detail: '带着蓝色雨伞',
       retrievalEmbedding: [1, 0, 0],
       retrievalModel: 'qwen/qwen3-embedding-8b',
@@ -478,20 +478,20 @@ test('listSqliteMemories returns unified memory rows and paginated graph query r
         [fixed.id, 'fixed', 'sqlite'],
       ],
     )
-    assert.equal(firstPage.rows[0].detail, 'WJJ 在安特卫普旧书店带着蓝色雨伞。')
+    assert.equal(firstPage.rows[0].detail, 'Lin 在雾港旧书店带着蓝色雨伞。')
     assert.equal(firstPage.rows[0].episodicDetail, '带着蓝色雨伞')
     assert.equal(firstPage.rows[0].hasEmbedding, true)
     assert.equal(firstPage.rows[0].embeddingDimensions, 3)
     assert.deepEqual(
       firstPage.rows[0].entities.map((entity: { canonicalName: string; weight: number }) => [entity.canonicalName, entity.weight]),
-      [['安特卫普旧书店', 0.9], ['蓝色雨伞', 0.8]],
+      [['雾港旧书店', 0.9], ['蓝色雨伞', 0.8]],
     )
     assert.equal(firstPage.graphQuery, '旧书店')
     assert.equal(firstPage.entities.total, 1)
     assert.equal(firstPage.entities.nodes.total, 1)
     assert.equal(firstPage.entities.nodes.page, 1)
     assert.equal(firstPage.entities.nodes.pageSize, 1)
-    assert.deepEqual(firstPage.entities.nodes.items.map((entity: { canonicalName: string }) => entity.canonicalName), ['安特卫普旧书店'])
+    assert.deepEqual(firstPage.entities.nodes.items.map((entity: { canonicalName: string }) => entity.canonicalName), ['雾港旧书店'])
     assert.equal(firstPage.entities.edges.total, 2)
     assert.equal(firstPage.entities.edges.items.length, 1)
     assert.match(firstPage.entities.edges.items[0].sourceCanonicalName + firstPage.entities.edges.items[0].targetCanonicalName, /旧书店/)
@@ -981,8 +981,8 @@ test('editSqliteMemoryGraph updates STM content with a fresh retrieval embedding
       action: 'sqliteMemory.update',
       memoryId: memory.id,
       layer: 'fixed',
-      detail: 'WJJ 最近把星际2重新设为当前最喜欢的游戏。',
-      retrievalText: 'WJJ 当前最喜欢的游戏是星际2。',
+      detail: 'Lin 最近把星河2重新设为当前最喜欢的游戏。',
+      retrievalText: 'Lin 当前最喜欢的游戏是星河2。',
       importance: 0.92,
       observedStartAt: '2026-04-18T09:00:00.000Z',
       observedEndAt: '2026-04-18T09:05:00.000Z',
@@ -993,12 +993,12 @@ test('editSqliteMemoryGraph updates STM content with a fresh retrieval embedding
     assert.equal(response.status, 200)
     assert.equal(data.memory.id, memory.id)
     assert.equal(updated.layer, 'fixed')
-    assert.equal(updated.detail, 'WJJ 最近把星际2重新设为当前最喜欢的游戏。')
-    assert.equal(updated.retrievalText, 'WJJ 当前最喜欢的游戏是星际2。')
+    assert.equal(updated.detail, 'Lin 最近把星河2重新设为当前最喜欢的游戏。')
+    assert.equal(updated.retrievalText, 'Lin 当前最喜欢的游戏是星河2。')
     assert.deepEqual(updated.retrievalEmbedding, [0.2, 0.8])
     assert.equal(updated.retrievalModel, 'memory-embed')
     assert.equal(updated.importance, 0.92)
-    assert.deepEqual(embedCalls, ['WJJ 当前最喜欢的游戏是星际2。'])
+    assert.deepEqual(embedCalls, ['Lin 当前最喜欢的游戏是星河2。'])
   } finally {
     resetDb()
     resetMemoryDb()
@@ -1017,17 +1017,17 @@ test('editSqliteMemoryGraph edits entities, aliases, episodic memories and manua
     const sc2 = episodicMemoryGraphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: '星际争霸2',
-      description: 'WJJ 喜欢的即时战略游戏',
+      canonicalName: '星河战术2',
+      description: 'Lin 喜欢的即时战略游戏',
       confidence: 0.9,
-      aliases: [{ alias: '星际2', confidence: 0.9 }],
+      aliases: [{ alias: '星河2', confidence: 0.9 }],
       now: new Date('2026-04-24T10:02:00.000Z'),
     })
     const wow = episodicMemoryGraphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: '魔兽世界',
-      description: 'WJJ 以前常玩的游戏',
+      canonicalName: '云海纪元',
+      description: 'Lin 以前常玩的游戏',
       confidence: 0.85,
       aliases: [],
       now: new Date('2026-04-24T10:03:00.000Z'),
@@ -1038,25 +1038,25 @@ test('editSqliteMemoryGraph edits entities, aliases, episodic memories and manua
       action: 'entity.update',
       entityId: sc2.id,
       type: 'object',
-      canonicalName: '星际争霸2',
-      description: 'WJJ 当前最喜欢的即时战略游戏',
+      canonicalName: '星河战术2',
+      description: 'Lin 当前最喜欢的即时战略游戏',
       confidence: 0.96,
-      aliases: ['星际2', 'SC2'],
+      aliases: ['星河2', 'SV2'],
     }, { embedder: makeEmbedder([[0.1, 0.2, 0.7]], embedCalls) })
     const entityRows = episodicMemoryGraphRepo.listMemoryEntitiesByAgent('agent-1')
     const updatedSc2 = entityRows.find((entity) => entity.id === sc2.id)!
 
     assert.equal(updateEntityResponse.status, 200)
-    assert.equal(updatedSc2.description, 'WJJ 当前最喜欢的即时战略游戏')
-    assert.deepEqual(updatedSc2.aliases.sort(), ['SC2', '星际2'])
+    assert.equal(updatedSc2.description, 'Lin 当前最喜欢的即时战略游戏')
+    assert.deepEqual(updatedSc2.aliases.sort(), ['SV2', '星河2'])
     assert.deepEqual(episodicMemoryGraphRepo.getEntity(sc2.id)?.embedding, [0.1, 0.2, 0.7])
-    assert.match(embedCalls[0], /canonical_name: 星际争霸2/)
-    assert.match(embedCalls[0], /aliases: 星际2, SC2/)
+    assert.match(embedCalls[0], /canonical_name: 星河战术2/)
+    assert.match(embedCalls[0], /aliases: 星河2, SV2/)
 
     const createEpisodicResponse = await editSqliteMemoryGraph('agent-1', {
       action: 'episodic.create',
-      summary: 'WJJ 现在最喜欢的游戏是星际2。',
-      detail: 'WJJ 最近又开始玩星际2，并说明星际2就是星际争霸2的简称；他现在最喜欢的游戏是星际2，不是之前常玩的魔兽世界。',
+      summary: 'Lin 现在最喜欢的游戏是星河2。',
+      detail: 'Lin 最近又开始玩星河2，并说明星河2就是星河战术2的简称；他现在最喜欢的游戏是星河2，不是之前常玩的云海纪元。',
       importance: 0.88,
       observedStartAt: '2026-04-25T10:00:00.000Z',
       observedEndAt: '2026-04-25T10:05:00.000Z',
@@ -1070,8 +1070,8 @@ test('editSqliteMemoryGraph edits entities, aliases, episodic memories and manua
 
     assert.equal(createEpisodicResponse.status, 200)
     assert.equal(createdEpisodic.sessionId, 'session-2')
-    assert.equal(createdEpisodic.summary, 'WJJ 现在最喜欢的游戏是星际2。')
-    assert.equal(createdEpisodic.detail, 'WJJ 最近又开始玩星际2，并说明星际2就是星际争霸2的简称；他现在最喜欢的游戏是星际2，不是之前常玩的魔兽世界。')
+    assert.equal(createdEpisodic.summary, 'Lin 现在最喜欢的游戏是星河2。')
+    assert.equal(createdEpisodic.detail, 'Lin 最近又开始玩星河2，并说明星河2就是星河战术2的简称；他现在最喜欢的游戏是星河2，不是之前常玩的云海纪元。')
     assert.equal(createdEpisodic.sourceText, createdEpisodic.detail)
     assert.deepEqual(createdEpisodic.retrievalEmbedding, [0.9, 0.1])
     assert.deepEqual(
@@ -1082,8 +1082,8 @@ test('editSqliteMemoryGraph edits entities, aliases, episodic memories and manua
     const updateEpisodicResponse = await editSqliteMemoryGraph('agent-1', {
       action: 'episodic.update',
       memoryId: createdEpisodic.id,
-      summary: 'WJJ 当前最喜欢星际2。',
-      detail: 'WJJ 把当前最喜欢的游戏更新为星际2。',
+      summary: 'Lin 当前最喜欢星河2。',
+      detail: 'Lin 把当前最喜欢的游戏更新为星河2。',
       importance: 0.9,
       observedStartAt: null,
       observedEndAt: null,
@@ -1092,8 +1092,8 @@ test('editSqliteMemoryGraph edits entities, aliases, episodic memories and manua
     const updatedEpisodic = episodicMemoryGraphRepo.getEpisodicMemoryWithEntities(createdEpisodic.id)!
 
     assert.equal(updateEpisodicResponse.status, 200)
-    assert.equal(updatedEpisodic.summary, 'WJJ 当前最喜欢星际2。')
-    assert.equal(updatedEpisodic.detail, 'WJJ 把当前最喜欢的游戏更新为星际2。')
+    assert.equal(updatedEpisodic.summary, 'Lin 当前最喜欢星河2。')
+    assert.equal(updatedEpisodic.detail, 'Lin 把当前最喜欢的游戏更新为星河2。')
     assert.deepEqual(updatedEpisodic.entities.map((link) => link.entity.id), [sc2.id])
     assert.deepEqual(updatedEpisodic.retrievalEmbedding, [0.8, 0.2])
 
@@ -1132,15 +1132,15 @@ test('editSqliteMemoryGraph merges and deletes graph records without deleting ep
     const target = episodicMemoryGraphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: '星际争霸2',
+      canonicalName: '星河战术2',
       description: '正式节点',
       confidence: 0.9,
-      aliases: [{ alias: '星际2', confidence: 0.9 }],
+      aliases: [{ alias: '星河2', confidence: 0.9 }],
     })
     const source = episodicMemoryGraphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: 'SC2',
+      canonicalName: 'SV2',
       description: '英文简称节点',
       confidence: 0.7,
       aliases: [],
@@ -1148,7 +1148,7 @@ test('editSqliteMemoryGraph merges and deletes graph records without deleting ep
     const wow = episodicMemoryGraphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: '魔兽世界',
+      canonicalName: '云海纪元',
       description: null,
       confidence: 0.8,
       aliases: [],
@@ -1156,9 +1156,9 @@ test('editSqliteMemoryGraph merges and deletes graph records without deleting ep
     const episodic = episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: 'SC2 和魔兽世界都被提到。',
-      sourceText: 'SC2 和魔兽世界都被提到。',
-      detail: 'SC2 和魔兽世界都被提到。',
+      summary: 'SV2 和云海纪元都被提到。',
+      sourceText: 'SV2 和云海纪元都被提到。',
+      detail: 'SV2 和云海纪元都被提到。',
       retrievalEmbedding: [1],
       retrievalModel: 'memory-embed',
       importance: 0.7,
@@ -1185,7 +1185,7 @@ test('editSqliteMemoryGraph merges and deletes graph records without deleting ep
 
     assert.equal(mergeResponse.status, 200)
     assert.equal(episodicMemoryGraphRepo.getEntity(source.id), undefined)
-    assert.deepEqual(mergedTarget.aliases.sort(), ['SC2', '星际2'])
+    assert.deepEqual(mergedTarget.aliases.sort(), ['SV2', '星河2'])
     assert.deepEqual(linkedAfterMerge.entities.map((link) => link.entity.id).sort(), [target.id, wow.id].sort())
     assert.equal(episodicMemoryGraphRepo.listMemoryEntityEdgesByAgent('agent-1')[0].weight, 0.4)
     assert.deepEqual(episodicMemoryGraphRepo.getEntity(target.id)?.embedding, [0.3, 0.3, 0.4])
@@ -1197,7 +1197,7 @@ test('editSqliteMemoryGraph merges and deletes graph records without deleting ep
     const memoryAfterEntityDelete = episodicMemoryGraphRepo.getEpisodicMemoryWithEntities(episodic.id)!
 
     assert.equal(deleteEntityResponse.status, 200)
-    assert.equal(memoryAfterEntityDelete.summary, 'SC2 和魔兽世界都被提到。')
+    assert.equal(memoryAfterEntityDelete.summary, 'SV2 和云海纪元都被提到。')
     assert.deepEqual(memoryAfterEntityDelete.entities.map((link) => link.entity.id), [wow.id])
 
     const deleteEpisodicResponse = await editSqliteMemoryGraph('agent-1', {

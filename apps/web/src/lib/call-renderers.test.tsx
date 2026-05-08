@@ -61,7 +61,7 @@ test('MemoryView renders episodic hybrid recall metadata as structured recall so
         entityCandidates: [
           {
             mention: { surface: '指南针', type: 'object' },
-            entity: { id: 'entity-compass', canonicalName: '黄铜指南针', type: 'object', description: 'WJJ 的黄铜指南针' },
+            entity: { id: 'entity-compass', canonicalName: '黄铜指南针', type: 'object', description: 'Lin 的黄铜指南针' },
             matchKind: 'contains',
           },
           {

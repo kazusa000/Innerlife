@@ -62,7 +62,7 @@ test('episodic memory activations are agent scoped and expire by time', () => {
     const entity = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: 'Pippa长期记忆设计',
+      canonicalName: 'Orion长期记忆设计',
       confidence: 0.9,
       aliases: [],
       now,
@@ -70,7 +70,7 @@ test('episodic memory activations are agent scoped and expire by time', () => {
     const memory = graphRepo.createEpisodicMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: '王家骏和 Amadeus 讨论 Pippa 的长期记忆设计。',
+      summary: '林澈和 Aster 讨论 Orion 的长期记忆设计。',
       sourceText: 'source',
       detail: 'detail',
       importance: 0.8,
@@ -312,8 +312,8 @@ test('entity graph repo creates entities with aliases and matches mention candid
     const entity = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'place',
-      canonicalName: '安特卫普旧书店',
-      description: '一个和海盐焦糖回忆相关的旧书店地点',
+      canonicalName: '雾港旧书店',
+      description: '一个和蓝莓松饼回忆相关的旧书店地点',
       confidence: 0.86,
       aliases: [{ alias: '旧书店', confidence: 0.8 }],
       now: new Date('2026-04-30T09:00:00.000Z'),
@@ -382,7 +382,7 @@ test('entity embedding can be persisted and is invalidated when aliases change',
     const entity = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'event',
-      canonicalName: '起飞',
+      canonicalName: '纸鹤练习',
       description: '用户喜欢的一种玩法',
       confidence: 0.9,
       aliases: [],
@@ -391,7 +391,7 @@ test('entity embedding can be persisted and is invalidated when aliases change',
 
     graphRepo.updateEntityEmbedding({
       entityId: entity.id,
-      embeddingText: 'canonical_name: 起飞\ntype: event',
+      embeddingText: 'canonical_name: 纸鹤练习\ntype: event',
       embedding: [1, 0],
       embeddingModel: 'BAAI/bge-m3',
       now: new Date('2026-04-30T10:00:00.000Z'),
@@ -399,13 +399,13 @@ test('entity embedding can be persisted and is invalidated when aliases change',
 
     const embedded = graphRepo.getEntity(entity.id)
     assert.deepEqual(embedded?.embedding, [1, 0])
-    assert.equal(embedded?.embeddingText, 'canonical_name: 起飞\ntype: event')
+    assert.equal(embedded?.embeddingText, 'canonical_name: 纸鹤练习\ntype: event')
     assert.equal(embedded?.embeddingModel, 'BAAI/bge-m3')
     assert.equal(embedded?.embeddingUpdatedAt?.toISOString(), '2026-04-30T10:00:00.000Z')
 
     assert.equal(graphRepo.addEntityAlias({
       entityId: entity.id,
-      alias: '跳皮',
+      alias: '折纸暗号',
       confidence: 0.95,
     }), true)
 
@@ -429,15 +429,15 @@ test('entity candidate matching surfaces shared concrete suffixes without aliase
     const antwerpBookstore = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'place',
-      canonicalName: '安特卫普旧书店',
-      description: 'WJJ 买海盐焦糖的地点',
+      canonicalName: '雾港旧书店',
+      description: 'Lin 买蓝莓松饼的地点',
       confidence: 0.9,
       aliases: [],
     })
     const tokyoBookstore = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'place',
-      canonicalName: '东京旧书店',
+      canonicalName: '海岬旧书店',
       description: 'Nora 买焦糖咖啡的地点',
       confidence: 0.9,
       aliases: [],
@@ -445,7 +445,7 @@ test('entity candidate matching surfaces shared concrete suffixes without aliase
     const seaSaltCaramel = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: '海盐焦糖',
+      canonicalName: '蓝莓松饼',
       description: '糖果',
       confidence: 0.9,
       aliases: [],
@@ -492,7 +492,7 @@ test('entity activations spread one hop and recall top episodic memories by link
     const wjj = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'person',
-      canonicalName: 'WJJ',
+      canonicalName: 'Lin',
       confidence: 0.95,
       aliases: [],
       now,
@@ -500,7 +500,7 @@ test('entity activations spread one hop and recall top episodic memories by link
     const bookstore = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'place',
-      canonicalName: '安特卫普旧书店',
+      canonicalName: '雾港旧书店',
       confidence: 0.9,
       aliases: [{ alias: '旧书店', confidence: 0.8 }],
       now,
@@ -508,7 +508,7 @@ test('entity activations spread one hop and recall top episodic memories by link
     const caramel = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: '海盐焦糖',
+      canonicalName: '蓝莓松饼',
       confidence: 0.9,
       aliases: [],
       now,
@@ -516,9 +516,9 @@ test('entity activations spread one hop and recall top episodic memories by link
     const memory = graphRepo.createEpisodicMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: 'WJJ 在安特卫普旧书店提到过海盐焦糖。',
-      sourceText: 'WJJ：旧书店那次我买了海盐焦糖。',
-      detail: '旧书店那次我买了海盐焦糖',
+      summary: 'Lin 在雾港旧书店提到过蓝莓松饼。',
+      sourceText: 'Lin：旧书店那次我买了蓝莓松饼。',
+      detail: '旧书店那次我买了蓝莓松饼',
       importance: 0.72,
       observedStartAt: now,
       observedEndAt: now,
@@ -551,7 +551,7 @@ test('entity activations spread one hop and recall top episodic memories by link
 
     assert.deepEqual(noActivationRecall, [])
     assert.equal(recalled[0]?.id, memory.id)
-    assert.equal(recalled[0]?.summary, 'WJJ 在安特卫普旧书店提到过海盐焦糖。')
+    assert.equal(recalled[0]?.summary, 'Lin 在雾港旧书店提到过蓝莓松饼。')
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
@@ -568,9 +568,9 @@ test('episodic memories persist summary embeddings and can be ranked by text sim
     graphRepo.createEpisodicMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: 'WJJ 说最喜欢的游戏从魔兽世界变成星际争霸2。',
-      sourceText: 'WJJ 先说最喜欢魔兽世界，后来改口星际争霸2。',
-      detail: '现在最喜欢的游戏是星际争霸2',
+      summary: 'Lin 说最喜欢的游戏从云海纪元变成星河战术2。',
+      sourceText: 'Lin 先说最喜欢云海纪元，后来改口星河战术2。',
+      detail: '现在最喜欢的游戏是星河战术2',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'test-embed',
       importance: 0.8,
@@ -580,8 +580,8 @@ test('episodic memories persist summary embeddings and can be ranked by text sim
     graphRepo.createEpisodicMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: 'WJJ 在安特卫普旧书店买海盐焦糖。',
-      sourceText: '旧书店和海盐焦糖。',
+      summary: 'Lin 在雾港旧书店买蓝莓松饼。',
+      sourceText: '旧书店和蓝莓松饼。',
       detail: '旧书店',
       retrievalEmbedding: [0, 1],
       retrievalModel: 'test-embed',
@@ -597,9 +597,9 @@ test('episodic memories persist summary embeddings and can be ranked by text sim
       minSimilarity: 0.1,
     })
 
-    assert.equal(hits[0]?.memory.summary, 'WJJ 说最喜欢的游戏从魔兽世界变成星际争霸2。')
+    assert.equal(hits[0]?.memory.summary, 'Lin 说最喜欢的游戏从云海纪元变成星河战术2。')
     assert.equal(hits[0]?.similarity, 1)
-    assert.equal(hits[0]?.memory.detail, '现在最喜欢的游戏是星际争霸2')
+    assert.equal(hits[0]?.memory.detail, '现在最喜欢的游戏是星河战术2')
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })
@@ -615,7 +615,7 @@ test('updateEntityByAgent replaces entity fields aliases and embedding', () => {
     const entity = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: '魔兽世界',
+      canonicalName: '云海纪元',
       description: '旧的游戏节点',
       confidence: 0.7,
       aliases: [{ alias: 'wow', confidence: 0.8 }],
@@ -625,11 +625,11 @@ test('updateEntityByAgent replaces entity fields aliases and embedding', () => {
       agentId: 'agent-1',
       entityId: entity.id,
       type: 'object',
-      canonicalName: '星际争霸2',
+      canonicalName: '星河战术2',
       description: '用户现在最喜欢的游戏',
       confidence: 0.94,
-      aliases: ['星际2', 'SC2'],
-      embeddingText: 'canonical_name: 星际争霸2\ntype: object',
+      aliases: ['星河2', 'SV2'],
+      embeddingText: 'canonical_name: 星河战术2\ntype: object',
       embedding: [0.4, 0.6],
       embeddingModel: 'BAAI/bge-m3',
       now: new Date('2026-05-01T10:00:00.000Z'),
@@ -651,10 +651,10 @@ test('updateEntityByAgent replaces entity fields aliases and embedding', () => {
     assert.equal(foreignBlocked, false)
 
     const saved = graphRepo.listMemoryEntitiesByAgent('agent-1')[0]
-    assert.equal(saved?.canonicalName, '星际争霸2')
+    assert.equal(saved?.canonicalName, '星河战术2')
     assert.equal(saved?.description, '用户现在最喜欢的游戏')
     assert.equal(saved?.confidence, 0.94)
-    assert.deepEqual(saved?.aliases.sort(), ['SC2', '星际2'].sort())
+    assert.deepEqual(saved?.aliases.sort(), ['SV2', '星河2'].sort())
     assert.deepEqual(saved?.embedding, [0.4, 0.6])
     assert.equal(saved?.embeddingModel, 'BAAI/bge-m3')
   } finally {
@@ -733,17 +733,17 @@ test('mergeEntitiesByAgent migrates aliases links and edges into target entity',
     const target = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: '星际争霸2',
+      canonicalName: '星河战术2',
       confidence: 0.9,
-      aliases: [{ alias: '星际2', confidence: 0.9 }],
+      aliases: [{ alias: '星河2', confidence: 0.9 }],
       now,
     })
     const source = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: 'SC2',
+      canonicalName: 'SV2',
       confidence: 0.8,
-      aliases: [{ alias: 'starcraft2', confidence: 0.7 }],
+      aliases: [{ alias: 'starvoyage2', confidence: 0.7 }],
       now,
     })
     const battleNet = graphRepo.createEntity({
@@ -757,9 +757,9 @@ test('mergeEntitiesByAgent migrates aliases links and edges into target entity',
     const memory = graphRepo.createEpisodicMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: '用户最近重新开始玩 SC2。',
-      sourceText: '用户说最近又玩 SC2。',
-      detail: '用户最近又开始玩 SC2。',
+      summary: '用户最近重新开始玩 SV2。',
+      sourceText: '用户说最近又玩 SV2。',
+      detail: '用户最近又开始玩 SV2。',
       importance: 0.8,
       entityLinks: [
         { entityId: source.id, weight: 0.9 },
@@ -785,7 +785,7 @@ test('mergeEntitiesByAgent migrates aliases links and edges into target entity',
     assert.equal(merged, true)
     assert.equal(graphRepo.getEntity(source.id), undefined)
     const savedTarget = graphRepo.listMemoryEntitiesByAgent('agent-1').find((entity) => entity.id === target.id)
-    assert.deepEqual(savedTarget?.aliases.sort(), ['SC2', 'starcraft2', '星际2'].sort())
+    assert.deepEqual(savedTarget?.aliases.sort(), ['SV2', 'starvoyage2', '星河2'].sort())
     assert.deepEqual(
       graphRepo.getEpisodicMemoryWithEntities(memory.id)?.entities.map((link) => [link.entity.id, link.weight]),
       [[target.id, 0.9]],
@@ -814,7 +814,7 @@ test('episodic memories can be manually created updated and deleted with indepen
     const game = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: '星际争霸2',
+      canonicalName: '星河战术2',
       confidence: 0.9,
       aliases: [],
       now,
@@ -822,7 +822,7 @@ test('episodic memories can be manually created updated and deleted with indepen
     const user = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'person',
-      canonicalName: 'WJJ',
+      canonicalName: 'Lin',
       confidence: 0.95,
       aliases: [],
       now,
@@ -831,9 +831,9 @@ test('episodic memories can be manually created updated and deleted with indepen
     const created = graphRepo.createEpisodicMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: '用户喜欢星际争霸2。',
-      sourceText: '用户喜欢星际争霸2。',
-      detail: '用户说现在最喜欢星际争霸2。',
+      summary: '用户喜欢星河战术2。',
+      sourceText: '用户喜欢星河战术2。',
+      detail: '用户说现在最喜欢星河战术2。',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'embed-v1',
       importance: 0.8,
@@ -844,9 +844,9 @@ test('episodic memories can be manually created updated and deleted with indepen
     const updated = graphRepo.updateEpisodicMemoryByAgent({
       agentId: 'agent-1',
       memoryId: created.id,
-      summary: 'WJJ 现在最喜欢星际争霸2。',
-      detail: 'WJJ 最近又开始玩星际争霸2，并说这是现在最喜欢的游戏。',
-      sourceText: 'WJJ 最近又开始玩星际争霸2，并说这是现在最喜欢的游戏。',
+      summary: 'Lin 现在最喜欢星河战术2。',
+      detail: 'Lin 最近又开始玩星河战术2，并说这是现在最喜欢的游戏。',
+      sourceText: 'Lin 最近又开始玩星河战术2，并说这是现在最喜欢的游戏。',
       retrievalEmbedding: [0.2, 0.8],
       retrievalModel: 'embed-v2',
       importance: 0.95,
@@ -860,8 +860,8 @@ test('episodic memories can be manually created updated and deleted with indepen
 
     assert.equal(updated, true)
     const saved = graphRepo.getEpisodicMemoryWithEntities(created.id)
-    assert.equal(saved?.summary, 'WJJ 现在最喜欢星际争霸2。')
-    assert.equal(saved?.detail, 'WJJ 最近又开始玩星际争霸2，并说这是现在最喜欢的游戏。')
+    assert.equal(saved?.summary, 'Lin 现在最喜欢星河战术2。')
+    assert.equal(saved?.detail, 'Lin 最近又开始玩星河战术2，并说这是现在最喜欢的游戏。')
     assert.deepEqual(saved?.retrievalEmbedding, [0.2, 0.8])
     assert.equal(saved?.retrievalModel, 'embed-v2')
     assert.equal(saved?.importance, 0.95)
@@ -897,7 +897,7 @@ test('manual entity edges can be upserted and deleted independently', () => {
     const right = graphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: '星际争霸2',
+      canonicalName: '星河战术2',
       confidence: 0.9,
       aliases: [],
       now,

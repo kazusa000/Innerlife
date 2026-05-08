@@ -225,7 +225,7 @@ test('memory sqlite does not directly inject active episodic memories into promp
       id: 'memory-1',
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: 'WJJ 在安特卫普旧书店提到过海盐焦糖。',
+      summary: 'Lin 在雾港旧书店提到过蓝莓松饼。',
       sourceText: '',
       detail: null,
       importance: 0.7,
@@ -239,7 +239,7 @@ test('memory sqlite does not directly inject active episodic memories into promp
 
   const content = ctx.promptFragments.map((fragment) => fragment.content).join('\n')
   assert.doesNotMatch(content, /此刻自然浮现的情景记忆/)
-  assert.doesNotMatch(content, /WJJ 在安特卫普旧书店提到过海盐焦糖/)
+  assert.doesNotMatch(content, /Lin 在雾港旧书店提到过蓝莓松饼/)
 })
 
 test('memory sqlite retrieval skips semantic embeddings for pure time recall and keeps newest hits first in range', { concurrency: false }, async () => {
@@ -703,7 +703,7 @@ test('memory sqlite retrieves active episodic memories as temporary short-term c
     const entity = episodicMemoryGraphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: 'Pippa长期记忆设计',
+      canonicalName: 'Orion长期记忆设计',
       confidence: 0.9,
       aliases: [],
       now,
@@ -712,9 +712,9 @@ test('memory sqlite retrieves active episodic memories as temporary short-term c
     const memory = episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: '王家骏和 Amadeus 讨论 Pippa 的长期记忆设计。',
+      summary: '林澈和 Aster 讨论 Orion 的长期记忆设计。',
       sourceText: 'source',
-      detail: '王家骏和 Amadeus 讨论 Pippa 的长期记忆设计细节。',
+      detail: '林澈和 Aster 讨论 Orion 的长期记忆设计细节。',
       retrievalEmbedding: [1, 0],
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
       importance: 0.9,
@@ -736,14 +736,14 @@ test('memory sqlite retrieves active episodic memories as temporary short-term c
       embeddingModel: 'qwen/qwen3-embedding-0.6b',
       embedder: createEmbedder({
         继续说刚刚那个设计: [1, 0],
-        Pippa长期记忆设计: [1, 0],
+        Orion长期记忆设计: [1, 0],
       }),
     })
     const ctx = createContext('继续说刚刚那个设计')
 
     await system.beforeTurn?.(ctx)
     const retrieved = await ctx.pendingMemoryQuery?.retrieve({
-      retrievalQuery: 'Pippa长期记忆设计',
+      retrievalQuery: 'Orion长期记忆设计',
       timeRange: {
         start: new Date(now.getTime() - 60_000),
         end: new Date(now.getTime() + 60_000),
@@ -752,7 +752,7 @@ test('memory sqlite retrieves active episodic memories as temporary short-term c
 
     assert.deepEqual(retrieved?.shortTerm.map((item) => item.id), [memory.id])
     assert.equal(retrieved?.shortTerm[0]?.layer, 'short_term')
-    assert.equal(retrieved?.shortTerm[0]?.retrievalText, '王家骏和 Amadeus 讨论 Pippa 的长期记忆设计细节。')
+    assert.equal(retrieved?.shortTerm[0]?.retrievalText, '林澈和 Aster 讨论 Orion 的长期记忆设计细节。')
     assert.deepEqual(retrieved?.fixed, [])
 
     ctx.state.shortTermMemories = retrieved?.shortTerm ?? []
@@ -761,7 +761,7 @@ test('memory sqlite retrieves active episodic memories as temporary short-term c
 
     const content = ctx.promptFragments[0]?.content ?? ''
     assert.match(content, /短期最相关记忆：/)
-    assert.match(content, /王家骏和 Amadeus 讨论 Pippa 的长期记忆设计细节。/)
+    assert.match(content, /林澈和 Aster 讨论 Orion 的长期记忆设计细节。/)
     assert.doesNotMatch(content, /此刻自然浮现的情景记忆/)
   } finally {
     resetDb()
@@ -988,8 +988,8 @@ test('memory sqlite batch parser no longer requires tags', () => {
   const parsed = parseMemoryBatchWriteResponse(JSON.stringify({
     memories: [
       {
-        detail: '原文说明用户叫王家骏，Stage A 应保留 surface“王家骏”。',
-        retrieval_text: '用户告诉过我他的名字是王家骏',
+        detail: '原文说明用户叫林澈，Stage A 应保留 surface“林澈”。',
+        retrieval_text: '用户告诉过我他的名字是林澈',
         importance: 0.9,
       },
       {
@@ -1002,8 +1002,8 @@ test('memory sqlite batch parser no longer requires tags', () => {
 
   assert.deepEqual(parsed, [
     {
-      detail: '原文说明用户叫王家骏，Stage A 应保留 surface“王家骏”。',
-      retrievalText: '用户告诉过我他的名字是王家骏',
+      detail: '原文说明用户叫林澈，Stage A 应保留 surface“林澈”。',
+      retrievalText: '用户告诉过我他的名字是林澈',
       importance: 0.9,
     },
     {

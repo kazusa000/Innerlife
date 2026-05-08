@@ -87,19 +87,19 @@ test('parseEntityMentionResponse tolerates top-level arrays and common real-mode
 test('entity parsers narrow obsolete project and unknown types away', () => {
   const mentions = parseEntityMentionResponse(JSON.stringify({
     mentions: [
-      { surface: '星际争霸2', type: 'project', context_hint: '游戏名', confidence: 0.9 },
+      { surface: '星河战术2', type: 'project', context_hint: '游戏名', confidence: 0.9 },
       { surface: '含糊对象', type: 'unknown', context_hint: '不应保留 unknown', confidence: 0.9 },
     ],
   }))
   const extraction = parseEpisodicExtractionResponse(JSON.stringify({
     entities: [
-      { local_entity_id: 'e1', surface: '魔兽世界', type: 'project', context_hint: '游戏名' },
+      { local_entity_id: 'e1', surface: '云海纪元', type: 'project', context_hint: '游戏名' },
       { local_entity_id: 'e2', surface: '上周测试', type: 'unknown', context_hint: '事件' },
     ],
     episodic_memories: [
       {
-        summary: '用户提到魔兽世界和上周测试。',
-        detail: '魔兽世界和上周测试',
+        summary: '用户提到云海纪元和上周测试。',
+        detail: '云海纪元和上周测试',
         importance: 0.7,
         entity_links: [
           { local_entity_id: 'e1', weight: 0.9 },
@@ -135,17 +135,17 @@ test('entity parsers narrow obsolete project and unknown types away', () => {
 test('parseEpisodicExtractionResponse enforces max links and drops weak links', () => {
   const parsed = parseEpisodicExtractionResponse(JSON.stringify({
     entities: [
-      { local_entity_id: 'e1', surface: 'WJJ', type: 'person', context_hint: '当前对话对象', aliases: [] },
+      { local_entity_id: 'e1', surface: 'Lin', type: 'person', context_hint: '当前对话对象', aliases: [] },
       { local_entity_id: 'e2', surface: '旧书店', type: 'place', context_hint: '地点', aliases: ['那家书店'] },
-      { local_entity_id: 'e3', surface: '海盐焦糖', type: 'object', context_hint: '物品', aliases: [] },
+      { local_entity_id: 'e3', surface: '蓝莓松饼', type: 'object', context_hint: '物品', aliases: [] },
       { local_entity_id: 'e4', surface: '雨天', type: 'event', context_hint: '事件背景', aliases: [] },
       { local_entity_id: 'e5', surface: '项目', type: 'project', context_hint: '项目', aliases: [] },
       { local_entity_id: 'e6', surface: '背景音乐', type: 'object', context_hint: '弱背景', aliases: [] },
     ],
     episodic_memories: [
       {
-        summary: 'WJJ 在旧书店提到过海盐焦糖。',
-        detail: 'WJJ 在旧书店那次买了海盐焦糖。',
+        summary: 'Lin 在旧书店提到过蓝莓松饼。',
+        detail: 'Lin 在旧书店那次买了蓝莓松饼。',
         importance: 0.72,
         entity_links: [
           { local_entity_id: 'e1', weight: 0.8 },
@@ -160,7 +160,7 @@ test('parseEpisodicExtractionResponse enforces max links and drops weak links', 
   }))
 
   assert.equal(parsed.entities.length, 6)
-  assert.equal(parsed.episodicMemories[0]?.detail, 'WJJ 在旧书店那次买了海盐焦糖。')
+  assert.equal(parsed.episodicMemories[0]?.detail, 'Lin 在旧书店那次买了蓝莓松饼。')
   assert.equal(parsed.episodicMemories[0]?.entityLinks.length, 5)
   assert.equal(parsed.episodicMemories[0]?.entityLinks.some((link) => link.localEntityId === 'e6'), false)
 })
@@ -191,7 +191,7 @@ test('parseEntityResolutionResponse only merges above threshold', () => {
       {
         local_entity_id: 'e3',
         action: 'create_new',
-        canonical_name: '海盐焦糖',
+        canonical_name: '蓝莓松饼',
         type: 'object',
         confidence: 0.78,
       },
@@ -212,14 +212,14 @@ test('parseEntityResolutionResponse tolerates prose-wrapped fenced arrays from r
   {
     "local_entity_id": "e1",
     "action": "create_new",
-    "global_entity_id": "WJJ",
+    "global_entity_id": "Lin",
     "type": "person",
     "description": "当前用户"
   },
   {
     "local_entity_id": "e2",
     "action": "create_new",
-    "canonical_name": "安特卫普旧书店",
+    "canonical_name": "雾港旧书店",
     "type": "place",
     "confidence": 0.84
   }
@@ -231,14 +231,14 @@ test('parseEntityResolutionResponse tolerates prose-wrapped fenced arrays from r
     {
       localEntityId: 'e1',
       action: 'create_new',
-      canonicalName: 'WJJ',
+      canonicalName: 'Lin',
       type: 'person',
       confidence: 0.5,
     },
     {
       localEntityId: 'e2',
       action: 'create_new',
-      canonicalName: '安特卫普旧书店',
+      canonicalName: '雾港旧书店',
       type: 'place',
       confidence: 0.84,
     },

@@ -66,7 +66,7 @@ export const DEFAULT_PROMPT_TEST_INPUTS = {
   },
   memorySemantic: {
     recentMessages: [
-      { role: 'user', text: '我最喜欢的游戏是星际2。' },
+      { role: 'user', text: '我最喜欢的游戏是星河2。' },
       { role: 'assistant', text: '我记住了。' },
     ],
     currentUserMessage: '那个游戏叫什么来着？',
@@ -80,24 +80,24 @@ export const DEFAULT_PROMPT_TEST_INPUTS = {
   },
   memoryContextToShortTerm: {
     messages: [
-      { role: 'user', text: '我最近又开始玩星际2了。' },
+      { role: 'user', text: '我最近又开始玩星河2了。' },
       { role: 'assistant', text: '你之前也提到过它。' },
       { role: 'user', text: '对，我想让你记住它是我喜欢的游戏。' },
     ],
   },
   memoryEntityMention: {
-    currentUserMessage: '星际2和魔兽世界哪个更像我以前喜欢的游戏？',
+    currentUserMessage: '星河2和云海纪元哪个更像我以前喜欢的游戏？',
   },
   memoryEpisodicExtraction: {
     memories: [
       {
-        detail: '原文说明用户说最喜欢的游戏从魔兽世界改成了星际2。',
-        retrievalText: '用户最喜欢的游戏曾是魔兽世界，后来改成星际2。',
+        detail: '原文说明用户说最喜欢的游戏从云海纪元改成了星河2。',
+        retrievalText: '用户最喜欢的游戏曾是云海纪元，后来改成星河2。',
         importance: 0.82,
       },
       {
-        detail: '原文说明用户关心星际2和星际争霸2 alias 是否能合并。',
-        retrievalText: '星际2是星际争霸2的简称，用户希望实体 alias 稳定。',
+        detail: '原文说明用户关心星河2和星河战术2 alias 是否能合并。',
+        retrievalText: '星河2是星河战术2的简称，用户希望实体 alias 稳定。',
         importance: 0.76,
       },
     ],
@@ -106,13 +106,13 @@ export const DEFAULT_PROMPT_TEST_INPUTS = {
     candidates: [
       {
         local_entity_id: 'local-game-1',
-        surface: '星际2',
+        surface: '星河2',
         type: 'object',
         context_hint: '用户提到的游戏简称',
         candidates: [
           {
             entity_id: 'entity-sc2',
-            canonical_name: '星际争霸2',
+            canonical_name: '星河战术2',
             type: 'object',
             description: '用户喜欢的游戏',
           },
@@ -123,8 +123,8 @@ export const DEFAULT_PROMPT_TEST_INPUTS = {
   memoryShortTermFragment: {
     memories: [
       {
-        detail: '原文说明用户刚刚提到星际2是喜欢的游戏。',
-        retrievalText: '用户喜欢星际2。',
+        detail: '原文说明用户刚刚提到星河2是喜欢的游戏。',
+        retrievalText: '用户喜欢星河2。',
         importance: 0.7,
         observedStartAt: '2026-04-30T10:00:00.000Z',
         observedEndAt: '2026-04-30T10:05:00.000Z',
@@ -152,7 +152,7 @@ export const DEFAULT_PROMPT_TEST_INPUTS = {
   relationshipFragment: {
     state: { trust: 0.64, affinity: 0.58, familiarity: 0.42, respect: 0.7 },
     counterpart: {
-      name: 'WJJ',
+      name: 'Lin',
       role: '用户',
       description: '正在构建虚拟人系统的人',
       note: '喜欢直接指出设计问题',
@@ -160,7 +160,7 @@ export const DEFAULT_PROMPT_TEST_INPUTS = {
   },
   relationshipAnalysis: {
     state: { trust: 0.64, affinity: 0.58, familiarity: 0.42, respect: 0.7 },
-    counterpart: { name: 'WJJ' },
+    counterpart: { name: 'Lin' },
     userMessage: '这个 UI 太难用了，你自己看看。',
     assistantReply: '我会先看实际页面，再把布局压紧。',
   },

@@ -41,7 +41,7 @@ test('OpenAICompatibleProvider sendMessage maps OpenAI-compatible chat requests 
                 type: 'function',
                 function: {
                   name: 'search_long_term_memory',
-                  arguments: '{"query":"星际2"}',
+                  arguments: '{"query":"星河2"}',
                 },
               },
             ],
@@ -66,14 +66,14 @@ test('OpenAICompatibleProvider sendMessage maps OpenAI-compatible chat requests 
           type: 'tool_use',
           id: 'call_1',
           name: 'search_long_term_memory',
-          input: { query: '星际2' },
+          input: { query: '星河2' },
         },
       ],
     },
     {
       role: 'user',
       content: [
-        { type: 'tool_result', tool_use_id: 'call_1', content: '王家骏喜欢星际争霸2。' },
+        { type: 'tool_result', tool_use_id: 'call_1', content: '林澈喜欢星河战术2。' },
       ],
     },
   ]
@@ -116,7 +116,7 @@ test('OpenAICompatibleProvider sendMessage maps OpenAI-compatible chat requests 
           type: 'function',
           function: {
             name: 'search_long_term_memory',
-            arguments: '{"query":"星际2"}',
+            arguments: '{"query":"星河2"}',
           },
         },
       ],
@@ -124,13 +124,13 @@ test('OpenAICompatibleProvider sendMessage maps OpenAI-compatible chat requests 
     {
       role: 'tool',
       tool_call_id: 'call_1',
-      content: '王家骏喜欢星际争霸2。',
+      content: '林澈喜欢星河战术2。',
     },
   ])
   assert.deepEqual(response, {
     content: [
       { type: 'text', text: '先查一下。' },
-      { type: 'tool_use', id: 'call_1', name: 'search_long_term_memory', input: { query: '星际2' } },
+      { type: 'tool_use', id: 'call_1', name: 'search_long_term_memory', input: { query: '星河2' } },
     ],
     stopReason: 'tool_use',
     usage: {

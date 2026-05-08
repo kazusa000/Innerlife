@@ -645,7 +645,7 @@ test('runner does not execute entity mention recall before composing the main tu
     const wjj = episodicMemoryGraphRepo.createEntity({
       agentId: 'agent-1',
       type: 'person',
-      canonicalName: 'WJJ',
+      canonicalName: 'Lin',
       confidence: 0.95,
       aliases: [],
       now,
@@ -653,7 +653,7 @@ test('runner does not execute entity mention recall before composing the main tu
     const bookstore = episodicMemoryGraphRepo.createEntity({
       agentId: 'agent-1',
       type: 'place',
-      canonicalName: '安特卫普旧书店',
+      canonicalName: '雾港旧书店',
       confidence: 0.9,
       aliases: [{ alias: '旧书店', confidence: 0.8 }],
       now,
@@ -661,7 +661,7 @@ test('runner does not execute entity mention recall before composing the main tu
     const caramel = episodicMemoryGraphRepo.createEntity({
       agentId: 'agent-1',
       type: 'object',
-      canonicalName: '海盐焦糖',
+      canonicalName: '蓝莓松饼',
       confidence: 0.9,
       aliases: [],
       now,
@@ -669,9 +669,9 @@ test('runner does not execute entity mention recall before composing the main tu
     episodicMemoryGraphRepo.createEpisodicMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      summary: 'WJJ 在安特卫普旧书店提到过海盐焦糖。',
-      sourceText: 'WJJ：旧书店那次我买了海盐焦糖。',
-      detail: '旧书店那次我买了海盐焦糖',
+      summary: 'Lin 在雾港旧书店提到过蓝莓松饼。',
+      sourceText: 'Lin：旧书店那次我买了蓝莓松饼。',
+      detail: '旧书店那次我买了蓝莓松饼',
       importance: 0.72,
       observedStartAt: now,
       observedEndAt: now,
@@ -743,7 +743,7 @@ test('runner does not execute entity mention recall before composing the main tu
     assert.equal(events.some((event) => event.type === 'system_error'), false)
     assert.equal(sawEntityMentionCall, false)
     assert.doesNotMatch(seenSystemPrompts[0] ?? '', /此刻自然浮现的情景记忆/)
-    assert.doesNotMatch(seenSystemPrompts[0] ?? '', /WJJ 在安特卫普旧书店提到过海盐焦糖/)
+    assert.doesNotMatch(seenSystemPrompts[0] ?? '', /Lin 在雾港旧书店提到过蓝莓松饼/)
   } finally {
     resetDb()
     resetMemoryDb()

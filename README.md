@@ -149,7 +149,7 @@ Entity mentions
   -> Find related episodic memories
 ```
 
-This allows the system to find the "StarCraft II" node through an alias like "SC2", and also retrieve related episodic memories through entities near the activated node.
+This allows the system to find the "Star Voyage II" node through an alias like "SV2", and also retrieve related episodic memories through entities near the activated node.
 
 #### Long-Term Memory Retrieval
 

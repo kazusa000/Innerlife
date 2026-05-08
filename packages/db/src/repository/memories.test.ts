@@ -551,9 +551,9 @@ test('sqlite management query lists latest first and filters by display summary 
     const older = addMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
-      sourceText: 'User asks to be called WJJ.',
-      detail: '用户偏好被叫作 WJJ',
-      retrievalText: '用户希望我叫他 WJJ',
+      sourceText: 'User asks to be called Lin.',
+      detail: '用户偏好被叫作 Lin',
+      retrievalText: '用户希望我叫他 Lin',
       retrievalEmbedding: vector([0.9, 0.1]),
       retrievalModel: 'qwen/qwen3-embedding-0.6b',
       tags: ['name', 'nickname'],
@@ -562,7 +562,7 @@ test('sqlite management query lists latest first and filters by display summary 
     })
 
     const listed = memoryRepo.listSqliteMemoriesByAgent?.('agent-1') ?? []
-    const summaryHits = memoryRepo.listSqliteMemoriesByAgent?.('agent-1', 'WJJ') ?? []
+    const summaryHits = memoryRepo.listSqliteMemoriesByAgent?.('agent-1', 'Lin') ?? []
     const retrievalHits = memoryRepo.listSqliteMemoriesByAgent?.('agent-1', 'deep work') ?? []
 
     assert.deepEqual(listed.map((memory) => memory.id), [latest.id, older.id])

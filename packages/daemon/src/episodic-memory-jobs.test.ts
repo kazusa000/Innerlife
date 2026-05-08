@@ -33,7 +33,7 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
   try {
     bootstrap(dbPath, memoryDbPath)
     const agent = agentRepo.createAgent({
-      name: 'Amadeus',
+      name: 'Aster',
       description: '',
       model: 'claude-sonnet-4-6',
       provider: 'openrouter',
@@ -43,9 +43,9 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
       agentId: agent.id,
       sessionId: 'session-1',
       layer: 'short_term',
-      sourceText: 'WJJ：旧书店那次我买了海盐焦糖。',
-      detail: 'WJJ 提到旧书店和海盐焦糖。',
-      retrievalText: 'WJJ 在旧书店买过海盐焦糖。',
+      sourceText: 'Lin：旧书店那次我买了蓝莓松饼。',
+      detail: 'Lin 提到旧书店和蓝莓松饼。',
+      retrievalText: 'Lin 在旧书店买过蓝莓松饼。',
       retrievalEmbedding: [],
       retrievalModel: 'none',
       tags: [],
@@ -66,14 +66,14 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
-                { local_entity_id: 'e1', surface: 'WJJ', type: 'person', context_hint: '当前对话对象', aliases: [] },
+                { local_entity_id: 'e1', surface: 'Lin', type: 'person', context_hint: '当前对话对象', aliases: [] },
                 { local_entity_id: 'e2', surface: '旧书店', type: 'place', context_hint: '旧书店地点', aliases: ['那家旧书店'] },
-                { local_entity_id: 'e3', surface: '海盐焦糖', type: 'object', context_hint: '被提到的物品', aliases: [] },
+                { local_entity_id: 'e3', surface: '蓝莓松饼', type: 'object', context_hint: '被提到的物品', aliases: [] },
               ],
               episodic_memories: [
                 {
-                  summary: 'WJJ 在旧书店提到过海盐焦糖。',
-                  detail: '旧书店那次我买了海盐焦糖',
+                  summary: 'Lin 在旧书店提到过蓝莓松饼。',
+                  detail: '旧书店那次我买了蓝莓松饼',
                   importance: 0.72,
                   entity_links: [
                     { local_entity_id: 'e1', weight: 0.8 },
@@ -96,9 +96,9 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({
             resolutions: [
-              { local_entity_id: 'e1', action: 'create_new', canonical_name: 'WJJ', type: 'person', confidence: 0.95 },
+              { local_entity_id: 'e1', action: 'create_new', canonical_name: 'Lin', type: 'person', confidence: 0.95 },
               { local_entity_id: 'e2', action: 'create_new', canonical_name: '旧书店', type: 'place', confidence: 0.8 },
-              { local_entity_id: 'e3', action: 'create_new', canonical_name: '海盐焦糖', type: 'object', confidence: 0.86 },
+              { local_entity_id: 'e3', action: 'create_new', canonical_name: '蓝莓松饼', type: 'object', confidence: 0.86 },
             ],
           }) }],
           stopReason: 'end_turn' as const,
@@ -122,7 +122,7 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
             model: 'qwen/qwen3-embedding-8b',
             inputType: 'search_document',
           })
-          assert.deepEqual(input, ['WJJ 在旧书店提到过海盐焦糖。'])
+          assert.deepEqual(input, ['Lin 在旧书店提到过蓝莓松饼。'])
           return [[1, 0, 0]]
         },
       },
@@ -138,8 +138,8 @@ test('runEpisodicConsolidationForAgent turns short term memory into entities and
         FROM episodic_memories
       `).all(),
       [{
-        summary: 'WJJ 在旧书店提到过海盐焦糖。',
-        detail: '旧书店那次我买了海盐焦糖',
+        summary: 'Lin 在旧书店提到过蓝莓松饼。',
+        detail: '旧书店那次我买了蓝莓松饼',
         retrieval_embedding: '[1,0,0]',
         retrieval_model: 'qwen/qwen3-embedding-8b',
       }],
@@ -181,7 +181,7 @@ test('runEpisodicConsolidationForAgent resolves local entities in batches of fiv
   try {
     bootstrap(dbPath, memoryDbPath)
     const agent = agentRepo.createAgent({
-      name: 'Amadeus',
+      name: 'Aster',
       description: '',
       model: 'claude-sonnet-4-6',
       provider: 'openrouter',
@@ -191,9 +191,9 @@ test('runEpisodicConsolidationForAgent resolves local entities in batches of fiv
       agentId: agent.id,
       sessionId: 'session-1',
       layer: 'short_term',
-      sourceText: 'WJJ：最近整理了一批游戏、地点和工具记忆。',
-      detail: 'WJJ 提到一批需要沉淀的实体。',
-      retrievalText: 'WJJ 提到一批需要沉淀的实体。',
+      sourceText: 'Lin：最近整理了一批游戏、地点和工具记忆。',
+      detail: 'Lin 提到一批需要沉淀的实体。',
+      retrievalText: 'Lin 提到一批需要沉淀的实体。',
       retrievalEmbedding: [],
       retrievalModel: 'none',
       tags: [],
@@ -341,7 +341,7 @@ test('runEpisodicConsolidationForAgent ranks stage B candidates by entity card e
   try {
     bootstrap(dbPath, memoryDbPath)
     const agent = agentRepo.createAgent({
-      name: 'Amadeus',
+      name: 'Aster',
       description: '',
       model: 'claude-sonnet-4-6',
       provider: 'openrouter',
@@ -350,8 +350,8 @@ test('runEpisodicConsolidationForAgent ranks stage B candidates by entity card e
     const existing = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
       type: 'event',
-      canonicalName: '起飞',
-      description: '王家骏喜欢的一种玩法，也会用别的个人习惯叫法来称呼。',
+      canonicalName: '纸鹤练习',
+      description: '林澈喜欢的一种玩法，也会用别的个人习惯叫法来称呼。',
       confidence: 0.9,
       aliases: [],
       now: new Date('2026-04-30T07:00:00.000Z'),
@@ -359,8 +359,8 @@ test('runEpisodicConsolidationForAgent ranks stage B candidates by entity card e
     episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
       type: 'object',
-      canonicalName: '星际争霸2',
-      description: '王家骏喜欢的科幻即时战略游戏。',
+      canonicalName: '星河战术2',
+      description: '林澈喜欢的科幻即时战略游戏。',
       confidence: 0.9,
       aliases: [],
       now: new Date('2026-04-30T07:00:00.000Z'),
@@ -369,9 +369,9 @@ test('runEpisodicConsolidationForAgent ranks stage B candidates by entity card e
       agentId: agent.id,
       sessionId: 'session-1',
       layer: 'short_term',
-      sourceText: '王家骏：跳皮就是起飞的别称。',
-      detail: '王家骏解释“跳皮”是“起飞”的别称。',
-      retrievalText: '王家骏说跳皮就是起飞的别称。',
+      sourceText: '林澈：折纸暗号就是纸鹤练习的别称。',
+      detail: '林澈解释“折纸暗号”是“纸鹤练习”的别称。',
+      retrievalText: '林澈说折纸暗号就是纸鹤练习的别称。',
       retrievalEmbedding: [],
       retrievalModel: 'none',
       tags: [],
@@ -388,15 +388,15 @@ test('runEpisodicConsolidationForAgent ranks stage B candidates by entity card e
               entities: [
                 {
                   local_entity_id: 'e1',
-                  surface: '跳皮',
+                  surface: '折纸暗号',
                   type: 'event',
-                  context_hint: '王家骏解释该词是起飞的别称',
+                  context_hint: '林澈解释该词是纸鹤练习的别称',
                 },
               ],
               episodic_memories: [
                 {
-                  summary: '王家骏说跳皮就是起飞的别称。',
-                  detail: '王家骏解释“跳皮”是“起飞”的别称。',
+                  summary: '林澈说折纸暗号就是纸鹤练习的别称。',
+                  detail: '林澈解释“折纸暗号”是“纸鹤练习”的别称。',
                   importance: 0.8,
                   entity_links: [{ local_entity_id: 'e1', weight: 1 }],
                 },
@@ -415,7 +415,7 @@ test('runEpisodicConsolidationForAgent ranks stage B candidates by entity card e
         }>
         assert.equal(payload[0]?.local_entity_id, 'e1')
         assert.equal(payload[0]?.candidates[0]?.entity_id, existing.id)
-        assert.equal(payload[0]?.candidates[0]?.canonical_name, '起飞')
+        assert.equal(payload[0]?.candidates[0]?.canonical_name, '纸鹤练习')
 
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({
@@ -425,7 +425,7 @@ test('runEpisodicConsolidationForAgent ranks stage B candidates by entity card e
                 action: 'merge',
                 entity_id: existing.id,
                 confidence: 0.94,
-                alias_to_add: '跳皮',
+                alias_to_add: '折纸暗号',
               },
             ],
           }) }],
@@ -443,13 +443,13 @@ test('runEpisodicConsolidationForAgent ranks stage B candidates by entity card e
           if (options?.inputType === 'search_query') {
             assert.deepEqual(options, { model: 'BAAI/bge-m3', inputType: 'search_query' })
             assert.equal(input.length, 1)
-            assert.match(input[0] ?? '', /跳皮/)
+            assert.match(input[0] ?? '', /折纸暗号/)
             return [[1, 0]]
           }
           if (options?.inputType === 'search_document' && input.some((text) => text.includes('canonical_name'))) {
             assert.deepEqual(options, { model: 'BAAI/bge-m3', inputType: 'search_document' })
             return input.map((text) =>
-              text.includes('起飞') ? [1, 0] : [0, 1],
+              text.includes('纸鹤练习') ? [1, 0] : [0, 1],
             )
           }
           assert.equal(options?.inputType, 'search_document')
@@ -468,12 +468,12 @@ test('runEpisodicConsolidationForAgent ranks stage B candidates by entity card e
         FROM memory_entity_aliases
         WHERE entity_id = ?
       `).all(existing.id),
-      [{ alias: '跳皮' }],
+      [{ alias: '折纸暗号' }],
     )
     const embeddedEntity = episodicMemoryGraphRepo.getEntity(existing.id)
     assert.deepEqual(embeddedEntity?.embedding, [1, 0])
     assert.equal(embeddedEntity?.embeddingModel, 'BAAI/bge-m3')
-    assert.match(embeddedEntity?.embeddingText ?? '', /canonical_name: 起飞/)
+    assert.match(embeddedEntity?.embeddingText ?? '', /canonical_name: 纸鹤练习/)
   } finally {
     resetDb()
     resetMemoryDb()
@@ -489,7 +489,7 @@ test('runEpisodicConsolidationForAgent processes stage A in batches of three unt
   try {
     bootstrap(dbPath, memoryDbPath)
     const agent = agentRepo.createAgent({
-      name: 'Amadeus',
+      name: 'Aster',
       description: '',
       model: 'claude-sonnet-4-6',
       provider: 'openrouter',
@@ -501,7 +501,7 @@ test('runEpisodicConsolidationForAgent processes stage A in batches of three unt
         agentId: agent.id,
         sessionId: 'session-1',
         layer: 'short_term',
-        sourceText: `WJJ：第 ${index} 条短期记忆。`,
+        sourceText: `Lin：第 ${index} 条短期记忆。`,
         detail: `第 ${index} 条短期记忆 detail。`,
         retrievalText: `第 ${index} 条短期记忆 retrieval。`,
         retrievalEmbedding: [],
@@ -605,7 +605,7 @@ test('runEpisodicConsolidationForAgent does not mutate entity graph when extract
   try {
     bootstrap(dbPath, memoryDbPath)
     const agent = agentRepo.createAgent({
-      name: 'Amadeus',
+      name: 'Aster',
       description: '',
       model: 'claude-sonnet-4-6',
       provider: 'openrouter',
@@ -615,9 +615,9 @@ test('runEpisodicConsolidationForAgent does not mutate entity graph when extract
       agentId: agent.id,
       sessionId: 'session-1',
       layer: 'short_term',
-      sourceText: 'WJJ：只是随口提到一个临时地点。',
-      detail: 'WJJ 随口提到一个临时地点。',
-      retrievalText: 'WJJ 临时地点',
+      sourceText: 'Lin：只是随口提到一个临时地点。',
+      detail: 'Lin 随口提到一个临时地点。',
+      retrievalText: 'Lin 临时地点',
       retrievalEmbedding: [],
       retrievalModel: 'none',
       tags: [],
@@ -696,7 +696,7 @@ test('runEpisodicConsolidationForAgent does not mutate entity graph when episodi
   try {
     bootstrap(dbPath, memoryDbPath)
     const agent = agentRepo.createAgent({
-      name: 'Amadeus',
+      name: 'Aster',
       description: '',
       model: 'claude-sonnet-4-6',
       provider: 'openrouter',
@@ -706,9 +706,9 @@ test('runEpisodicConsolidationForAgent does not mutate entity graph when episodi
       agentId: agent.id,
       sessionId: 'session-1',
       layer: 'short_term',
-      sourceText: 'WJJ：这是一条只有弱实体链接的短期记忆。',
-      detail: 'WJJ 提到一条弱实体链接。',
-      retrievalText: 'WJJ 弱实体链接',
+      sourceText: 'Lin：这是一条只有弱实体链接的短期记忆。',
+      detail: 'Lin 提到一条弱实体链接。',
+      retrievalText: 'Lin 弱实体链接',
       retrievalEmbedding: [],
       retrievalModel: 'none',
       tags: [],
@@ -796,7 +796,7 @@ test('runEpisodicConsolidationForAgent resolves only entities linked by usable e
   try {
     bootstrap(dbPath, memoryDbPath)
     const agent = agentRepo.createAgent({
-      name: 'Amadeus',
+      name: 'Aster',
       description: '',
       model: 'claude-sonnet-4-6',
       provider: 'openrouter',
@@ -805,7 +805,7 @@ test('runEpisodicConsolidationForAgent resolves only entities linked by usable e
     const existing = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
       type: 'object',
-      canonicalName: '海盐焦糖',
+      canonicalName: '蓝莓松饼',
       confidence: 0.9,
       aliases: [{ alias: '焦糖', confidence: 0.8 }],
       now: new Date('2026-04-30T08:00:00.000Z'),
@@ -814,9 +814,9 @@ test('runEpisodicConsolidationForAgent resolves only entities linked by usable e
       agentId: agent.id,
       sessionId: 'session-1',
       layer: 'short_term',
-      sourceText: 'WJJ：焦糖和怀念都被提到，但只有焦糖进入情景。',
-      detail: 'WJJ 提到焦糖。',
-      retrievalText: 'WJJ 焦糖',
+      sourceText: 'Lin：焦糖和怀念都被提到，但只有焦糖进入情景。',
+      detail: 'Lin 提到焦糖。',
+      retrievalText: 'Lin 焦糖',
       retrievalEmbedding: [],
       retrievalModel: 'none',
       tags: [],
@@ -831,12 +831,12 @@ test('runEpisodicConsolidationForAgent resolves only entities linked by usable e
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
-                { local_entity_id: 'c', surface: '焦糖', type: 'object', context_hint: '海盐焦糖简称', aliases: [] },
+                { local_entity_id: 'c', surface: '焦糖', type: 'object', context_hint: '蓝莓松饼简称', aliases: [] },
                 { local_entity_id: 'abs', surface: '怀念', type: 'unknown', context_hint: '抽象情绪', aliases: [] },
               ],
               episodic_memories: [
                 {
-                  summary: 'WJJ 把焦糖放进这条情景记忆。',
+                  summary: 'Lin 把焦糖放进这条情景记忆。',
                   detail: '焦糖进入情景',
                   importance: 0.6,
                   entity_links: [
@@ -886,7 +886,7 @@ test('runEpisodicConsolidationForAgent resolves only entities linked by usable e
     assert.equal(result.createdEpisodicCount, 1)
     assert.doesNotMatch(stageBInput, /怀念/)
     assert.deepEqual(entityRows, [
-      { canonical_name: '海盐焦糖', type: 'object' },
+      { canonical_name: '蓝莓松饼', type: 'object' },
     ])
   } finally {
     resetDb()
@@ -903,7 +903,7 @@ test('runEpisodicConsolidationForAgent uses editable episodic extraction and res
   try {
     bootstrap(dbPath, memoryDbPath)
     const agent = agentRepo.createAgent({
-      name: 'Amadeus',
+      name: 'Aster',
       description: '',
       model: 'claude-sonnet-4-6',
       provider: 'openrouter',
@@ -919,9 +919,9 @@ test('runEpisodicConsolidationForAgent uses editable episodic extraction and res
       agentId: agent.id,
       sessionId: 'session-1',
       layer: 'short_term',
-      sourceText: 'WJJ 说星际2就是星际争霸2。',
-      detail: 'WJJ 提到星际2。',
-      retrievalText: 'WJJ 星际2 星际争霸2',
+      sourceText: 'Lin 说星河2就是星河战术2。',
+      detail: 'Lin 提到星河2。',
+      retrievalText: 'Lin 星河2 星河战术2',
       retrievalEmbedding: [],
       retrievalModel: 'none',
       tags: [],
@@ -936,12 +936,12 @@ test('runEpisodicConsolidationForAgent uses editable episodic extraction and res
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
-                { local_entity_id: 'sc2', surface: '星际2', type: 'object', context_hint: '星际争霸2简称' },
+                { local_entity_id: 'sc2', surface: '星河2', type: 'object', context_hint: '星河战术2简称' },
               ],
               episodic_memories: [
                 {
-                  summary: 'WJJ 说星际2就是星际争霸2。',
-                  detail: '星际2就是星际争霸2',
+                  summary: 'Lin 说星河2就是星河战术2。',
+                  detail: '星河2就是星河战术2',
                   importance: 0.8,
                   entity_links: [{ local_entity_id: 'sc2', weight: 1 }],
                 },
@@ -958,7 +958,7 @@ test('runEpisodicConsolidationForAgent uses editable episodic extraction and res
               {
                 local_entity_id: 'sc2',
                 action: 'create_new',
-                canonical_name: '星际争霸2',
+                canonical_name: '星河战术2',
                 type: 'object',
                 confidence: 0.9,
               },
@@ -998,7 +998,7 @@ test('runEpisodicConsolidationForAgent reuses an exact existing entity when reso
   try {
     bootstrap(dbPath, memoryDbPath)
     const agent = agentRepo.createAgent({
-      name: 'Amadeus',
+      name: 'Aster',
       description: '',
       model: 'claude-sonnet-4-6',
       provider: 'openrouter',
@@ -1007,7 +1007,7 @@ test('runEpisodicConsolidationForAgent reuses an exact existing entity when reso
     const existing = episodicMemoryGraphRepo.createEntity({
       agentId: agent.id,
       type: 'place',
-      canonicalName: '东京旧书店',
+      canonicalName: '海岬旧书店',
       description: '已存在的地点节点',
       confidence: 0.9,
       aliases: [],
@@ -1016,9 +1016,9 @@ test('runEpisodicConsolidationForAgent reuses an exact existing entity when reso
       agentId: agent.id,
       sessionId: 'session-1',
       layer: 'short_term',
-      sourceText: 'Nora 今天又提到东京旧书店。',
-      detail: 'Nora 提到东京旧书店。',
-      retrievalText: 'Nora 提到东京旧书店。',
+      sourceText: 'Nora 今天又提到海岬旧书店。',
+      detail: 'Nora 提到海岬旧书店。',
+      retrievalText: 'Nora 提到海岬旧书店。',
       retrievalEmbedding: [],
       retrievalModel: 'none',
       tags: [],
@@ -1031,12 +1031,12 @@ test('runEpisodicConsolidationForAgent reuses an exact existing entity when reso
           return {
             content: [{ type: 'text' as const, text: JSON.stringify({
               entities: [
-                { local_entity_id: 'tokyo', surface: '东京旧书店', type: 'place', context_hint: 'Nora 提到的地点' },
+                { local_entity_id: 'tokyo', surface: '海岬旧书店', type: 'place', context_hint: 'Nora 提到的地点' },
               ],
               episodic_memories: [
                 {
-                  summary: 'Nora 又提到东京旧书店。',
-                  detail: 'Nora 今天又提到东京旧书店',
+                  summary: 'Nora 又提到海岬旧书店。',
+                  detail: 'Nora 今天又提到海岬旧书店',
                   importance: 0.7,
                   entity_links: [{ local_entity_id: 'tokyo', weight: 1 }],
                 },
@@ -1052,7 +1052,7 @@ test('runEpisodicConsolidationForAgent reuses an exact existing entity when reso
               {
                 local_entity_id: 'tokyo',
                 action: 'create_new',
-                canonical_name: '东京旧书店',
+                canonical_name: '海岬旧书店',
                 type: 'place',
                 confidence: 0.9,
               },
@@ -1086,7 +1086,7 @@ test('runEpisodicConsolidationForAgent reuses an exact existing entity when reso
 
     assert.equal(result.ok, true)
     assert.equal(result.createdEntityCount, 0)
-    assert.deepEqual(entityRows, [{ id: existing.id, canonical_name: '东京旧书店' }])
+    assert.deepEqual(entityRows, [{ id: existing.id, canonical_name: '海岬旧书店' }])
     assert.deepEqual(linkRows, [{ entity_id: existing.id }])
   } finally {
     resetDb()
