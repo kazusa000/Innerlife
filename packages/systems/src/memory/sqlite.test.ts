@@ -744,6 +744,17 @@ test('memory sqlite retrieves active episodic memories as temporary short-term c
     await system.beforeTurn?.(ctx)
     const retrieved = await ctx.pendingMemoryQuery?.retrieve({
       retrievalQuery: 'Orion长期记忆设计',
+      timeRange: null,
+    })
+    const retrievedByTimeOnly = await ctx.pendingMemoryQuery?.retrieve({
+      retrievalQuery: null,
+      timeRange: {
+        start: new Date(originalObservedAt.getTime() - 60_000),
+        end: new Date(originalObservedAt.getTime() + 60_000),
+      },
+    })
+    const missedByTimeOnly = await ctx.pendingMemoryQuery?.retrieve({
+      retrievalQuery: null,
       timeRange: {
         start: new Date(now.getTime() - 60_000),
         end: new Date(now.getTime() + 60_000),
@@ -751,6 +762,8 @@ test('memory sqlite retrieves active episodic memories as temporary short-term c
     })
 
     assert.deepEqual(retrieved?.shortTerm.map((item) => item.id), [memory.id])
+    assert.deepEqual(retrievedByTimeOnly?.shortTerm.map((item) => item.id), [memory.id])
+    assert.deepEqual(missedByTimeOnly?.shortTerm.map((item) => item.id), [])
     assert.equal(retrieved?.shortTerm[0]?.layer, 'short_term')
     assert.equal(retrieved?.shortTerm[0]?.retrievalText, '林澈和 Aster 讨论 Orion 的长期记忆设计细节。')
     assert.deepEqual(retrieved?.fixed, [])
@@ -761,6 +774,7 @@ test('memory sqlite retrieves active episodic memories as temporary short-term c
 
     const content = ctx.promptFragments[0]?.content ?? ''
     assert.match(content, /短期最相关记忆：/)
+    assert.match(content, /临时点亮情景记忆/)
     assert.match(content, /林澈和 Aster 讨论 Orion 的长期记忆设计细节。/)
     assert.doesNotMatch(content, /此刻自然浮现的情景记忆/)
   } finally {
@@ -835,6 +849,42 @@ test('memory sqlite renders short-term observed time and keeps fixed created tim
   assert.match(fragment, /短期最相关记忆：\[短期记忆\]\[发生于 .+ - .+\] 用户昨晚吃了番茄鸡蛋面/)
   assert.match(fragment, /短期补充记忆：\[短期记忆\]\[时间未知\] 旧短期记忆缺少 observed range/)
   assert.match(fragment, /固化最相关记忆：\[固化记忆\]\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}\] 用户偏好本地数据库/)
+  assert.doesNotMatch(fragment, /用户昨晚吃了番茄鸡蛋面。/)
+  assert.doesNotMatch(fragment, /用户偏好本地数据库。/)
+})
+
+test('memory sqlite renders activated episodic memories as activated episodic and uses detail text', async () => {
+  const system = new MemorySqliteSystem({
+    retrieveTopK: 5,
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('那段长期记忆是什么')
+  ctx.state.shortTermMemories = [
+    {
+      id: 'episodic-active',
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      layer: 'short_term',
+      sourceText: 'source',
+      detail: '这是情景记忆的详细内容，应该进入 prompt。',
+      retrievalText: '这是情景记忆的检索摘要。',
+      retrievalEmbedding: [1, 0],
+      retrievalModel: 'model',
+      tags: ['activated_episodic'],
+      importance: 0.8,
+      createdAt: new Date('2026-04-20T09:00:00.000Z'),
+      observedStartAt: null,
+      observedEndAt: null,
+    },
+  ]
+  ctx.state.fixedMemories = []
+
+  await system.beforeLLM?.(ctx)
+
+  const fragment = ctx.promptFragments[0]?.content ?? ''
+  assert.match(fragment, /临时点亮情景记忆/)
+  assert.match(fragment, /这是情景记忆的详细内容，应该进入 prompt。/)
+  assert.doesNotMatch(fragment, /这是情景记忆的检索摘要。/)
 })
 
 test('context-to-short-term source text carries observed window and message local times', () => {

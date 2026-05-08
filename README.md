@@ -40,6 +40,14 @@ This structure allows a virtual person to gradually form its own memory network,
 - Observer debugging interface
 - Chinese and English interface switching
 
+## Management Workbench
+
+Innerlife is not only a chat window. It includes a web-based management workbench for creating and shaping virtual persons. You can configure model providers, persona prompts, tool permissions, memory settings, emotion state, and relationship counterparts from the UI.
+
+The memory management page can inspect and edit short-term memories, episodic memories, entity nodes, aliases, and untyped weighted edges. Prompt test panels let you run each memory-stage prompt directly and inspect the real input and output.
+
+This makes Innerlife closer to a workbench for debugging, shaping, and maintaining virtual persons, rather than a chat-only demo.
+
 ## Modules
 
 ### 1. Persona Module

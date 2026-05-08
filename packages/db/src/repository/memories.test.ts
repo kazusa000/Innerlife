@@ -240,6 +240,20 @@ test('findRelevantMemories supports time range filtering on top of embedding sim
     addMemory({
       agentId: 'agent-1',
       sessionId: 'session-1',
+      sourceText: 'User described dinner during the same time range.',
+      detail: '我刚才吃了番茄鸡蛋面',
+      retrievalText: '最近我吃了番茄鸡蛋面',
+      retrievalEmbedding: vector([0.1, 0.9]),
+      retrievalModel: 'qwen/qwen3-embedding-0.6b',
+      tags: ['晚饭'],
+      importance: 1,
+      observedStartAt: new Date('2026-04-20T13:58:30.000Z'),
+      observedEndAt: new Date('2026-04-20T13:58:30.000Z'),
+      createdAt: new Date('2026-04-20T13:58:30.000Z'),
+    })
+    addMemory({
+      agentId: 'agent-1',
+      sessionId: 'session-1',
       sourceText: 'Older unrelated memory.',
       detail: '我上午在看 observer',
       retrievalText: '上午我在看 observer 面板',
@@ -254,6 +268,7 @@ test('findRelevantMemories supports time range filtering on top of embedding sim
       agentId: 'agent-1',
       queryEmbeddings: [vector([0.9, 0.1])],
       topK: 5,
+      minSimilarity: 0.8,
       timeRange: {
         start: new Date('2026-04-20T13:55:00.000Z'),
         end: new Date('2026-04-20T14:00:00.000Z'),
@@ -362,7 +377,7 @@ test('findRelevantMemories keeps fixed time filtering on createdAt', () => {
   }
 })
 
-test('findRelevantMemories keeps time-range candidates even when semantic similarity is zero', () => {
+test('findRelevantMemories requires semantic similarity when a semantic query is present with a time range', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memories-repo-'))
   const dbPath = join(dir, 'memory.db')
 
@@ -406,7 +421,7 @@ test('findRelevantMemories keeps time-range candidates even when semantic simila
       },
     })
 
-    assert.deepEqual(results.map((memory) => memory.id), [insideRange.id])
+    assert.deepEqual(results.map((memory) => memory.id), [])
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })

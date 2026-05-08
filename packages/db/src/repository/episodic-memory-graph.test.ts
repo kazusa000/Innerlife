@@ -476,6 +476,26 @@ test('entity candidate matching surfaces shared concrete suffixes without aliase
       caramelCandidates.some((candidate) => candidate.entity.id === seaSaltCaramel.id),
       false,
     )
+
+    const readingSteiner = graphRepo.createEntity({
+      agentId: 'agent-1',
+      type: 'object',
+      canonicalName: 'Reading Steiner',
+      description: '冈部感知世界线变化时使用的概念',
+      confidence: 0.9,
+      aliases: [],
+    })
+
+    const mixedLanguageCandidates = graphRepo.findEntityCandidates({
+      agentId: 'agent-1',
+      type: 'object',
+      surface: 'Innerlife项目介绍视频',
+    })
+
+    assert.equal(
+      mixedLanguageCandidates.some((candidate) => candidate.entity.id === readingSteiner.id),
+      false,
+    )
   } finally {
     resetMemoryDb()
     rmSync(dir, { recursive: true, force: true })

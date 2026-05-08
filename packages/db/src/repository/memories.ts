@@ -468,8 +468,7 @@ export function findRelevantMemories(input: {
         : 0,
     }))
     .filter(({ similarity }) => (
-      hasTimeRange
-      || queryEmbeddings.length === 0
+      isPureTimeRecall
       || similarity >= minSimilarity
     ))
     .sort((left, right) => {

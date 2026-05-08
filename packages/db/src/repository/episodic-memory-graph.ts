@@ -198,22 +198,26 @@ function hasCjk(value: string) {
   return /[\u3400-\u9fff]/.test(value)
 }
 
-function longestCommonSubstringLength(left: string, right: string) {
+function longestCommonSubstring(left: string, right: string) {
   let previous = new Array(right.length + 1).fill(0) as number[]
   let best = 0
+  let bestEnd = 0
 
   for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
     const current = new Array(right.length + 1).fill(0) as number[]
     for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
       if (left[leftIndex - 1] === right[rightIndex - 1]) {
         current[rightIndex] = previous[rightIndex - 1]! + 1
-        best = Math.max(best, current[rightIndex]!)
+        if (current[rightIndex]! > best) {
+          best = current[rightIndex]!
+          bestEnd = leftIndex
+        }
       }
     }
     previous = current
   }
 
-  return best
+  return left.slice(bestEnd - best, bestEnd)
 }
 
 function hasSharedConcreteFragment(left: string, right: string) {
@@ -223,8 +227,9 @@ function hasSharedConcreteFragment(left: string, right: string) {
     return false
   }
 
-  const minLength = hasCjk(normalizedLeft) || hasCjk(normalizedRight) ? 3 : 6
-  return longestCommonSubstringLength(normalizedLeft, normalizedRight) >= minLength
+  const shared = longestCommonSubstring(normalizedLeft, normalizedRight)
+  const minLength = hasCjk(shared) ? 3 : 6
+  return shared.length >= minLength
 }
 
 function clip01(value: number) {

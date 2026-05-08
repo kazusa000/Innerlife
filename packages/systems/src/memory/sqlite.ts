@@ -263,6 +263,13 @@ function formatMemoryLayerLabel(layer: MemoryRecord['layer'], locale: AppLocale 
   }
 }
 
+function formatMemoryPromptLayer(memory: MemoryRecord, locale: AppLocale = 'zh-CN'): string {
+  if (memory.tags.includes('activated_episodic')) {
+    return locale === 'en-US' ? 'activated episodic memory' : '临时点亮情景记忆'
+  }
+  return formatMemoryLayerLabel(memory.layer, locale)
+}
+
 function joinPromptLines(lines: Array<string | null | undefined>) {
   return lines
     .map((line) => typeof line === 'string' ? line.trim() : '')
@@ -844,10 +851,12 @@ function renderMemoryLayerResult(input: {
   }
 
   const [primaryMemory, ...secondaryMemories] = input.memories
-  const renderMemoryLine = (label: string, memory: MemoryRecord) =>
-    input.locale === 'en-US'
-      ? `${label}: [${formatMemoryLayerLabel(memory.layer, input.locale)}][${formatMemoryPromptTime(memory, input.locale)}] ${memory.retrievalText}`
-      : `${label}：[${formatMemoryLayerLabel(memory.layer, input.locale)}][${formatMemoryPromptTime(memory, input.locale)}] ${memory.retrievalText}`
+  const renderMemoryLine = (label: string, memory: MemoryRecord) => {
+    const promptText = memory.detail.trim() || memory.retrievalText
+    return input.locale === 'en-US'
+      ? `${label}: [${formatMemoryPromptLayer(memory, input.locale)}][${formatMemoryPromptTime(memory, input.locale)}] ${promptText}`
+      : `${label}：[${formatMemoryPromptLayer(memory, input.locale)}][${formatMemoryPromptTime(memory, input.locale)}] ${promptText}`
+  }
 
   return [
     input.prompt,
@@ -1443,11 +1452,7 @@ function retrieveActiveEpisodicAsShortTerm(input: {
         : 1
       return { memory, similarity, activationScore: item.score, activatedAt: item.activatedAt }
     })
-    .filter((hit) => overlapsTimeRange({
-      observedStartAt: hit.activatedAt,
-      observedEndAt: hit.activatedAt,
-      createdAt: hit.activatedAt,
-    }, input.timeRange))
+    .filter((hit) => overlapsTimeRange(hit.memory, input.timeRange))
     .filter((hit) => queries.length === 0 || hit.similarity >= input.minSimilarity)
     .sort((left, right) => {
       if (right.similarity !== left.similarity) {
