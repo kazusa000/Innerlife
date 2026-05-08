@@ -20,30 +20,30 @@
 
 ## 3. README
 
-- [ ] 重写一个面向公开用户的 `README.md`。
-- [ ] 用一段话讲清楚项目是什么。
-- [ ] 写当前功能列表。
-- [ ] 写架构概览：chat runtime、memory、emotion、relationship、daemon、observer。
-- [ ] 写快速启动命令。
-- [ ] 写环境变量配置说明。
-- [ ] 写当前限制和不稳定点。
+- [x] 重写一个面向公开用户的 `README.md`。
+- [x] 用一段话讲清楚项目是什么。
+- [x] 写当前功能列表。
+- [x] 写架构概览：chat runtime、memory、emotion、relationship、daemon、observer。
+- [x] 写快速启动命令。
+- [x] 写环境变量配置说明。
+- [x] 写当前限制和不稳定点。
 - [ ] 如果要放截图或架构图，先确认截图里没有私人数据。
 
 ## 4. 环境配置
 
-- [ ] 检查 `.env.example` 是否真实可用。
+- [x] 检查 `.env.example` 是否真实可用。
 - [x] 说明必需 API key 和可选 provider 配置。
 - [x] 说明 Anthropic-compatible endpoint 怎么配置。
 - [x] 说明 OpenRouter 怎么配置。
-- [ ] 说明 app database 和 memory database 默认会生成在哪里。
+- [x] 说明 app database 和 memory database 默认会生成在哪里。
 - [ ] 确认 fresh clone 不依赖你本机隐藏状态。
 
 ## 5. License
 
-- [ ] 添加根目录 `LICENSE` 文件。
-- [ ] 确认是否使用当前文档里提到的 MIT。
+- [x] 添加根目录 `LICENSE` 文件。
+- [x] 确认是否使用当前文档里提到的 MIT。
 - [ ] 粗略检查主要依赖许可证是否有明显冲突。
-- [ ] 在 `README.md` 中写明 license。
+- [x] 在 `README.md` 中写明 license。
 
 ## 6. 启动与开发体验
 

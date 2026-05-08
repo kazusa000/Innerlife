@@ -71,7 +71,9 @@ export interface MemoryTimeRange {
 }
 
 export interface MemoryTimeAnalyzerMeta {
+  mode?: 'llm' | null
   timeRange: MemoryTimeRange | null
+  inputPreview?: string | null
   error: string | null
 }
 
@@ -302,7 +304,9 @@ export function getMemoryTimeAnalyzer(call: LiveCall): MemoryTimeAnalyzerMeta | 
   }
 
   return {
+    mode: readString(analyzer.mode) as 'llm' | null,
     timeRange: readMemoryTimeRange(analyzer.timeRange),
+    inputPreview: readString(analyzer.inputPreview),
     error: readString(analyzer.error),
   }
 }

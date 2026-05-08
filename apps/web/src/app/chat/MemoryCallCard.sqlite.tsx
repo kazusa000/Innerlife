@@ -107,6 +107,7 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
               <CollapsibleSection title="Time Analyzer" accent={CALL_ACCENTS.memory.color} defaultOpen>
                 <DetailList
                   rows={[
+                    { label: copy.mode, value: timeAnalyzer?.mode ?? copy.none },
                     {
                       label: copy.timeRange,
                       value: timeAnalyzer?.timeRange ? (
@@ -118,6 +119,7 @@ export function MemoryCallCardSqlite({ call }: { call: LiveCall }) {
                         />
                       ) : copy.none,
                     },
+                    { label: copy.inputPreview, value: timeAnalyzer?.inputPreview ?? copy.none },
                     { label: copy.error, value: timeAnalyzer?.error ?? copy.none },
                   ]}
                 />

@@ -141,6 +141,7 @@ export interface PendingMemoryQuery {
   model?: string | null
   reasoning?: MemoryReasoningConfig
   timeAnalyzer: PendingMemoryQueryAnalyzer<MemoryTimeAnalysisResult>
+  timeAnalyzerFallback?: PendingMemoryQueryLocalAnalyzer<MemoryTimeAnalysisResult>
   semanticAnalyzer: PendingMemoryQueryAnalyzer<MemorySemanticAnalysisResult>
   merge(input: {
     time: MemoryTimeAnalysisResult | null

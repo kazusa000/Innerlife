@@ -139,6 +139,10 @@ function isMemorySemanticPrompt(systemPrompt: string): boolean {
   return systemPrompt.includes('sqlite 记忆系统的语义分析器')
 }
 
+function isMemoryTimePrompt(systemPrompt: string): boolean {
+  return systemPrompt.includes('记忆系统的时间解析器')
+}
+
 function createEmbedder(map: Record<string, number[]>) {
   return {
     async embed(input: string[]) {
@@ -160,6 +164,111 @@ function createTimeParser(map: Record<string, { start: string; end: string } | n
     }
   }
 }
+
+test('runAgent executes llm memory time analyzer and merges its range into retrieval', async () => {
+  const observerEnds: Array<{ metadata?: unknown; error?: string }> = []
+  const observer: RunAgentObserver = {
+    onLLMCallStart() {
+      return `call-${observerEnds.length + 1}`
+    },
+    onLLMCallEnd(_callId, payload) {
+      observerEnds.push({ metadata: payload.metadata, error: payload.error })
+    },
+  }
+  const systems: AgentSystem[] = [
+    {
+      name: 'memory:sqlite',
+      type: 'memory',
+      async beforeTurn(ctx) {
+        ctx.pendingMemoryQuery = {
+          kind: 'sqlite',
+          system: 'memory:sqlite',
+          timeAnalyzer: {
+            kind: 'llm',
+            prompt: '你是记忆系统的时间解析器。',
+            inputText: '当前用户消息：\n我昨天晚饭吃了什么？',
+            parse(responseText) {
+              const parsed = JSON.parse(responseText) as { time_range: { start: string; end: string } | null }
+              return {
+                timeRange: parsed.time_range
+                  ? {
+                      start: new Date(parsed.time_range.start),
+                      end: new Date(parsed.time_range.end),
+                    }
+                  : null,
+              }
+            },
+          },
+          semanticAnalyzer: {
+            kind: 'llm',
+            prompt: 'sqlite 记忆系统的语义分析器',
+            inputText: '我昨天晚饭吃了什么？',
+            responseFormat: undefined,
+            parse(responseText) {
+              const parsed = JSON.parse(responseText) as { retrieval_query: string | null }
+              return { retrievalQuery: parsed.retrieval_query }
+            },
+          },
+          merge({ time, semantic }) {
+            return {
+              retrievalQuery: semantic.retrievalQuery,
+              timeRange: time?.timeRange ?? null,
+            }
+          },
+          retrieve(query) {
+            assert.deepEqual(query.timeRange, {
+              start: new Date('2026-05-07T18:00:00+02:00'),
+              end: new Date('2026-05-07T22:00:00+02:00'),
+            })
+            return { shortTerm: [], fixed: [] }
+          },
+        }
+      },
+    },
+  ]
+  const provider = new FakeProvider(async function* (params) {
+    yield {
+      type: 'message_complete',
+      response: {
+        content: [{
+          type: 'text',
+          text: isMemoryTimePrompt(params.systemPrompt)
+            ? JSON.stringify({
+                time_range: {
+                  start: '2026-05-07T18:00:00+02:00',
+                  end: '2026-05-07T22:00:00+02:00',
+                },
+              })
+            : JSON.stringify({ retrieval_query: '我的晚饭是什么' }),
+        }],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 5, outputTokens: 4 },
+      },
+    }
+  })
+
+  const events = []
+  for await (const event of runAgent(
+    createConfig(),
+    [createTextMessage('user', '我昨天晚饭吃了什么？')],
+    provider,
+    systems,
+    observer,
+  )) {
+    events.push(event)
+  }
+
+  assert.equal(events.at(-1)?.type, 'complete')
+  assert.deepEqual((observerEnds[0]?.metadata as { timeAnalyzer?: unknown })?.timeAnalyzer, {
+    mode: 'llm',
+    timeRange: {
+      start: '2026-05-07T16:00:00.000Z',
+      end: '2026-05-07T20:00:00.000Z',
+    },
+    inputPreview: '当前用户消息：\n我昨天晚饭吃了什么？',
+    error: null,
+  })
+})
 
 test('runAgent uses bound named counterpart labels in the memory semantic analyzer input', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mas-memory-runner-'))
@@ -421,11 +530,22 @@ test('runAgent records embedding retrieval metadata without writing a short-term
           : undefined,
         kind: isMemorySemanticPrompt(request.systemPrompt)
             ? 'retrieve_semantic'
+          : isMemoryTimePrompt(request.systemPrompt)
+            ? 'retrieve_time'
           : request.systemPrompt.includes('"detail": string')
             ? 'summarize'
             : 'turn',
       })),
       [
+        {
+          kind: 'retrieve_time',
+          model: 'memory-model',
+          reasoning: { effort: 'none' },
+          responseFormat: {
+            type: 'json_schema',
+            jsonSchema: { name: 'memory_time_query' },
+          },
+        },
         {
           kind: 'retrieve_semantic',
           model: 'memory-model',

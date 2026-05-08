@@ -22,6 +22,8 @@ import {
   buildSemanticAnalyzerPrompt,
   buildShortTermFragmentPrompt,
   buildShortTermToLongTermSourceText,
+  buildTimeAnalyzerInputText,
+  buildTimeAnalyzerPrompt,
   isSqliteMemoryConfig,
   MEMORY_BATCH_WRITE_RESPONSE_FORMAT,
   parseEmotionAnalysis,
@@ -138,6 +140,13 @@ export function buildDefaultPromptTestInputs(agent: AgentRecord) {
         ],
         currentUserMessage: 'What was that game called again?',
       },
+      'memory.timeAnalyzer': {
+        recentMessages: [
+          { role: 'user', text: 'I had dinner a little late yesterday.' },
+          { role: 'assistant', text: 'I will remember that.' },
+        ],
+        currentUserMessage: 'What did I eat for dinner yesterday?',
+      },
       'memory.contextToShortTerm': {
         messages: [
           { role: 'user', text: 'I recently started playing StarCraft II again.' },
@@ -195,6 +204,13 @@ export function buildDefaultPromptTestInputs(agent: AgentRecord) {
         { role: 'assistant', text: '我记住了。' },
       ],
       currentUserMessage: '那个游戏叫什么来着？',
+    },
+    'memory.timeAnalyzer': {
+      recentMessages: [
+        { role: 'user', text: '我昨天晚饭吃得有点晚。' },
+        { role: 'assistant', text: '我记住了。' },
+      ],
+      currentUserMessage: '我昨天晚饭吃了什么？',
     },
     'memory.contextToShortTerm': {
       messages: [
@@ -692,6 +708,35 @@ export async function runPromptTest(agentId: string, body: unknown, provider?: P
       mode: 'llm',
       model,
       systemPrompt: buildSemanticAnalyzerPrompt(prompt ?? memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt, locale),
+      inputText,
+      parse: parseJsonValue,
+      provider,
+    })
+  }
+  if (testId === 'memory.timeAnalyzer') {
+    const currentUserMessage = readCurrentUserMessage(input, locale === 'en-US' ? 'What did I eat for dinner yesterday?' : '我昨天晚饭吃了什么？')
+    const timeMessages: ConversationMessage[] = [
+      ...readConversationMessages(input),
+      {
+        role: 'user',
+        content: currentUserMessage,
+        createdAt: new Date('2026-04-30T10:59:00.000Z'),
+      },
+    ]
+    const inputText = buildTimeAnalyzerInputText(
+      timeMessages,
+      currentUserMessage,
+      new Date('2026-04-30T11:00:00.000+02:00'),
+      actorLabels,
+      memoryConfig.semanticAnalyzerHistoryMessages,
+      locale,
+    )
+    return runLlmTest({
+      agent,
+      testId,
+      mode: 'llm',
+      model,
+      systemPrompt: buildTimeAnalyzerPrompt(prompt ?? memoryConfig.timeAnalyzerPrompt, locale),
       inputText,
       parse: parseJsonValue,
       provider,

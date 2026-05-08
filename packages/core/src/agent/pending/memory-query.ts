@@ -36,8 +36,19 @@ export async function runPendingMemoryQuery(
   }
 
   const observerPayload = {
-    systemPrompt: pending.semanticAnalyzer.prompt,
+    systemPrompt: [
+      ...(pending.timeAnalyzer.kind === 'llm'
+        ? [`[time analyzer]\n${pending.timeAnalyzer.prompt}`]
+        : []),
+      `[semantic analyzer]\n${pending.semanticAnalyzer.prompt}`,
+    ].join('\n\n'),
     messages: [
+      ...(pending.timeAnalyzer.kind === 'llm'
+        ? [{
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: `time analyzer 输入\n${pending.timeAnalyzer.inputText}` }],
+          }]
+        : []),
       {
         role: 'user' as const,
         content: [{ type: 'text' as const, text: `semantic analyzer 输入\n${pending.semanticAnalyzer.inputText}` }],
@@ -53,6 +64,7 @@ export async function runPendingMemoryQuery(
   })
 
   let semanticResponse: LLMResponse | undefined
+  let timeResponse: LLMResponse | undefined
   let timeError: Error | undefined
   let semanticError: Error | undefined
   let queryError: Error | undefined
@@ -94,10 +106,31 @@ export async function runPendingMemoryQuery(
     }
   }
 
+  const runTimeAnalyzer = async () => {
+    if (timeAnalyzer.kind === 'local') {
+      return { parsed: await timeAnalyzer.analyze() }
+    }
+
+    try {
+      return await runLlmAnalyzer(
+        timeAnalyzer.prompt,
+        timeAnalyzer.inputText,
+        timeAnalyzer.responseFormat,
+        timeAnalyzer.parse,
+      )
+    } catch (err) {
+      if (!pending.timeAnalyzerFallback) {
+        throw err
+      }
+      return {
+        parsed: await pending.timeAnalyzerFallback.analyze(),
+        fallbackError: err instanceof Error ? err : new Error(String(err)),
+      }
+    }
+  }
+
   const [timeOutcome, semanticOutcome] = await Promise.all([
-    (timeAnalyzer.kind === 'local'
-      ? Promise.resolve().then(async () => ({ parsed: await timeAnalyzer.analyze() }))
-      : Promise.reject(new Error('Memory time analyzer must be local')))
+    runTimeAnalyzer()
       .catch((err) => ({ error: err instanceof Error ? err : new Error(String(err)) })),
     runLlmAnalyzer(
       semanticAnalyzer.prompt,
@@ -110,6 +143,7 @@ export async function runPendingMemoryQuery(
   if ('error' in timeOutcome) {
     timeError = timeOutcome.error
   } else {
+    timeResponse = 'response' in timeOutcome ? timeOutcome.response : undefined
     timeResult = timeOutcome.parsed
   }
 
@@ -147,6 +181,12 @@ export async function runPendingMemoryQuery(
       ctx.turnMetadata.memory = {
         hitCount: hits.length,
         timeAnalyzer: {
+          ...(timeAnalyzer.kind === 'llm' && timeResponse
+            ? {
+                mode: 'llm',
+                inputPreview: timeAnalyzer.inputText,
+              }
+            : {}),
           timeRange: query.timeRange
             ? {
                 start: query.timeRange.start.toISOString(),
@@ -206,6 +246,12 @@ export async function runPendingMemoryQuery(
   const metadata: Record<string, unknown> = {
     phase: 'retrieve',
     timeAnalyzer: {
+      ...(timeAnalyzer.kind === 'llm' && timeResponse
+        ? {
+            mode: 'llm',
+            inputPreview: timeAnalyzer.inputText,
+          }
+        : {}),
       timeRange: query.timeRange
         ? {
             start: query.timeRange.start.toISOString(),
@@ -255,6 +301,9 @@ export async function runPendingMemoryQuery(
   if (callId !== undefined && observer) {
     observer.onLLMCallEnd(callId, {
       response: [
+        ...(timeResponse
+          ? [{ type: 'text' as const, text: `[time analyzer]\n${extractContentText(timeResponse.content)}` }]
+          : []),
         ...(semanticResponse
           ? [{ type: 'text' as const, text: `[semantic analyzer]\n${extractContentText(semanticResponse.content)}` }]
           : []),

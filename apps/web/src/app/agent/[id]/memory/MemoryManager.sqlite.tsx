@@ -110,6 +110,7 @@ interface MemorySettings {
   sleepTimeLocal: string
   sleepIntervalDays: number
   semanticAnalyzerPrompt: string
+  timeAnalyzerPrompt: string
   contextToShortTermPrompt: string
   entityMentionPrompt: string
   episodicExtractionPrompt: string
@@ -178,6 +179,7 @@ interface MemoryListResponse {
   sleepTimeLocal: string | null
   sleepIntervalDays: number
   semanticAnalyzerPrompt: string | null
+  timeAnalyzerPrompt: string | null
   contextToShortTermPrompt: string | null
   entityMentionPrompt: string | null
   episodicExtractionPrompt: string | null
@@ -198,6 +200,8 @@ interface MemoryListResponse {
   fixedFragmentPromptEffective: string
   semanticAnalyzerPromptDefault: string
   semanticAnalyzerPromptEffective: string
+  timeAnalyzerPromptDefault: string
+  timeAnalyzerPromptEffective: string
   context: ContextSummary
   sleep: SleepSummary
   entities?: EntityGraphSummary
@@ -271,6 +275,7 @@ function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySet
     sleepTimeLocal: typeof data.sleepTimeLocal === 'string' ? data.sleepTimeLocal : '03:00',
     sleepIntervalDays: typeof data.sleepIntervalDays === 'number' ? data.sleepIntervalDays : 1,
     semanticAnalyzerPrompt: typeof data.semanticAnalyzerPrompt === 'string' ? data.semanticAnalyzerPrompt : '',
+    timeAnalyzerPrompt: typeof data.timeAnalyzerPrompt === 'string' ? data.timeAnalyzerPrompt : '',
     contextToShortTermPrompt: typeof data.contextToShortTermPrompt === 'string' ? data.contextToShortTermPrompt : '',
     entityMentionPrompt: typeof data.entityMentionPrompt === 'string' ? data.entityMentionPrompt : '',
     episodicExtractionPrompt: typeof data.episodicExtractionPrompt === 'string' ? data.episodicExtractionPrompt : '',
@@ -283,6 +288,7 @@ function normalizeSettings(data: Partial<MemoryListResponse> | Partial<MemorySet
 function normalizeEffectivePrompts(data: Partial<MemoryListResponse>): Pick<
   MemorySettings,
   'semanticAnalyzerPrompt'
+  | 'timeAnalyzerPrompt'
   | 'contextToShortTermPrompt'
   | 'entityMentionPrompt'
   | 'episodicExtractionPrompt'
@@ -292,6 +298,7 @@ function normalizeEffectivePrompts(data: Partial<MemoryListResponse>): Pick<
 > {
   return {
     semanticAnalyzerPrompt: typeof data.semanticAnalyzerPromptEffective === 'string' ? data.semanticAnalyzerPromptEffective : '',
+    timeAnalyzerPrompt: typeof data.timeAnalyzerPromptEffective === 'string' ? data.timeAnalyzerPromptEffective : '',
     contextToShortTermPrompt: typeof data.contextToShortTermPromptEffective === 'string' ? data.contextToShortTermPromptEffective : '',
     entityMentionPrompt: typeof data.entityMentionPromptEffective === 'string' ? data.entityMentionPromptEffective : '',
     episodicExtractionPrompt: typeof data.episodicExtractionPromptEffective === 'string' ? data.episodicExtractionPromptEffective : '',
@@ -834,6 +841,7 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
           sleepTimeLocal: draftSettings.sleepTimeLocal,
           sleepIntervalDays: draftSettings.sleepIntervalDays,
           semanticAnalyzerPrompt: draftSettings.semanticAnalyzerPrompt.trim() || null,
+          timeAnalyzerPrompt: draftSettings.timeAnalyzerPrompt.trim() || null,
           contextToShortTermPrompt: draftSettings.contextToShortTermPrompt.trim() || null,
           entityMentionPrompt: draftSettings.entityMentionPrompt.trim() || null,
           episodicExtractionPrompt: draftSettings.episodicExtractionPrompt.trim() || null,
@@ -846,6 +854,8 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
         error?: string
         semanticAnalyzerPromptDefault?: string
         semanticAnalyzerPromptEffective?: string
+        timeAnalyzerPromptDefault?: string
+        timeAnalyzerPromptEffective?: string
         contextToShortTermPromptDefault?: string
         contextToShortTermPromptEffective?: string
         entityMentionPromptDefault?: string
@@ -1794,6 +1804,14 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
                 rows: 7,
               },
               {
+                key: 'timeAnalyzerPrompt',
+                label: 'Time Analyzer Prompt',
+                helper: copy.promptLab.timeHelper,
+                value: draftSettings.timeAnalyzerPrompt,
+                placeholder: copy.promptLab.timePlaceholder,
+                rows: 7,
+              },
+              {
                 key: 'contextToShortTermPrompt',
                 label: 'Context → STM Prompt',
                 helper: copy.promptLab.contextHelper,
@@ -1846,6 +1864,10 @@ export default function MemoryManagerSqlite({ agentId }: MemoryManagerProps) {
               semanticAnalyzerPrompt: {
                 testId: 'memory.semanticAnalyzer',
                 defaultInput: DEFAULT_PROMPT_TEST_INPUTS.memorySemantic,
+              },
+              timeAnalyzerPrompt: {
+                testId: 'memory.timeAnalyzer',
+                defaultInput: DEFAULT_PROMPT_TEST_INPUTS.memoryTime,
               },
               contextToShortTermPrompt: {
                 testId: 'memory.contextToShortTerm',

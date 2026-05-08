@@ -237,6 +237,8 @@ export function getSqliteMemoryCopy(locale: AppLocale) {
       promptLab: {
         semanticHelper: 'Prompt that only extracts retrieval_query. It should analyze “what”, not mix in time.',
         semanticPlaceholder: 'Clear and save to fall back to the system default semantic analyzer prompt.',
+        timeHelper: 'Prompt that only extracts time_range for pre-chat memory retrieval. It should analyze “when”, not the retrieval topic.',
+        timePlaceholder: 'Clear and save to fall back to the system default time analyzer prompt.',
         contextHelper: 'Used by the daemon when converting old context into short-term memories. Controls how to extract at most N short-term memories from a message block.',
         contextPlaceholder: 'Clear and save to fall back to the system default context -> short-term prompt.',
         mentionHelper: 'Used before long-term memory tool recall. Extracts entity mentions only from the current question; must not create entities, merge entities, or add aliases.',
@@ -437,6 +439,8 @@ export function getSqliteMemoryCopy(locale: AppLocale) {
     promptLab: {
       semanticHelper: '只负责提炼 retrieval_query 的 prompt。这里应该只分析“是什么”，不要混入时间。',
       semanticPlaceholder: '清空后保存会回退系统默认的 semantic analyzer prompt。',
+      timeHelper: '只负责提取记忆检索用的 time_range。这里应该只分析“什么时候”，不要混入检索主题。',
+      timePlaceholder: '清空后保存会回退系统默认的 time analyzer prompt。',
       contextHelper: 'daemon 从旧上下文整理短期记忆时使用。这里控制如何从一大段消息里提炼最多 N 条短期记忆。',
       contextPlaceholder: '清空后保存会回退系统默认的 context → short-term prompt。',
       mentionHelper: '长期记忆 tool 召回前使用，只从当前问题提取实体 mention；不得创建实体、合并实体或新增 alias。',

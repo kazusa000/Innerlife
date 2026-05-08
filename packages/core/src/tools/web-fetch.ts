@@ -59,7 +59,7 @@ export const WebFetchTool: Tool = {
     try {
       const response = await fetch(url, {
         headers: {
-          'User-Agent': 'multi-agent-system/0.0.1',
+          'User-Agent': 'innerlife/0.0.1',
         },
         signal: controller.signal,
       })

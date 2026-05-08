@@ -71,6 +71,13 @@ export const DEFAULT_PROMPT_TEST_INPUTS = {
     ],
     currentUserMessage: '那个游戏叫什么来着？',
   },
+  memoryTime: {
+    recentMessages: [
+      { role: 'user', text: '我昨天晚饭吃得有点晚。' },
+      { role: 'assistant', text: '我记住了。' },
+    ],
+    currentUserMessage: '我昨天晚饭吃了什么？',
+  },
   memoryContextToShortTerm: {
     messages: [
       { role: 'user', text: '我最近又开始玩星际2了。' },

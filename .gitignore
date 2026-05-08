@@ -16,6 +16,7 @@ packages/systems/storage/
 *.db-wal
 .env
 .env.local
+docs/superpowers/
 .superpowers/
 playwright-report/
 test-results/

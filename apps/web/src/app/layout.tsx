@@ -30,12 +30,12 @@ export function generateMetadata(): Metadata {
   const locale = getLocale()
   return locale === 'en-US'
     ? {
-        title: 'Virtual Persona',
-        description: 'Your AI companion with memory, personality, and long-term presence.',
+        title: 'Innerlife',
+        description: 'An experimental local runtime for virtual personas with memory, emotion, relationships, and observable inner state.',
       }
     : {
-        title: '虚拟人格',
-        description: '你的 AI 陪伴者，拥有记忆、性格与长期存在感。',
+        title: 'Innerlife',
+        description: '一个本地虚拟人格运行时，探索记忆、情绪、关系与可观测的内部状态。',
       }
 }
 

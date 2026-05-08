@@ -6,6 +6,8 @@ export {
   buildMemoryFragmentPrompt,
   buildSemanticAnalyzerPrompt,
   buildSemanticAnalyzerInputText,
+  buildTimeAnalyzerInputText,
+  buildTimeAnalyzerPrompt,
   buildShortTermFragmentPrompt,
   buildShortTermToLongTermPrompt,
   buildShortTermToLongTermSourceText,

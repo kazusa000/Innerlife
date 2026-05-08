@@ -17,6 +17,7 @@ import {
   buildMemoryFragmentPrompt,
   buildSemanticAnalyzerPrompt,
   buildShortTermFragmentPrompt,
+  buildTimeAnalyzerPrompt,
   isSqliteMemoryConfig,
   resolveMemoryPipelineSettings,
   resolveMemorySqliteConfig,
@@ -51,6 +52,7 @@ type AppLocale = appSettingsRepo.AppLocale
 
 const PROMPT_FIELDS = [
   'semanticAnalyzerPrompt',
+  'timeAnalyzerPrompt',
   'contextToShortTermPrompt',
   'entityMentionPrompt',
   'episodicExtractionPrompt',
@@ -326,6 +328,7 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     sleepIntervalDays: pipelineSettings.sleepIntervalDays,
     locale,
     semanticAnalyzerPrompt: memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt,
+    timeAnalyzerPrompt: memoryConfig.timeAnalyzerPrompt,
     contextToShortTermPrompt: memoryConfig.contextToShortTermPrompt,
     entityMentionPrompt: memoryConfig.entityMentionPrompt,
     episodicExtractionPrompt: memoryConfig.episodicExtractionPrompt,
@@ -335,6 +338,8 @@ export function listSqliteMemories(agentId: string, query?: string, options: Mem
     fixedFragmentPrompt: memoryConfig.fixedFragmentPrompt,
     semanticAnalyzerPromptDefault: buildSemanticAnalyzerPrompt(null, locale),
     semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(memoryConfig.semanticAnalyzerPrompt ?? memoryConfig.retrievePrompt, locale),
+    timeAnalyzerPromptDefault: buildTimeAnalyzerPrompt(null, locale),
+    timeAnalyzerPromptEffective: buildTimeAnalyzerPrompt(memoryConfig.timeAnalyzerPrompt, locale),
     contextToShortTermPromptDefault: buildContextToShortTermPrompt(null, pipelineSettings.maxShortTermMemoriesPerFlush, locale),
     contextToShortTermPromptEffective: buildContextToShortTermPrompt(
       memoryConfig.contextToShortTermPrompt,
@@ -416,6 +421,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     'embeddingProvider',
     'embeddingModel',
     'semanticAnalyzerPrompt',
+    'timeAnalyzerPrompt',
     'contextToShortTermPrompt',
     'entityMentionPrompt',
     'episodicExtractionPrompt',
@@ -471,7 +477,6 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
 
   nextMemory.scheme = 'sqlite'
   delete nextMemory.retrievePrompt
-  delete nextMemory.timeAnalyzerPrompt
   delete nextMemory.semanticAnalyzerMode
   delete nextMemory.summarizePrompt
   delete nextMemory.consolidatePrompt
@@ -518,6 +523,7 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     sleepTimeLocal: resolvedPipeline.sleepTimeLocal,
     sleepIntervalDays: resolvedPipeline.sleepIntervalDays,
     semanticAnalyzerPrompt: resolvedMemory.semanticAnalyzerPrompt ?? resolvedMemory.retrievePrompt,
+    timeAnalyzerPrompt: resolvedMemory.timeAnalyzerPrompt,
     contextToShortTermPrompt: resolvedMemory.contextToShortTermPrompt,
     entityMentionPrompt: resolvedMemory.entityMentionPrompt,
     episodicExtractionPrompt: resolvedMemory.episodicExtractionPrompt,
@@ -528,6 +534,8 @@ export function updateSqliteMemorySettings(agentId: string, input: unknown) {
     locale,
     semanticAnalyzerPromptDefault: buildSemanticAnalyzerPrompt(null, locale),
     semanticAnalyzerPromptEffective: buildSemanticAnalyzerPrompt(resolvedMemory.semanticAnalyzerPrompt ?? resolvedMemory.retrievePrompt, locale),
+    timeAnalyzerPromptDefault: buildTimeAnalyzerPrompt(null, locale),
+    timeAnalyzerPromptEffective: buildTimeAnalyzerPrompt(resolvedMemory.timeAnalyzerPrompt, locale),
     contextToShortTermPromptDefault: buildContextToShortTermPrompt(null, resolvedPipeline.maxShortTermMemoriesPerFlush, locale),
     contextToShortTermPromptEffective: buildContextToShortTermPrompt(
       resolvedMemory.contextToShortTermPrompt,

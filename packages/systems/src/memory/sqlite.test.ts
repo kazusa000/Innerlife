@@ -151,7 +151,7 @@ test('memory sqlite system prepares embedding retrieval and injects display summ
 
     await system.beforeTurn?.(ctx)
     assert.equal(ctx.pendingMemoryQuery?.kind, 'sqlite')
-    assert.equal(ctx.pendingMemoryQuery?.timeAnalyzer.kind, 'local')
+    assert.equal(ctx.pendingMemoryQuery?.timeAnalyzer.kind, 'llm')
     const semanticAnalyzer = ctx.pendingMemoryQuery?.semanticAnalyzer
     assert.equal(semanticAnalyzer?.kind, 'llm')
     assert.match(semanticAnalyzer?.prompt ?? '', /记忆语义分析器/)
@@ -340,10 +340,34 @@ test('memory sqlite system uses memory model override for retrieval queries too'
 
   assert.equal(ctx.pendingMemoryQuery?.kind, 'sqlite')
   assert.equal(ctx.pendingMemoryQuery?.model, 'memory-model')
-  assert.equal(ctx.pendingMemoryQuery?.timeAnalyzer.kind, 'local')
+  assert.equal(ctx.pendingMemoryQuery?.timeAnalyzer.kind, 'llm')
   assert.equal(ctx.pendingMemoryQuery?.semanticAnalyzer.kind, 'llm')
   assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /retrieval_query/i)
   assert.match(ctx.pendingMemoryQuery?.semanticAnalyzer.prompt ?? '', /语义分析器/)
+})
+
+test('memory sqlite time analyzer prompt asks llm for retrieval time range only', { concurrency: false }, async () => {
+  const system = new MemorySqliteSystem({
+    summarizeModel: 'memory-model',
+    embedder: createEmbedder({}),
+  })
+  const ctx = createContext('我昨天晚饭吃了什么？')
+
+  await system.beforeTurn?.(ctx)
+
+  const timeAnalyzer = ctx.pendingMemoryQuery?.timeAnalyzer
+  assert.equal(timeAnalyzer?.kind, 'llm')
+  if (!timeAnalyzer || timeAnalyzer.kind !== 'llm') {
+    throw new Error('expected llm time analyzer')
+  }
+  assert.match(timeAnalyzer.prompt, /记忆系统的时间解析器/)
+  assert.match(timeAnalyzer.prompt, /"time_range": \{"start": string, "end": string\} \| null/)
+  assert.match(timeAnalyzer.prompt, /生活事件组合能形成自然范围/)
+  assert.match(timeAnalyzer.prompt, /不要默认扩大成整天/)
+  assert.match(timeAnalyzer.prompt, /不要输出检索关键词/)
+  assert.match(timeAnalyzer.inputText, /当前时间：/)
+  assert.match(timeAnalyzer.inputText, /最近对话（仅供补全当前问题）：/)
+  assert.match(timeAnalyzer.inputText, /当前用户消息：\n我昨天晚饭吃了什么？/)
 })
 
 test('memory sqlite semantic analyzer prompt keeps retrieval query focused on topic anchors', { concurrency: false }, async () => {
@@ -367,10 +391,10 @@ test('memory sqlite semantic analyzer prompt keeps retrieval query focused on to
   assert.match(semanticAnalyzer?.prompt ?? '', /绝不能带时间信息|时间信息绝不进入 retrieval_query/)
   assert.match(semanticAnalyzer?.prompt ?? '', /不要把答案本身直接塞进 query/)
   assert.match(semanticAnalyzer?.prompt ?? '', /不要把历史里的额外主题顺手带进 query/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /画面、名字、食物、bug、地点、关系或意象/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /画面、名字、餐食、食物、书、购买物、睡眠、bug、地点、关系或意象/)
   assert.match(semanticAnalyzer?.prompt ?? '', /那只猫叫什么名字.*我的生日是哪天.*登录 bug 是怎么修好的.*海边灯塔和红伞的画面是什么样的/)
   assert.match(semanticAnalyzer?.prompt ?? '', /对象、场景、画面、名字或事件类型/)
-  assert.match(semanticAnalyzer?.prompt ?? '', /“画面”“场景”“名字”“地点”“食物”“bug”/)
+  assert.match(semanticAnalyzer?.prompt ?? '', /“画面”“场景”“名字”“地点”“餐食”“晚饭”“午饭”“早餐”“食物”“书”“买了什么”“睡眠”“bug”/)
   assert.match(semanticAnalyzer?.prompt ?? '', /“画面”“场景”“名字”“梦境”“氛围”/)
   assert.match(semanticAnalyzer?.prompt ?? '', /没有稳定主题锚点/)
   assert.match(semanticAnalyzer?.prompt ?? '', /它叫什么来着/)

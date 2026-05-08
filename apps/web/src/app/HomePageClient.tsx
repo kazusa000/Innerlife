@@ -301,7 +301,7 @@ export default function HomePageClient({ initialLocale }: { initialLocale: AppLo
       <div className="home-wrap">
         <header className="home-head">
           <div className="title-block">
-            <p className="eyebrow">Multi Agent System</p>
+            <p className="eyebrow">Innerlife</p>
             <h1 className="home-title">{copy.title}</h1>
             <p className="home-sub">
               {copy.subtitle}

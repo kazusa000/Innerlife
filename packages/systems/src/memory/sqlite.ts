@@ -64,6 +64,34 @@ const MEMORY_SEMANTIC_ANALYZER_RESPONSE_FORMAT: MemoryResponseFormat = {
     },
   },
 }
+const MEMORY_TIME_ANALYZER_RESPONSE_FORMAT: MemoryResponseFormat = {
+  type: 'json_schema',
+  jsonSchema: {
+    name: 'memory_time_query',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        time_range: {
+          anyOf: [
+            {
+              type: 'object',
+              properties: {
+                start: { type: 'string' },
+                end: { type: 'string' },
+              },
+              required: ['start', 'end'],
+              additionalProperties: false,
+            },
+            { type: 'null' },
+          ],
+        },
+      },
+      required: ['time_range'],
+      additionalProperties: false,
+    },
+  },
+}
 const MEMORY_WRITE_RESPONSE_FORMAT: MemoryResponseFormat = {
   type: 'json_schema',
   jsonSchema: {
@@ -162,6 +190,7 @@ interface MemoryModuleConfig {
   embedder: MemoryEmbedder
   timeParser: (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
   retrievePrompt: string | null
+  timeAnalyzerPrompt: string | null
   semanticAnalyzerPrompt: string | null
   contextToShortTermPrompt: string | null
   shortTermToLongTermPrompt: string | null
@@ -388,6 +417,7 @@ function readConfig(config: unknown, locale: AppLocale = 'zh-CN'): MemoryModuleC
       embedder: createMemoryEmbedder(embeddingProvider),
       timeParser: analyzeMemoryTimeText,
       retrievePrompt: null,
+      timeAnalyzerPrompt: null,
       semanticAnalyzerPrompt: null,
       contextToShortTermPrompt: null,
       shortTermToLongTermPrompt: null,
@@ -442,6 +472,7 @@ function readConfig(config: unknown, locale: AppLocale = 'zh-CN'): MemoryModuleC
         ? record.timeParser as (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
         : analyzeMemoryTimeText,
     retrievePrompt: readLocalizedText(record, 'retrievePrompt', locale),
+    timeAnalyzerPrompt: readLocalizedText(record, 'timeAnalyzerPrompt', locale),
     semanticAnalyzerPrompt: readLocalizedText(record, 'semanticAnalyzerPrompt', locale),
     contextToShortTermPrompt: readLocalizedText(record, 'contextToShortTermPrompt', locale),
     shortTermToLongTermPrompt: readLocalizedText(record, 'shortTermToLongTermPrompt', locale),
@@ -476,6 +507,7 @@ export function resolveMemorySqliteConfig(config: unknown, locale: AppLocale = '
     sleepTimeLocal: resolved.sleepTimeLocal,
     sleepIntervalDays: resolved.sleepIntervalDays,
     retrievePrompt: resolved.retrievePrompt,
+    timeAnalyzerPrompt: resolved.timeAnalyzerPrompt,
     semanticAnalyzerPrompt: resolved.semanticAnalyzerPrompt,
     contextToShortTermPrompt: resolved.contextToShortTermPrompt,
     shortTermToLongTermPrompt: resolved.shortTermToLongTermPrompt,
@@ -657,6 +689,55 @@ export function buildSemanticAnalyzerPrompt(promptOverride?: string | null, loca
     '不要输出 markdown、代码块或任何额外说明。',
   ]
   return defaultLines.join('\n')
+}
+
+export function buildTimeAnalyzerPrompt(promptOverride?: string | null, locale: AppLocale = 'zh-CN'): string {
+  const override = promptOverride?.trim()
+  if (override) {
+    return override
+  }
+
+  if (locale === 'en-US') {
+    return [
+      'You are the time analyzer for a memory system.',
+      'You will receive the current absolute time, recent conversation, and the latest user message.',
+      'Decide only whether the latest user message contains a time range useful for memory retrieval.',
+      '',
+      'Return strict JSON:',
+      '{"time_range": {"start": string, "end": string} | null}',
+      '',
+      'Rules:',
+      '- start and end must be ISO datetime strings with timezone.',
+      '- If the latest user message has no time meaning, return {"time_range": null}.',
+      '- Use recent conversation only to resolve pronouns, omissions, or references in the latest message.',
+      '- Analyze time only. Do not output retrieval keywords, reasons, explanations, or markdown.',
+      '- For vague expressions such as "last night", "last week", "recently", "a few days ago", or "these past months", choose a reasonable range for memory retrieval based on natural language meaning.',
+      '- If a time expression and a life event form a natural range, such as dinner, last night, recent sleep, or something bought last week, return a range close to that meaning; do not return null only because the boundaries are approximate.',
+      '- For parts of a day, choose a range close to that period instead of expanding to the whole day by default.',
+      '- If the expression is too vague to be a useful filter, such as "before", "previously", or "one time", return {"time_range": null}.',
+      '- Do not create a time range just because the question asks about memory; only create one when the text contains a real time clue.',
+    ].join('\n')
+  }
+
+  return [
+    '你是记忆系统的时间解析器。',
+    '你会收到当前绝对时间、最近对话，以及当前用户最新一条消息。',
+    '只判断当前用户消息中是否包含可用于记忆检索的时间范围。',
+    '',
+    '请严格返回如下 JSON：',
+    '{"time_range": {"start": string, "end": string} | null}',
+    '',
+    '规则：',
+    '- start 和 end 必须是带时区的 ISO 时间字符串。',
+    '- 如果当前用户消息没有时间含义，返回 {"time_range": null}。',
+    '- 最近对话只用于补全当前消息里的代词、省略和回指，不要主动扩大主题。',
+    '- 只解析时间，不要输出检索关键词、原因、解释或 markdown。',
+    '- 对“昨天晚上”“上周”“最近”“前几天”“这几个月”等模糊时间，按自然语言语义给出适合记忆检索的合理范围。',
+    '- 如果时间词和生活事件组合能形成自然范围，例如晚饭、昨晚、最近睡眠、上周买东西，就返回贴近该语义的范围；不要因为边界不精确就返回 null。',
+    '- 对一天内的生活时段，范围应尽量贴近该时段，不要默认扩大成整天。',
+    '- 如果时间表达太模糊，无法形成有用过滤范围，例如“以前”“之前”“有一次”，返回 {"time_range": null}。',
+    '- 不要因为句子是在回忆过去就强行生成时间；只有原文真的包含时间线索才生成。',
+  ].join('\n')
 }
 
 export function buildMemoryFragmentPrompt(promptOverride?: string | null, locale: AppLocale = 'zh-CN'): string {
@@ -947,6 +1028,40 @@ export function buildSemanticAnalyzerInputText(
   ].join('\n')
 }
 
+export function buildTimeAnalyzerInputText(
+  messages: ConversationMessage[],
+  userText: string,
+  now: Date,
+  labels: MemoryActorLabels = FALLBACK_MEMORY_ACTOR_LABELS,
+  maxMessages = DEFAULT_SEMANTIC_ANALYZER_HISTORY_MESSAGES,
+  locale: AppLocale = 'zh-CN',
+) {
+  const historyWindow = buildSemanticAnalyzerHistoryWindow(messages, labels, maxMessages)
+  if (locale === 'en-US') {
+    return [
+      'Current time:',
+      formatLocalMemoryPromptTime(now),
+      '',
+      'Recent conversation:',
+      ...(historyWindow.length > 0 ? historyWindow : ['(none)']),
+      '',
+      'Latest user message:',
+      userText.trim() || '(empty)',
+    ].join('\n')
+  }
+
+  return [
+    '当前时间：',
+    formatLocalMemoryPromptTime(now),
+    '',
+    '最近对话（仅供补全当前问题）：',
+    ...(historyWindow.length > 0 ? historyWindow : ['（无）']),
+    '',
+    labels.currentMessageHeader,
+    userText.trim() || '（空）',
+  ].join('\n')
+}
+
 function buildSourceText(ctx: TurnContext, labels: MemoryActorLabels = FALLBACK_MEMORY_ACTOR_LABELS): string {
   const userText = ctx.input.text.trim()
   const assistantText = extractResponseText(ctx)
@@ -1187,6 +1302,42 @@ function parseSemanticAnalyzerResponse(responseText: string): MemorySemanticAnal
   return { retrievalQuery }
 }
 
+function parseTimeAnalyzerResponse(responseText: string): MemoryTimeAnalysisResult {
+  let parsed: unknown
+  try {
+    parsed = extractJson(responseText)
+  } catch {
+    throw new Error('Memory time analyzer returned invalid JSON')
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Memory time analyzer did not return a JSON object')
+  }
+
+  const timeRange = (parsed as Record<string, unknown>).time_range
+  if (timeRange === null || timeRange === undefined) {
+    return { timeRange: null }
+  }
+  if (!timeRange || typeof timeRange !== 'object' || Array.isArray(timeRange)) {
+    throw new Error('Memory time analyzer time_range must be an object or null')
+  }
+
+  const record = timeRange as Record<string, unknown>
+  if (typeof record.start !== 'string' || typeof record.end !== 'string') {
+    throw new Error('Memory time analyzer time_range is missing start or end')
+  }
+
+  const start = new Date(record.start)
+  const end = new Date(record.end)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new Error('Memory time analyzer returned invalid start or end')
+  }
+
+  return start.getTime() <= end.getTime()
+    ? { timeRange: { start, end } }
+    : { timeRange: { start: end, end: start } }
+}
+
 function normalizeSemanticAnalyzerResult(
   userText: string,
   result: MemorySemanticAnalysisResult,
@@ -1338,6 +1489,7 @@ export class MemorySqliteSystem implements AgentSystem {
   private readonly sleepIntervalDays: number
   private readonly legacyRetrievePrompt: string | null
   private readonly timeParser: (userText: string, referenceDate?: Date) => MemoryTimeAnalysisResult
+  private readonly timeAnalyzerPrompt: string | null
   private readonly semanticAnalyzerPrompt: string | null
   private readonly contextToShortTermPrompt: string | null
   private readonly shortTermToLongTermPrompt: string | null
@@ -1369,6 +1521,7 @@ export class MemorySqliteSystem implements AgentSystem {
     this.sleepIntervalDays = resolved.sleepIntervalDays
     this.legacyRetrievePrompt = resolved.retrievePrompt
     this.timeParser = resolved.timeParser
+    this.timeAnalyzerPrompt = resolved.timeAnalyzerPrompt
     this.semanticAnalyzerPrompt = resolved.semanticAnalyzerPrompt
     this.contextToShortTermPrompt = resolved.contextToShortTermPrompt
     this.shortTermToLongTermPrompt = resolved.shortTermToLongTermPrompt
@@ -1401,14 +1554,29 @@ export class MemorySqliteSystem implements AgentSystem {
       semanticAnalyzerPrompt: this.semanticAnalyzerPrompt,
       retrievePrompt: this.legacyRetrievePrompt,
     })
+    const now = new Date()
     const pending: PendingMemoryQuery = {
       kind: 'sqlite',
       system: this.name,
       model: this.summarizeModel,
       reasoning: { effort: 'none' },
       timeAnalyzer: {
+        kind: 'llm',
+        prompt: buildTimeAnalyzerPrompt(this.timeAnalyzerPrompt, this.locale),
+        inputText: buildTimeAnalyzerInputText(
+          ctx.messages,
+          ctx.input.text,
+          now,
+          actorLabels,
+          this.semanticAnalyzerHistoryMessages,
+          this.locale,
+        ),
+        responseFormat: MEMORY_TIME_ANALYZER_RESPONSE_FORMAT,
+        parse: parseTimeAnalyzerResponse,
+      },
+      timeAnalyzerFallback: {
         kind: 'local',
-        analyze: () => this.timeParser(ctx.input.text, new Date()),
+        analyze: () => this.timeParser(ctx.input.text, now),
       },
       semanticAnalyzer: {
         kind: 'llm',

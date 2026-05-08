@@ -208,6 +208,7 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.equal(listData.summarizeModel, 'memory-model')
     assert.equal(listData.embeddingModel, 'memory-embed')
     assert.equal(listData.semanticAnalyzerPrompt, '提炼检索查询')
+    assert.equal(listData.timeAnalyzerPrompt, null)
     assert.equal(listData.fragmentPrompt, '把这些记忆当作回忆来回答')
     assert.equal(listData.entityMentionPrompt, null)
     assert.equal(listData.episodicExtractionPrompt, null)
@@ -223,6 +224,8 @@ test('listSqliteMemories returns paginated latest-first rows and filters by summ
     assert.equal('shortTermToLongTermPromptEffective' in listData, false)
     assert.equal(typeof listData.semanticAnalyzerPromptDefault, 'string')
     assert.equal(listData.semanticAnalyzerPromptEffective, '提炼检索查询')
+    assert.equal(typeof listData.timeAnalyzerPromptDefault, 'string')
+    assert.equal(listData.timeAnalyzerPromptEffective, listData.timeAnalyzerPromptDefault)
     assert.equal(listData.fragmentPromptEffective, '把这些记忆当作回忆来回答')
     assert.equal(listData.contextWindowMessages, 50)
     assert.equal(listData.contextOverflowBatchSize, 25)
@@ -558,6 +561,7 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
       embeddingProvider: 'openrouter',
       embeddingModel: '  qwen/qwen3-embedding-8b  ',
       semanticAnalyzerPrompt: '  生成检索锚点  ',
+      timeAnalyzerPrompt: '  解析记忆检索时间  ',
       contextWindowMessages: 60,
       contextOverflowBatchSize: 18,
       contextIdleFlushMinutes: 45,
@@ -604,6 +608,7 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal(data.sleepTimeLocal, '04:30')
     assert.equal(data.sleepIntervalDays, 2)
     assert.equal(data.semanticAnalyzerPrompt, '生成检索锚点')
+    assert.equal(data.timeAnalyzerPrompt, '解析记忆检索时间')
     assert.equal(data.fragmentPrompt, '把这些记忆当作回忆来回答')
     assert.equal(data.contextToShortTermPrompt, '整理旧上下文为短期记忆')
     assert.equal(data.entityMentionPrompt, '抽取实体 mention')
@@ -613,6 +618,8 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
     assert.equal(data.fixedFragmentPrompt, '这些是稳定事实')
     assert.equal(typeof data.semanticAnalyzerPromptDefault, 'string')
     assert.equal(data.semanticAnalyzerPromptEffective, '生成检索锚点')
+    assert.equal(typeof data.timeAnalyzerPromptDefault, 'string')
+    assert.equal(data.timeAnalyzerPromptEffective, '解析记忆检索时间')
     assert.equal(typeof data.contextToShortTermPromptDefault, 'string')
     assert.equal(data.contextToShortTermPromptEffective, '整理旧上下文为短期记忆')
     assert.equal(typeof data.entityMentionPromptDefault, 'string')
@@ -658,6 +665,7 @@ test('updateSqliteMemorySettings trims and persists model and prompt overrides',
         sleepTimeLocal: '04:30',
         sleepIntervalDays: 2,
         semanticAnalyzerPromptByLocale: { 'zh-CN': '生成检索锚点' },
+        timeAnalyzerPromptByLocale: { 'zh-CN': '解析记忆检索时间' },
         fragmentPromptByLocale: { 'zh-CN': '把这些记忆当作回忆来回答' },
         contextToShortTermPromptByLocale: { 'zh-CN': '整理旧上下文为短期记忆' },
         entityMentionPromptByLocale: { 'zh-CN': '抽取实体 mention' },
